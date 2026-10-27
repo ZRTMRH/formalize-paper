@@ -3,9 +3,9 @@
 This takes about 30 minutes the first time, most of it downloading Mathlib. Every command runs in
 a terminal on Debian or Ubuntu, or Ubuntu under WSL2, with `sudo` for the packages.
 
-**Linux only**: Debian or Ubuntu, or Ubuntu under WSL2 on Windows. Other Linux distributions are
-untested. macOS is not supported yet (the tool reads Linux's `/proc`, and its install steps use
-`apt`). On a Mac, use an Ubuntu virtual machine (e.g. UTM or Parallels) or a Linux server over SSH.
+**System**: Debian or Ubuntu, or Ubuntu under WSL2 on Windows. macOS support is experimental and
+still under testing; on a Mac, use an Ubuntu virtual machine (e.g. UTM or Parallels) or a Linux
+server over SSH for now.
 
 ## 1. Requirements (once)
 

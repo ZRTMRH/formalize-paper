@@ -16,8 +16,8 @@ maintainers; the numbered items T1–T35 say what each limitation means for you 
 
 - **Linux only.** The checks read Linux's `/proc` (the scan for reviewer processes in
   `lanecheck.py` and `stops.py`), and the install steps use `apt`. Supported: Debian or Ubuntu, or
-  Ubuntu under WSL2 on Windows. macOS is not supported yet; on a Mac, use an Ubuntu virtual machine
-  (e.g. UTM or Parallels) or a Linux server over SSH.
+  Ubuntu under WSL2 on Windows. macOS support is experimental and still under testing; on a Mac,
+  use an Ubuntu virtual machine (e.g. UTM or Parallels) or a Linux server over SSH for now.
 - **Codex capacity failures stop the parent turn, and only a person can resume it.** Automatic
   resume is deferred: keystroke injection into a live TUI cannot be made safe (an adversarial
   test found 22 failing scenarios: approval overlays, drafts, re-wrapped screens, misread logs).

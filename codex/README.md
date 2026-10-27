@@ -1,6 +1,6 @@
 # Codex CLI support (experimental)
 
-Codex support is experimental. One hands-off run on a small synthetic paper has completed end to end under Codex CLI 0.163.0, on a pre-release version of this protocol (about 12.5 h on a shared machine); the person had to step in six times (four "Selected model is at capacity" stalls, two sandbox approval requests, one of which left the run waiting 30 minutes for a child that declining had stopped). The fixes from that run are included here; Codex has not been re-run end to end on this exact version. For a real paper, use Claude Code.
+Codex support is experimental and still under testing. For a real paper, use Claude Code.
 
 > **What "experimental" means in practice (tested with Codex CLI 0.163.0)**
 > - It has been run end to end twice: on the one-page example note (`examples/sparse-note`, 0.2.0)

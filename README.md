@@ -23,16 +23,9 @@ and about twenty-five Python scripts. Everything happens in one Claude Code conv
 
 How often the run waits for you depends on the involvement level you choose (see "How a run goes").
 
-**Linux only**: Debian or Ubuntu, or Ubuntu under WSL2 on Windows. macOS is not supported yet (the
-tool reads Linux's `/proc`, and its install steps use `apt`). On a Mac, use an Ubuntu virtual
-machine (e.g. UTM or Parallels) or a Linux server over SSH.
-
-It requires Claude Code. Support for the OpenAI Codex CLI is included but **experimental**: one hands-off
-run on a small synthetic paper completed end to end under Codex CLI 0.163.0, on a pre-release of this
-version (about 12.5 h on a shared machine), and a person had to step in six times (four "Selected model
-is at capacity" stalls on the provider's side, two sandbox approval requests). The fixes from that run
-are included here, but Codex has not been re-run end to end on this exact version (see
-[`codex/README.md`](codex/README.md)). For a real paper, use Claude Code.
+It runs on Claude Code under Linux (Debian or Ubuntu, or Ubuntu under WSL2 on Windows). Support for
+macOS and for the OpenAI Codex CLI is experimental and still under testing (see
+[`codex/README.md`](codex/README.md)); on a Mac, use an Ubuntu virtual machine or a Linux server for now.
 
 **What to read.** This README, then [`INSTALL.md`](INSTALL.md), then start a run. You do not need
 to read `audits/RUN.md` or `audits/AUDIT_PROTOCOL.md`: they are written for the agent. The known
@@ -150,10 +143,9 @@ differs from Trellis is listed at the top of `audits/AUDIT_PROTOCOL.md`.
 
 ## Requirements
 
-- **System.** Linux only: Debian or Ubuntu, or Ubuntu under WSL2 on Windows, with `sudo` for the
-  packages. Other Linux distributions are untested. macOS is not supported yet (the tool reads
-  Linux's `/proc`, and its install steps use `apt`). On a Mac, use an Ubuntu virtual machine (e.g.
-  UTM or Parallels) or a Linux server over SSH.
+- **System.** Debian or Ubuntu, or Ubuntu under WSL2 on Windows, with `sudo` for the packages.
+  macOS support is experimental and still under testing; on a Mac, use an Ubuntu virtual machine
+  (e.g. UTM or Parallels) or a Linux server over SSH for now.
 - **Disk and memory.** About 7 GB of disk per Lean project plus about 3 GB for TeX. 16 GB of RAM at
   least (with smaller reviewer waves); 32 GB recommended.
 - **Software.** `git`, and Lean 4 through [`elan`](https://github.com/leanprover/elan). Python 3.10
