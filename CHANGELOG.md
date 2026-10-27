@@ -28,9 +28,11 @@ The entries below are the maintainers' detailed build log. They refer to interna
 ("trial #n", "mini", "bench", "conf") and design notes ("U2", "B1"…"B13", "G", "F") that are not
 published.
 
-0.3.0 follows a live hands-off end-to-end run (Claude Code, 2026-10-19). That run waited for a
-person four times, each time on a stop whose evidence was intact and whose cure was mechanical. It
-also follows the independent audit of that run and a whole-repository simplification audit. The
+0.3.0 was tested end to end on the exact release code (Claude Code): a hands-off run on a short
+synthetic test paper with planted errors delivered in about 4 h 15 min with no human input after
+setup (2026-10-26), and a second hands-off run on a benchmark paper delivered with no stops
+(2026-10-27). The changes below follow a live hands-off run of a 0.3.0-dev build (2026-10-19), the
+independent audit of that run and a whole-repository simplification audit. The
 principle is to remove the causes of stops instead of adding machinery to cure them. Every
 decision, clearance, set-aside and waiver is still disclosed in the report. A stall-resolver agent
 was added during 0.3.0-dev and removed again before release (see "Removed").

@@ -7,7 +7,9 @@ defect the run found in the paper.**
 formalize-paper is a [Claude Code](https://claude.com/claude-code) skill plus a written protocol and
 a set of Python checks. A whole run happens in one Claude Code conversation. Version 0.3.0 is
 current ([`CHANGELOG.md`](CHANGELOG.md)); the L∞ permutation-removal paper (Le, Shi and Wei,
-arXiv:2610.28271) cites version 0.2.0, kept as tag `v0.2.0`.
+arXiv:2610.28271) cites version 0.2.0, kept as tag `v0.2.0`; its formalization's
+[`CERTIFICATE.md`](https://github.com/ZRTMRH/le-shi-wei-linf-lean/blob/v1.0/CERTIFICATE.md) shows
+what a delivered run certifies.
 
 It runs on Claude Code under Linux (Debian or Ubuntu, or Ubuntu under WSL2 on Windows). Support for
 macOS and for the OpenAI Codex CLI is experimental and still under testing (see
@@ -20,8 +22,8 @@ adapted from Wes Pegden's [Trellis](https://github.com/wpegden/trellis) (arXiv:2
 ## Highlights
 
 - **Finds errors in the paper, not only proofs of it.** A false statement is reported with a Lean
-  counterexample and its repaired form proved; vacuous statements and slips in proofs are reported
-  too, in a defect report written for the authors.
+  counterexample and its repaired form proved; vacuous statements are reported too, in a defect
+  report written for the authors. The run can also report slips in proofs it notices.
 - **A sign-off sheet for the authors.** Before any proof is written, each statement of the paper is
   shown next to a plain-English reading of its Lean, with every difference spelled out. Once signed,
   the statements are frozen, and any later change is caught mechanically.
@@ -48,7 +50,8 @@ adapted from Wes Pegden's [Trellis](https://github.com/wpegden/trellis) (arXiv:2
   adopts, rejects, defers, or puts the question to you. Adopted fixes are implemented and re-audited.
 - **Machine checks back the judgements.** Before every round: the Lean builds, no `sorry` remains,
   only the standard axioms are used, the approved statements are unchanged, and the index of
-  results is consistent. Proofs are checked by the Lean kernel.
+  results is consistent. Proofs are checked by the Lean kernel. You can independently re-check the
+  proofs with Lean's `leanchecker` ([`INSTALL.md`](INSTALL.md)); a built-in check is planned.
 - **Fresh readers check the documents** before they reach you, and every line that tells you how
   far to trust a result is checked by an agent against the run's record.
 - **The run repairs itself.** In release mode (the default), a fault in the run's own tooling is
@@ -67,6 +70,8 @@ Delivered to `<project>/deliverables/`:
 - **`SIGNOFF.pdf`**: the statement-by-statement sign-off sheet.
 - **`DECISIONS.md`**: every decision taken, by whom, and what reversing it would cost.
 - **`CITATIONS.md`**: advisory notes on the paper's citations.
+- **`RUN_RECORD.md`**: how the run went (stops, fixes, tool problems), for maintainers.
+- **`README.md`**: an index of the deliverables.
 - **The audit record**: a separate git repository with every reviewer verdict and every decision.
 
 ## Quick install
@@ -118,7 +123,7 @@ Max plan is recommended. More detail: [`INSTALL.md`](INSTALL.md).
   pages, 67 numbered results, formalized in full. The Lean is public at
   [github.com/ZRTMRH/le-shi-wei-linf-lean](https://github.com/ZRTMRH/le-shi-wei-linf-lean) (v1.0).
 - **Version 0.3.0 end to end:** a hands-off run on a synthetic test paper with planted errors
-  delivered in about 4 hours with no human input after setup. It found the planted false lemma
+  delivered in about 4 h 15 min with no human input after setup. It found the planted false lemma
   (with a Lean counterexample, and the repaired form proved), the vacuous statement, the slip in a
   proof, and proved the goal theorem.
 

@@ -32,8 +32,8 @@ sudo apt install -y git python3 curl \
   `curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh`
 - **Claude Code.** Install it with `curl -fsSL https://claude.ai/install.sh | bash` (other methods:
   <https://code.claude.com/docs/en/setup>), open a new terminal, and log in: run `claude`, then
-  follow the login prompt. Claude Code needs a paid plan; a run spawns dozens of subagents, so a Max
-  subscription is the practical minimum. Parallel runs share the subscription's usage limits:
+  follow the login prompt. Claude Code needs a paid plan; a run spawns dozens of subagents, so a
+  Claude Max plan is recommended. Parallel runs share the subscription's usage limits:
   check that enough of the weekly limit is left before starting, and expect more 5-hour pauses
   when several papers run at once.
 - **Git identity**, if it is not set: `git config --global user.name "Your Name"` and
@@ -317,6 +317,25 @@ checked-out git branch, so if you switched branches, switch back first.
 
 **Memory.** On a 32 GB machine, 6–8 reviewer subagents per wave and three Lean builds at once are
 fine. On less memory, ask the agent to spawn smaller waves.
+
+## Independent check of the proofs
+
+After delivery you can re-check every proof with `leanchecker`, which ships with each Lean
+toolchain since v4.28.0. It re-adds every compiled declaration to a kernel environment, so each is
+type-checked again by Lean's own kernel; it does not check what the statements mean (that is the
+sign-off sheet's job). Work in a fresh clone of the run's branch, and name the library (`<Lib>`,
+the project's Lean library; with no name, `leanchecker` guesses the wrong module):
+
+```bash
+git clone --branch formalize/<project> <run-repository> check && cd check
+grep -nE 'leanOptions|moreLeanArgs|weakLeanArgs|debug\.|skipKernel' lakefile.*   # kernel-affecting options?
+lake exe cache get && lake build <Lib>
+lake env leanchecker -v <Lib>          # each project module; exit 0 = all accepted (about 40 s)
+lake env leanchecker --fresh -v <Lib>  # optional: the whole import closure (about 20 min, ~9 GB)
+```
+
+The first replay needs about 12 GB of free memory. On a tested run's Lean the two replays took
+38 s and 21 min.
 
 ## Trying it on the example
 

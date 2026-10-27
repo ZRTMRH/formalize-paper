@@ -186,7 +186,10 @@ maintainers; the numbered items T1–T35 say what each limitation means for you 
   reduces audit coverage. In this release a comment- or docstring-only change at the end of a run
   needs no round at all (T1 below).
 - **The faithfulness lanes' detection rate is not measured.** A planted-fault benchmark is planned.
-  A hands-off end-to-end test ran on a pre-release build of 0.3.0 (README, "Track record").
+  Version 0.3.0 itself was run end to end, hands-off, on the exact release code: on a short
+  synthetic test paper with planted errors it delivered in about 4 h 15 min with no human input
+  after setup (2026-10-26), and a second hands-off run on a benchmark paper delivered with no stops
+  (2026-10-27). Two runs do not measure a detection rate.
 - **The `statements-only` level has not run end to end.** No fixture covers its stops before and
   after Checkpoint B.
 - **Later fresh-reader passes re-report known generator gaps.** A finding already answered
