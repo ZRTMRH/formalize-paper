@@ -1,0 +1,27 @@
+formalize-paper
+Copyright 2026 Runtian Zhou
+
+This repository is licensed under the Apache License, Version 2.0 (see LICENSE), EXCEPT for the
+parts listed below.
+
+Parts adapted from Trellis
+--------------------------
+
+The one-criterion-per-reviewer design, and the wording of the substantiveness, correspondence and
+paper-faithfulness rubrics, are adapted from Wes Pegden's Trellis
+(https://github.com/wpegden/trellis; arXiv:2606.09674). The following parts are licensed under the
+PolyForm Noncommercial License 1.0.0
+(https://polyformproject.org/licenses/noncommercial/1.0.0), not under Apache-2.0:
+
+  - audits/AUDIT_PROTOCOL.md, the sections "Lane A — Substantiveness", "Lane B — Correspondence"
+    and "Lane C — Paper-faithfulness" (the project root's AUDIT_PROTOCOL.md that install.sh
+    creates is a link to this file);
+  - the reviewer prompts cut from those sections: the substantiveness, correspondence and
+    paper-faithfulness lane prompts that audits/prompt.py extracts from them and writes into a
+    run's audit record (<round>/prompts/).
+
+Required Notice: Copyright (c) 2026 Wesley Pegden.
+
+Anyone receiving these parts receives them under those terms and must receive the Required Notice
+line above with them. Commercial use of these parts needs Wes Pegden's permission.
+audits/AUDIT_PROTOCOL.md, "Credit and licence", says what differs from Trellis.

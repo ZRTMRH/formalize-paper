@@ -1,0 +1,56 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\title{A short note on sparse sets of integers}
+\author{A.~Author}
+\date{}
+\begin{document}
+\maketitle
+\section{Introduction}
+We collect elementary facts about sparse sets of natural numbers. Throughout,
+$\mathbb{N}=\{0,1,2,\dots\}$.
+\section{Results}
+\begin{definition}\label{def:sparse}
+Let $k\ge 1$. A set $S\subseteq\mathbb{N}$ is \emph{$k$-sparse} if any two distinct
+elements $a\neq b$ of $S$ satisfy $|a-b|\ge k$.
+\end{definition}
+\begin{theorem}\label{thm:multiples}
+For every $k\ge 1$, the set $k\mathbb{N}=\{kn : n\in\mathbb{N}\}$ of multiples of $k$ is $k$-sparse.
+\end{theorem}
+\begin{lemma}\label{lem:min}
+If $S\subseteq\mathbb{N}$ is nonempty and every element of $S$ is at least $3$, then $\min S\ge 3$.
+\end{lemma}
+\begin{lemma}\label{lem:gap}
+If $S$ is $k$-sparse with $k\ge 2$, then any two distinct elements $a,b\in S$ satisfy $|a-b|>1$.
+\end{lemma}
+\begin{proposition}\label{prop:exist}
+For every $k\ge 1$ and every $N\in\mathbb{N}$ there is a $k$-sparse set $S\subseteq\{0,1,\dots,N\}$
+with $k\,|S|\ge N$.
+\end{proposition}
+\begin{lemma}\label{lem:max}
+Let $k\ge1$. Every finite nonempty $k$-sparse set has a largest element.
+\end{lemma}
+\begin{theorem}\label{thm:coprime}
+Let $n\ge1$. Among any $n+1$ distinct elements of $\{1,2,\dots,2n\}$ there are two that are coprime.
+\end{theorem}
+\begin{corollary}\label{cor:two}
+For every $n\ge 2$, the set $\{1,\dots,2n\}$ contains two distinct coprime elements.
+\end{corollary}
+\begin{definition}\label{def:balanced}
+A finite set $S\subseteq\mathbb{N}$ is \emph{balanced} if it contains as many even elements as odd elements.
+\end{definition}
+\begin{theorem}\label{thm:balanced}
+Every finite balanced set has even cardinality.
+\end{theorem}
+\begin{lemma}\label{lem:sub}
+For all $a,b\in\mathbb{N}$ with $a\ge b$ we have $(a-b)+b=a$.
+\end{lemma}
+\begin{theorem}\label{thm:control}
+If $S$ is $k$-sparse with $k\ge1$, then distinct elements of $S$ are at distance at least $1$.
+\end{theorem}
+\end{document}

@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use formalize-paper, please cite it as below."
+title: "formalize-paper: formalize a mathematics paper in Lean 4 with an audit trail"
+abstract: >-
+  A Claude Code skill and audit apparatus that formalizes a mathematics paper in Lean 4 and
+  Mathlib and audits the formalization with single-criterion AI reviewers, producing a defect
+  record, a PDF report and a statement-by-statement sign-off sheet.
+type: software
+authors:
+  - family-names: Zhou
+    given-names: Runtian
+version: 0.2.0
+# date-released: set to the date of the v0.2.0 tag when it is tagged (YYYY-MM-DD)
+# Apache-2.0 except the parts adapted from Trellis (PolyForm-Noncommercial-1.0.0); see NOTICE.
+license:
+  - Apache-2.0
+  - PolyForm-Noncommercial-1.0.0
+repository-code: "https://github.com/ZRTMRH/formalize-paper"
+keywords:
+  - Lean 4
+  - Mathlib
+  - formalization
+  - AI agents
+  - Claude Code
+references:
+  - type: software
+    title: Trellis
+    authors:
+      - family-names: Pegden
+        given-names: Wesley
+    repository-code: "https://github.com/wpegden/trellis"
+    notes: "The one-criterion-per-reviewer design and the Lane A-C rubric wording are adapted from it (PolyForm Noncommercial 1.0.0)."

@@ -1,0 +1,53 @@
+{
+ "name": "<<short project name, e.g. smith-2024; also the directory name under audits/>>",
+ "title": "<<authors, 'title'; which results are in scope>>",
+ "source_pdf": "<<path to the paper's .tex (preferred) or .pdf, absolute or relative to the Lean project root>>",
+ "source_id": "<<e.g. arXiv:2401.01234v1, or a short id for an unpublished paper>>",
+ "source_cite": "<<citation as it should appear in the report>>",
+ "branch": "<<git branch of the Lean project that holds this run>>",
+ "base_commit": "<<the commit the branch was created from>>",
+ "lean_files": [
+  "<<Name>>.lean",
+  "<<Name>>/Main.lean"
+ ],
+ "build_cmds": [
+  "lake build <<Name>>"
+ ],
+ "namespace": "<<Name>>",
+ "sweep": {
+  "mode": "import",
+  "module": "<<Name>>",
+  "min_decls": 10
+ },
+ "rounds_dir": "audits/<<name>>",
+ "lanes": [
+  "substantiveness",
+  "correspondence",
+  "paper-faithfulness",
+  "non-vacuity",
+  "prior-art"
+ ],
+ "calibration": {
+  "substantiveness": "none recorded yet",
+  "correspondence": "none recorded yet",
+  "paper-faithfulness": "none recorded yet",
+  "non-vacuity": "none recorded yet",
+  "prior-art": "none recorded yet"
+ },
+ "work_dir": "<<persistent directory for helper drafts; default .formalization-work/<name> (inside the project, git-excluded); never under /tmp>>",
+ "blind_spots": "<<what each Phase 0 check does not read, for this source (see AUDIT_PROTOCOL.md)>>",
+ "standing_defers": [],
+ "goal": "faithfulness",
+ "goal_results": [
+  "<<e.g. Theorem 1.1>>"
+ ],
+ "literature_hypotheses": [],
+ "libraries": [
+  "Mathlib",
+  "TauCeti"
+ ],
+ "confidential": false,
+ "involvement": "<<involved, statements-only or hands-off: the human's answer to intake question 5d (default involved)>>",
+ "involvement_answer": "<<the human's answer to intake question 5d, verbatim ('default' if they took the default)>>",
+ "index_strict": true
+}

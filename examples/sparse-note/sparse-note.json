@@ -1,0 +1,50 @@
+{
+ "name": "sparse-note",
+ "title": "A. Author, 'A short note on sparse sets of integers'; all numbered results (a synthetic test paper)",
+ "source_pdf": "paper/note.tex",
+ "source_id": "sparse-note",
+ "source_cite": "A. Author, 'A short note on sparse sets of integers' (synthetic test paper shipped with formalize-paper)",
+ "branch": "sparse-note",
+ "base_commit": "<<set by setup.sh>>",
+ "lean_files": [
+  "SparseNote.lean",
+  "SparseNote/Basic.lean",
+  "SparseNote/Main.lean"
+ ],
+ "build_cmds": [
+  "lake build SparseNote"
+ ],
+ "namespace": "SparseNote",
+ "sweep": {
+  "mode": "import",
+  "module": "SparseNote",
+  "min_decls": 10
+ },
+ "rounds_dir": "audits/sparse-note",
+ "lanes": [
+  "correspondence",
+  "paper-faithfulness",
+  "non-vacuity"
+ ],
+ "calibration": {
+  "substantiveness": "none recorded yet",
+  "correspondence": "none recorded yet",
+  "paper-faithfulness": "none recorded yet",
+  "non-vacuity": "none recorded yet"
+ },
+ "work_dir": ".formalization-work/sparse-note",
+ "blind_spots": "* `lake build SparseNote` says the files elaborate, nothing about meaning.\n* The token scan and axiom sweep see only `lean_files` and the SparseNote modules.\n* The source is a .tex file; no .aux-based coverage check is built, so the index's completeness rests on the paper-faithfulness lane.\n* `scope.py` matches names textually, backed by content fingerprints.",
+ "standing_defers": [],
+ "goal": "faithfulness",
+ "goal_results": [
+  "Theorem 2.7"
+ ],
+ "literature_hypotheses": [],
+ "confidential": false,
+ "involvement": "involved",
+ "involvement_answer": "default",
+ "index_strict": true,
+ "libraries": [
+  "Mathlib"
+ ]
+}
