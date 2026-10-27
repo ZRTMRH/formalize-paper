@@ -1,0 +1,2 @@
+- no mismatches. FINDINGS.md was returned as text by the status-check agent (the harness refused its file write) and saved verbatim by the operator.
+- note (no mismatch): the agent observed that one "not a defect" line of the summary has no text (a presentation matter of the generated summary; not fixed: a generator fault, left to the fresh reader's findings).

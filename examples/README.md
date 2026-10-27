@@ -14,9 +14,11 @@ It is the fixture for the self-tests and the install test. Set it up with
 ```bash
 examples/sparse-note/setup.sh ~/sparse-note-try
 cd ~/sparse-note-try && lake exe cache get && lake build SparseNote
-python3 -B audits/selftest_all.py
+python3 -B audits/selftest_all.py        # slower than --fast: it builds Lean fixtures
 ```
 
 `setup.sh` copies the project, makes it a git repository on branch `sparse-note`, runs
-`install.sh`, and writes the project configuration into `audits/projects/`. See `INSTALL.md` for
+`install.sh`, and writes the project configuration into `audits/projects/`. To try the example
+under Codex, pass `--codex` (`setup.sh --codex ~/sparse-note-try`); `--dev` makes a dev
+installation. Both flags are passed to `install.sh`. See `INSTALL.md` for
 a first run.

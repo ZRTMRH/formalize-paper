@@ -21,7 +21,7 @@ Exit 0 always (review); exit 2 if the linter could not run.
 """
 import sys
 sys.dont_write_bytecode = True
-import argparse, json, os, re, subprocess, tempfile
+import argparse, json, os, re, subprocess
 
 import project
 
@@ -55,12 +55,9 @@ def approved_names(cfg):
 
 
 def run_linter(cfg):
-    module = cfg.get("sweep", {}).get("module") or cfg["namespace"]
-    d = tempfile.mkdtemp(prefix="unused-args-")
-    f = os.path.join(d, "Lint.lean")
-    open(f, "w").write(f"import {module}\n#lint only unusedArguments in {cfg['namespace']}\n")
-    r = subprocess.run(["lake", "env", "lean", f], cwd=project.REPO, capture_output=True, text=True)
-    out = r.stdout + r.stderr
+    # project.lean_body: in append mode the namespace is not a module, and `import <namespace>`
+    # used to make the linter report "did not run"
+    _, out = project.run_lean(project.lean_body(cfg) + f"\n#lint only unusedArguments in {cfg['namespace']}\n")
     if "unusedArguments" not in out and "Found 0 errors" not in out and "linting passed" not in out.lower():
         return None, out
     return parse(out), out
@@ -144,4 +141,5 @@ def selftest():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import project
+    sys.exit(project.run_main(main))

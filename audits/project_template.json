@@ -47,7 +47,8 @@
   "TauCeti"
  ],
  "confidential": false,
- "involvement": "<<involved, statements-only or hands-off: the human's answer to intake question 5d (default involved)>>",
- "involvement_answer": "<<the human's answer to intake question 5d, verbatim ('default' if they took the default)>>",
- "index_strict": true
+ "involvement": "<<involved, statements-only or hands-off: the human's answer to intake question 5c (default involved)>>",
+ "involvement_answer": "<<the human's answer to intake question 5c, verbatim ('default' if they took the default)>>",
+ "index_strict": true,
+ "mode": "release"
 }

@@ -16,20 +16,23 @@ but cannot be fixed in this run). The gate now checks only what matters:
   2. EVERY `- BLOCKING:` finding in ANY reader file of this document (well-formed or not) is
      answered in that pass's response files `<key>-<n>.response[-k].md`, by a line quoting its
      START (one finding per line; the last answer counts):
-       - fixed: <quote> — <what changed>        (only once a later pass read a changed version)
-       - dismissed: <quote> — <evidence that the finding is wrong>
+       - fixed: <quote> — <what changed>        (only once a later pass read a changed version; on a generated
+                                                 document: "tool patch TP<k>" or "hand edit HE<k>", below)
+       - dismissed: <quote> — <evidence that the finding is wrong, or "trivial: ..."> (the REJECT)
        - unfixable: <quote> — <why no path is open in this run, or "fix budget reached">
-                                                          (must also be in the notice)
+                                                          (must also be in the notice; never a fault of a
+                                                          generated document's own text: DOC-FIX G4)
   3. every `unfixable` finding is quoted in `KNOWN_FAULTS-<key>.md`, the notice shown with the
      document and in the checkpoint message (never inside the hashed document).
 Re-running a reader then gains nothing: the findings it would wash away must still be answered.
 Passes beyond 3 are allowed but pointless; RUN.md tells the operator to stop fixing after 3 and
 mark what remains `unfixable`.
 
-WHAT IS HASHED.  The deterministic rendered text, never a PDF (xelatex embeds a creation date):
-  signoff     <round>/SIGNOFF.md + SIGNOFF.tex   (covers SIGNOFF.json, INFORMAL.json, the generator)
+WHAT IS HASHED.  The markdown, the audited content, never a PDF (the PDF is made afterwards from exactly this
+text by fresh agents, render_record.py, and fingerprinted against it):
+  signoff     <round>/SIGNOFF.md               (covers SIGNOFF.json, INFORMAL.json, the generator)
   questions   QUESTIONS-B-<round>.md             (the open questions put under the Checkpoint B question)
-  report      REPORT.md + REPORT.tex, minus their "Generated <date>" header lines
+  report      REPORT.md, minus its "Generated <date>" header line
   decisions   DECISIONS.md
   other:PATH  the file itself
 `readers.py --hash --doc …` prints it; the reader's prompt tells it to run exactly that.
@@ -53,6 +56,8 @@ git does not show, makes the gate fail closed.
   python3 audits/readers.py --doc signoff|questions --round R|approved --hash|--next|--check
   python3 audits/readers.py --doc report|decisions|other:<abs path> --hash|--next|--check
   python3 audits/readers.py --doc … --save < record.txt   (the reader saves and commits its record)
+  python3 audits/readers.py --doc summary|report --hand-edit --finding "<record>: <quote>"   (DOC-FIX: your edit of a
+                                                          generated document after the final prepare, committed)
   python3 audits/readers.py --selftest
 
 SAVING A RECORD.  A reader agent should not need a file-writing tool: some harnesses refuse a
@@ -84,6 +89,103 @@ class DocError(Exception):
     pass
 
 
+# B10 (U2 §6.3): each document's reader mode, fixed here (never chosen by the operator).
+#   gated   the newest well-formed pass read the current version and every blocking finding is answered
+#           (SUMMARY at every level; the Checkpoint B documents; other:PATH)
+#   single  exactly one well-formed pass on the current version; a regenerated document gets one new pass
+#           (REPORT, DECISIONS)
+#   sheet   the approval-time pass stays valid while the sheet's hash is unchanged (gated); under hands-off the
+#           delivered sheet has no reader at all (signoff.py check is kept; the README discloses it)
+MODES = {"summary": "gated", "report": "single", "decisions": "single", "signoff": "gated",
+         "questions": "gated", "other": "gated"}
+# a reader labels each finding: content (what the document says is wrong or missing: the adjudicator's
+# records are fixed in a reader-fix round, prompt.py 4 --reader-fix) or presentation (how it is said; a
+# generator fault: disclosed in the notice). An unlabelled finding is content (the route that changes the
+# records, never the one that only discloses)
+LABEL_RE = re.compile(r"^\s*\[(content|presentation)\]\s*", re.I)
+FIX_BUDGET = 2          # reader-fix rounds per run (U2 §6.3, ADDENDUM N4)
+READER_FIX_SUBJECT = re.compile(r"^reader-fix (\S+) ([1-9]\d*)$")
+DELIVERY_RECORD = "DELIVERY.json"   # project.py --prepare-delivery's record (the delivery flow, B10)
+
+
+def mode_of(doc):
+    return MODES["other" if str(doc).startswith("other:") else doc]
+
+
+def label(finding):
+    """"content" or "presentation" (unlabelled: content)."""
+    m = LABEL_RE.match(finding or "")
+    return m.group(1).lower() if m else "content"
+
+
+def fix_rounds_used(cfg=None):
+    """The reader-fix rounds of the run so far (commits "reader-fix R n" in the audit record's history; a git
+    failure counts as the budget spent, so a content finding is never held for a round that cannot be
+    counted)."""
+    r = git("log", "--format=%s")
+    if r.returncode != 0:
+        return FIX_BUDGET
+    return sum(1 for l in r.stdout.splitlines() if READER_FIX_SUBJECT.match(l.strip()))
+
+
+def content_findings(cfg):
+    """[(key, reader file, finding)] of the delivered documents' readers (summary, report, decisions of the newest
+    round) whose BLOCKING finding is labelled content and is not answered fixed or dismissed: what a reader-fix
+    round (prompt.py 4 --reader-fix) is given. Read as first committed (record_texts)."""
+    out = []
+    try:
+        texts = record_texts(readers_dir(cfg))
+    except DocError:
+        texts = record_texts(readers_dir(cfg), use_git=False)
+    newest = newest_round(cfg)
+    for doc in ("summary", "report", "decisions"):
+        key = f"{doc}-{newest}"
+        files = reader_files(texts, key)
+        flow = {nm for _, nm in files} if doc == "summary" else flow_passes(cfg, [nm for _, nm in files])
+        for n, name in files:
+            if name not in flow:
+                continue        # recorded before the delivery flow: answered under the rules of its time
+            r = parse(name, texts[name])
+            uniq = list(dict.fromkeys(t for k, t in r["findings"] if k == "BLOCKING"))
+            resp, _ = responses(texts, response_names(texts, key, n))
+            answers = [(kind, answered_set(c, uniq)) for kind, c in resp]
+            for i, f in enumerate(uniq):
+                hit = [kind for kind, ids in answers if i in ids]
+                if label(f) == "content" and (not hit or hit[-1] == "unfixable"):
+                    out.append((key, name, f))
+    return out
+
+
+def flow_passes(cfg, names):
+    """The reader files among `names` recorded under the delivery flow (B10): added at or after the first
+    commit of DELIVERY.json (project.py --prepare-delivery). Without git (record_texts read from disk) every
+    one counts once DELIVERY.json exists. A pass recorded before the flow began keeps the rules it was
+    answered under (an older run's unfixable answers stay valid)."""
+    if not os.path.exists(os.path.join(rounds_root(cfg), DELIVERY_RECORD)):
+        return set()
+    added = getattr(record_texts, "added", None)
+    if added is None:
+        return set(names)
+    rel = os.path.relpath(os.path.join(rounds_root(cfg), DELIVERY_RECORD), project.AUDITS)
+    lg = git("log", "--format=%H", "--diff-filter=A", "--", rel)
+    first = lg.stdout.split()[-1] if lg.returncode == 0 and lg.stdout.split() else None
+    if first is None:
+        return set(names)       # not committed yet: fail closed (the new rules apply)
+    out = set()
+    for n in names:
+        c = added.get(n)
+        if c is None or git("merge-base", "--is-ancestor", first, c).returncode == 0:
+            out.add(n)
+    return out
+
+
+def delivery_flow(cfg, doc):
+    """True when the B10 delivery rules apply to `doc`: always for the summary; for the report and the
+    decisions document once project.py --prepare-delivery has run (an older run's records keep their rules)."""
+    return doc == "summary" or (doc in ("report", "decisions")
+                                and os.path.exists(os.path.join(rounds_root(cfg), DELIVERY_RECORD)))
+
+
 def rounds_root(cfg):
     return os.path.normpath(os.path.join(project.REPO, cfg["rounds_dir"]))
 
@@ -104,16 +206,23 @@ def resolve(cfg, doc, round_name=None):
         if not round_name:
             raise DocError("--doc signoff needs --round (the sheet's round, or `approved`)")
         rd = os.path.join(root, round_name)
-        srcs = [os.path.join(rd, "SIGNOFF.md"), os.path.join(rd, "SIGNOFF.tex")]
-        key, shown = f"signoff-{round_name}", os.path.join(rd, "SIGNOFF.pdf")
+        srcs = [os.path.join(rd, "SIGNOFF.md")]
+        key, shown = f"signoff-{round_name}", srcs[0]
     elif doc == "report":
-        srcs = [os.path.join(root, "REPORT.md"), os.path.join(root, "REPORT.tex")]
+        srcs = [os.path.join(root, "REPORT.md")]
         # one history per checkpoint cycle (the newest round), so a notice from an earlier
         # Checkpoint C is not carried into a later one
         newest = newest_round(cfg)
         if not newest:
             raise DocError("no audit round found: the report is checked for the newest round")
-        key, shown = f"report-{newest}", os.path.join(root, "REPORT.pdf")
+        key, shown = f"report-{newest}", srcs[0]
+    elif doc == "summary":
+        # B10: the one-page summary, generated by make_report.py (project.py --prepare-delivery); keyed by the
+        # newest round, like the report
+        newest = newest_round(cfg)
+        if not newest:
+            raise DocError("no audit round found: the summary is checked for the newest round")
+        srcs, key, shown = [os.path.join(root, "SUMMARY.md")], f"summary-{newest}", os.path.join(root, "SUMMARY.md")
     elif doc == "decisions":
         p = os.path.join(root, "DECISIONS.md")
         if not os.path.exists(p):
@@ -147,7 +256,7 @@ def resolve(cfg, doc, round_name=None):
         key = f"other-{slug}-{hashlib.sha1(rel.encode()).hexdigest()[:10]}"
         srcs, shown = [p], p
     else:
-        raise DocError(f"--doc must be signoff, questions, report, decisions or other:<abs path>, got {doc!r}")
+        raise DocError(f"--doc must be signoff, questions, report, decisions, summary or other:<abs path>, got {doc!r}")
     missing = [s for s in srcs if not os.path.exists(s)]
     if missing:
         raise DocError("source missing (render or write it first): " + ", ".join(missing))
@@ -155,8 +264,7 @@ def resolve(cfg, doc, round_name=None):
 
 
 def newest_round(cfg):
-    import audit_coverage
-    rs = audit_coverage.order_rounds(project.rounds(cfg), project.REPO)
+    rs = project.rounds(cfg)
     return os.path.basename(rs[-1]) if rs else None
 
 
@@ -169,8 +277,24 @@ def content_hash(paths, doc):
             for rx in REPORT_STAMP_RES:
                 t = rx.sub("", t, count=1)
             data = t.encode("utf-8")
+        elif doc == "signoff":
+            # the approval's wording ("will be approved" before, "approved" after: mini5 audit) is a stamp:
+            # a re-render after the approval keeps the reader's pass
+            import signoff
+            data = signoff.unstamp(data.decode("utf-8", "replace")).encode("utf-8")
         h.update(os.path.basename(p).encode() + b"\0" + data + b"\0")
     return h.hexdigest()
+
+
+def legacy_hash(srcs, doc):
+    """PDF-AGENTS migration shim (one version; drop it in the next minor version): a pass recorded before the hash
+    became md-only read the md AND the generated .tex beside it (REPORT.tex, SIGNOFF.tex). The hash of the md as it
+    is now with that .tex, still on disk and read by nothing else since, stands for the same version: an old pass
+    stays valid while the md is unchanged. None when there is no such .tex."""
+    if doc not in ("report", "signoff") or len(srcs) != 1 or not srcs[0].endswith(".md"):
+        return None
+    tex = srcs[0][:-3] + ".tex"
+    return content_hash([srcs[0], tex], doc) if os.path.exists(tex) else None
 
 
 def readers_dir(cfg):
@@ -184,6 +308,7 @@ def record_texts(rdir, use_git=True):
     construction). Files not yet committed are read from disk (and refused by the gate)."""
     out = {}
     record_texts.unseen = []
+    record_texts.added = None       # {file name: the commit that added it}, with git
     if os.path.isdir(rdir):
         for p in glob.glob(os.path.join(rdir, "*.md")):
             out[os.path.basename(p)] = open(p, encoding="utf-8").read()
@@ -225,6 +350,7 @@ def record_texts(rdir, use_git=True):
     # refuses the documents they belong to, and only those
     record_texts.unseen = [os.path.basename(p) for p in tracked.stdout.split("\x00")
                            if p and os.path.dirname(p) == toprel and p not in added]
+    record_texts.added = {os.path.basename(p_): c_ for p_, c_ in added.items()}
     for path, c in added.items():
         sh = git("show", f"{c}:{path}")
         if sh.returncode != 0:
@@ -327,8 +453,9 @@ def response_names(texts, key, n):
 
 def responses(texts, names):
     """([(kind, [candidate quotes])], [unparsed list lines]). A finding may itself contain ` — `, so
-    every split point of the line before its answer is a candidate quote."""
-    got, bad = [], []
+    every split point of the line before its answer is a candidate quote. `responses.bodies` holds each answer
+    line's text after its kind, parallel to the first list (the reason a quote is followed by)."""
+    got, bad, bodies = [], [], []
     for name in names:
         for l in texts[name].splitlines():
             m = RESPONSE_HEAD_RE.match(l)
@@ -338,13 +465,24 @@ def responses(texts, names):
                      if " — ".join(parts[k:]).strip()]
             if m and cands:
                 got.append((m.group(1), cands))
+                bodies.append(body)
             elif l.lstrip().startswith(("-", "*")) and l.strip() not in ("-", "*"):
                 bad.append(f"{name}: {l.strip()[:80]}")
+    responses.bodies = bodies
     return got, bad
 
 
+def reason_of(body, cands, finding):
+    """The answer part of a response line (what follows the quote that answers `finding`)."""
+    for q in sorted(cands, key=len, reverse=True):
+        if _norm(q) == _norm(finding) or covers(q, finding):
+            return body.strip()[len(q.strip()):].lstrip(" —")
+    return body
+
+
 def _norm(s):
-    return re.sub(r"\s+", " ", s).strip().strip('"“”`').lower()
+    # a finding's label ([content] / [presentation], B10) is not part of what a response or a notice quotes
+    return re.sub(r"\s+", " ", LABEL_RE.sub("", s, count=1)).strip().strip('"“”`').lower()
 
 
 def covers(quote, finding):
@@ -409,34 +547,108 @@ def history_notes(rdir, key):
     return [f"{parts[i]} {parts[i + 1]}" for i in range(0, len(parts) - 1, 2)]
 
 
+def outcome_text(key, n_unfixable, n_budget):
+    """(clean, what happened) of a reader gate: 'passed' only when no blocking finding was left
+    answered unfixable (mini4 audit: a run log and README said the gate 'passed' after 3 passes that
+    ended at the fix budget with blocking findings)."""
+    if not n_unfixable:
+        return True, "passed (every blocking finding was fixed and re-read)"
+    return False, (f"NOT passed: it ended with {n_unfixable} blocking finding(s) answered unfixable"
+                   + (f" ({n_budget} at the fix budget)" if n_budget else "")
+                   # conf1 (C1 audit): README D said "No separate KNOWN_FAULTS file is delivered" and then "quoted in
+                   # KNOWN_FAULTS-<key>.md and delivered with the document"; the notice is folded into RUN_RECORD.md
+                   + f", quoted in RUN_RECORD.md (from the notice KNOWN_FAULTS-{key}.md, folded in there; it is not "
+                     f"delivered as a file)")
+
+
+PASSED_RE = re.compile(r"\b(passed|pass(?:ing)? cleanly|clean pass)\b", re.I)
+
+
+def log_claims(cfg, key, what):
+    """RUN_LOG.md lines that say the fresh-reader check of this document passed when it did not
+    (blocking findings left unfixable): each is a problem, so the log says what happened."""
+    doc = key.split("-", 1)[0]
+    try:
+        log = open(os.path.join(rounds_root(cfg), "RUN_LOG.md"), encoding="utf-8").read()
+    except OSError:
+        return []
+    out = []
+    for l in log.splitlines():
+        low = l.lower()
+        if "reader" in low and PASSED_RE.search(l) and (key in l or re.search(rf"\b{doc}\b", low)) \
+                and "not passed" not in low:
+            out.append(f"RUN_LOG.md says the fresh-reader check of {key} passed ({' '.join(l.split())[:120]!r}), "
+                       f"but it {what[0].lower() + what[1:]}: say what happened")
+    return out
+
+
+def outcome(cfg, doc, round_name=None):
+    """What the fresh-reader gate of a document says happened (outcome_text), or why it is unknown."""
+    try:
+        check(cfg, doc, round_name)
+    except Exception as e:      # noqa: BLE001 -- the README says it could not be read
+        return f"could not be read ({e})"
+    return check.outcome[1] if check.outcome else "no complete reader record"
+
+
+def stale_finding(key, text):
+    """A missing, malformed or stale pass: N ("reader") in release, except on the sign-off sheet and the summary
+    (F: the summary's gate holds at every level, U2 §6.3)."""
+    return text if key.startswith(("signoff", "summary")) else project.Finding(text, "reader")
+
+
 def check(cfg, doc, round_name=None, check_git=True):
-    """Problems preventing delivery (empty list = deliverable)."""
+    """Problems preventing delivery (empty list = deliverable). Also sets `check.outcome`: what the
+    gate's history says happened (outcome_text), for the summary line, the run-log check and the
+    delivery README."""
+    check.outcome = None
     try:
         key, srcs, _ = resolve(cfg, doc, round_name)
         rdir = readers_dir(cfg)
         texts = record_texts(rdir, use_git=check_git)
     except DocError as e:
         return [str(e)]
+    # release mode (project.RELEASE "reader", review H2): only a missing, malformed or stale pass
+    # on a document other than the sign-off sheet is N. Every finding about the sheet (its reader
+    # is the pre-approval faithfulness check), an unanswered BLOCKING finding, a false `fixed` and an
+    # unfixable finding the notice does not quote block in every mode: the answer path (`unfixable`
+    # after 3 passes, quoted in the notice) means they never stall a run. Uncommitted records block.
+    R = lambda p_: stale_finding(key, p_)
     files = reader_files(texts, key)
     if not files:
-        return [f"no fresh-reader pass for {key}: run RUN.md 'Fresh-reader check'"]
+        return [R(f"no fresh-reader pass for {key}: run the fresh-reader check (audits/run/fresh-reader.md)")]
     probs = history_problems(rdir, key) if check_git else []
     probs += [f"reader file tracked but not committed (commit it): {u}"
               for u in getattr(record_texts, "unseen", []) if key_file(key, u)]
     parsed = [(n, name, parse(name, texts[name])) for n, name in files]
     good = [(n, p, r) for n, p, r in parsed if not r["problems"]]
     if not good:
-        return probs + [f"no well-formed pass for {key} (malformed: "
-                        + ", ".join(p for _, p, _ in parsed) + ")"]
+        return probs + [R(f"no well-formed pass for {key} (malformed: "
+                          + ", ".join(p for _, p, _ in parsed) + ")")]
     newest_n, newest_p, newest = good[-1]
     if parsed[-1][0] != newest_n:
-        probs.append(f"the newest reader file ({parsed[-1][1]}) is malformed: spawn a new "
-                     f"reader on the same document (its findings must still be answered)")
+        probs.append(R(f"the newest reader file ({parsed[-1][1]}) is malformed: spawn a new "
+                     f"reader on the same document (its findings must still be answered)"))
     cur = content_hash(srcs, doc)
+    old_ = legacy_hash(srcs, doc) if newest["sha"] != cur else None
+    if old_ and newest["sha"] == old_:
+        cur = old_          # the migration shim: a pass on the md and its old .tex, the md unchanged since
     if newest["sha"] != cur:
-        probs.append(f"the document changed after its last well-formed pass ({newest_p} read "
-                     f"{newest['sha'][:12]}…, the source is now {cur[:12]}…): run a new pass on this version")
-    unfixable = []
+        probs.append(R(f"the document changed after its last well-formed pass ({newest_p} read "
+                     f"{newest['sha'][:12]}…, the source is now {cur[:12]}…): run a new pass on this version"))
+    new_flow = delivery_flow(cfg, doc.split(":")[0] if doc.startswith("other:") else doc)
+    flow = (flow_passes(cfg, [p for _, p, _ in parsed]) if doc != "summary" else {p for _, p, _ in parsed}) \
+        if new_flow else set()
+    if new_flow and mode_of(doc) == "single":
+        # U2 §6.3: exactly one pass on the current version; another pass on it gains nothing (its findings must
+        # still be answered) and is refused, so no reader is re-run until one says nothing. Counted over the
+        # passes of the delivery flow (an older run's passes on the same text are not the operator's choice now)
+        on_cur = [p for _, p, r in good if r["sha"] == cur and p in flow]
+        if len(on_cur) > 1:
+            probs.append(f"{len(on_cur)} passes read the current version of {key} ({', '.join(on_cur)}): a "
+                         f"single-pass document gets exactly one pass per version")
+    used = fix_rounds_used(cfg) if new_flow else 0
+    unfixable, budget = [], []
     for n, p, r in parsed:
         # identical findings in one pass are one finding
         blocking = list(dict.fromkeys(t for k, t in r["findings"] if k == "BLOCKING"))
@@ -445,9 +657,33 @@ def check(cfg, doc, round_name=None, check_git=True):
             if _norm(f) not in seen:
                 seen.add(_norm(f)); uniq.append(f)
         resp, bad = responses(texts, response_names(texts, key, n))
+        bodies = responses.bodies
         answers = [(kind, answered_set(cands, uniq)) for kind, cands in resp]
         for i, f in enumerate(uniq):
             hit = [kind for kind, ids in answers if i in ids]
+            last = max((j for j, (_k, ids) in enumerate(answers) if i in ids), default=None)
+            why = reason_of(bodies[last], resp[last][1], f) if last is not None else ""
+            if hit and hit[-1] == "fixed" and doc in HAND_EDIT_DOCS:
+                # DOC-FIX G3: a fix by hand edit holds only while that edit is in the delivered document (a later
+                # prepare regenerates it and erases the edit; the generator never re-applies one)
+                live = {h["he"] for h in live_hand_edits(cfg, HAND_EDIT_DOCS[doc])}
+                for he in HE_REF_RE.findall(why):
+                    if he not in live:
+                        probs.append(f"{p}: {f[:60]!r} is answered fixed by hand edit {he}, which is not in the "
+                                     f"delivered {HAND_EDIT_DOCS[doc]} (a later prepare erased it, or it was never "
+                                     f"recorded): re-apply its diff ({HE_DIR}/{he}.diff) and record it again "
+                                     f"(readers.py --hand-edit), then answer the finding anew in a new response file")
+            if hit and hit[-1] == "unfixable" and doc in HAND_EDIT_DOCS and p in flow \
+                    and (label(f) == "presentation" or GENERATOR_BLAME_RE.search(why)):
+                # DOC-FIX G4 (approver 2026-10-25): a fault of a generated document is never "unfixable: generator
+                # fault". The operator rejects it with a reason, fixes the generator (a tool patch, then prepare
+                # again), or hand-edits the document; `unfixable` stays for what nothing can fix (the paper itself)
+                probs.append(f"{p}: {f[:60]!r} is answered unfixable, but it is a fault of the generated "
+                             f"{HAND_EDIT_DOCS[doc]}: answer it `dismissed` (a reason: not a real problem, or trivial), "
+                             f"fix the generator (release: the tool-patch route, then prepare again) and answer `fixed "
+                             f"... — tool patch TP<k>`, or hand-edit the document (readers.py --hand-edit) and answer "
+                             f"`fixed ... — hand edit HE<k>` (run/fresh-reader.md step 3)")
+                continue
             if not hit:
                 why = ""
                 if any(any(covers(q, f) for q in cands) for _, cands in resp):
@@ -463,18 +699,415 @@ def check(cfg, doc, round_name=None, check_git=True):
                              f"raised on" + (" (or that pass recorded no version)" if r["sha"] is None else "")
                              + ": change the document, then run a new reader")
             elif hit[-1] == "unfixable":
+                if p in flow and label(f) == "content" and used < FIX_BUDGET:
+                    # ADDENDUM N4: a content finding goes to the adjudicator's reader-fix round while the run's
+                    # budget lasts; only past it is it disclosed (the notice)
+                    probs.append(f"{p}: the content finding {f[:60]!r} is answered unfixable, but {used} of the run's "
+                                 f"{FIX_BUDGET} reader-fix rounds are used: send it to one (python3 audits/prompt.py "
+                                 f"4 --round <newest round> --reader-fix), or answer it dismissed with evidence")
+                    continue
+                if p in flow and project.mode(cfg) != "release":
+                    # U2 §6.3 (dev): a blocking finding past the fix budget is a stop, never disclosed
+                    probs.append(f"{p}: dev mode: the blocking finding {f[:60]!r} is left unfixable (past the fix "
+                                 f"budget): a stop for the human")
                 unfixable.append(f)
+                if any("fix budget" in texts[nm].lower() for nm in response_names(texts, key, n)) \
+                        or (p in flow and used >= FIX_BUDGET):
+                    budget.append(f)
+    check.outcome = outcome_text(key, len(unfixable), len(budget))
+    if unfixable and not check.outcome[0]:
+        probs += log_claims(cfg, key, check.outcome[1])
     if unfixable:
         kf = os.path.join(rounds_root(cfg), f"KNOWN_FAULTS-{key}.md")
         notice = open(kf, encoding="utf-8").read() if os.path.exists(kf) else None
         if notice is None:
             probs.append(f"{len(unfixable)} finding(s) marked unfixable: write {os.path.basename(kf)}, the "
-                         f"notice delivered with the document, quoting each")
+                         f"notice folded into the delivered RUN_RECORD.md, quoting each")
         else:
             for f in unfixable:
                 if _norm(f)[:60] not in _norm(notice):
                     probs.append(f"{os.path.basename(kf)} does not quote the unfixable finding {f[:60]!r}")
     return probs
+
+
+# --- hand edits of a generated document (DOC-FIX; approver 2026-10-25) ---------------------------------------
+# When an agent (a fresh reader, the status check, a PDF agent) finds a fault in a GENERATED document, the operator
+# answers it one of three ways, each recorded: (1) REJECT it with a reason (`dismissed`); (2) fix the GENERATOR
+# through the tool-patch route (release), then prepare again; (3) when a generator patch would be dangerous, HAND-EDIT
+# the document after the final prepare. "Code guards agents on provenance; agents guard code on meaning": a hand
+# edit is a dedicated commit "hand-edit HE<k> <doc>" holding the document and its two records (hand-edits/HE<k>.json:
+# the finding it answers, the prepare it follows, the hashes before and after; HE<k>.diff: the diff), and nothing
+# else. --deliver accepts a prepared document that differs from what prepare recorded only when the live edits chain
+# from the prepared hash to the file exactly (hand_edit_problems); the status check, a fresh agent, judges whether an
+# edit changes a status, a statement, a defect verdict or a human answer away from the records (judgement_problems);
+# a fresh reader reads the edited version (the gate above). A later prepare regenerates the document and so erases
+# its edits: prepare names them, and a `fixed ... — hand edit HE<k>` answer then refuses the gate (G3).
+HAND_EDIT_DOCS = {"summary": "SUMMARY.md", "report": "REPORT.md"}
+HE_DIR = "hand-edits"
+HE_ID_RE = re.compile(r"^HE([1-9]\d*)$")
+HE_REF_RE = re.compile(r"\bhand[- ]edit (HE[1-9]\d*)\b", re.I)
+HE_SUBJECT = "hand-edit {he} {doc}"
+HE_SUBJECT_RE = re.compile(r"^hand-edit (HE[1-9]\d*) (SUMMARY\.md|REPORT\.md)$")
+PREPARE_SUBJECT = "prepare delivery"
+# an `unfixable` answer that blames a generator: DOC-FIX G4 (the answers are reject, tool patch or hand edit)
+GENERATOR_BLAME_RE = re.compile(r"generator|make_report|generated\s+text", re.I)
+# where an agent's finding on a generated document is recorded (the rounds directory): a reader's record, the
+# status check's findings, a PDF agent's record
+FINDING_SOURCES = ("readers/", "status-check/", "pdf/")
+JUDGE_HEAD_RE = re.compile(r"(?ms)^##\s+Hand edits[ \t]*\n(.*?)(?=^##\s|\Z)")
+JUDGE_LINE_RE = re.compile(r"^\s*-\s*(HE[1-9]\d*)\s*:\s*(OK|MISMATCH)\b", re.M)
+
+
+def _rgit(rd, *a):
+    return subprocess.run(["git", "-C", rd, *a], capture_output=True, text=True)
+
+
+def newest_prepare_commit(rd):
+    """The newest commit of the audit record whose subject is "prepare delivery" (project.py --prepare-delivery), or
+    None. Read on the first-parent line of work."""
+    r = _rgit(rd, "log", "--first-parent", "--format=%H%x00%s")
+    if r.returncode:
+        return None
+    for l in r.stdout.splitlines():
+        h, _, subj = l.partition("\x00")
+        if subj.strip() == PREPARE_SUBJECT:
+            return h
+    return None
+
+
+def all_hand_edits(rd):
+    """[record dict] of every hand-edits/HE<k>.json on disk, by k (each with "he", "k", "path")."""
+    out = []
+    d = os.path.join(rd, HE_DIR)
+    for p in glob.glob(os.path.join(d, "HE*.json")):
+        m = HE_ID_RE.match(os.path.basename(p)[:-5])
+        if not m:
+            continue
+        try:
+            rec = json.load(open(p, encoding="utf-8"))
+        except (OSError, ValueError):
+            rec = {}
+        if not isinstance(rec, dict):
+            rec = {}
+        out.append(dict(rec, he=f"HE{m.group(1)}", k=int(m.group(1)), path=p))
+    return sorted(out, key=lambda r: r["k"])
+
+
+def live_hand_edits_at(rd, name=None):
+    """The hand edits made since the newest prepare (its commit recorded in the edit): the ones in the delivered
+    documents. `name` (SUMMARY.md / REPORT.md) narrows to one document."""
+    pc = newest_prepare_commit(rd)
+    return [r for r in all_hand_edits(rd) if pc and r.get("prepare_commit") == pc
+            and (name is None or r.get("doc") == name)]
+
+
+def live_hand_edits(cfg, name=None):
+    return live_hand_edits_at(rounds_root(cfg), name)
+
+
+def erased_hand_edits(cfg):
+    """The hand edits a later prepare erased (their prepare is not the newest)."""
+    pc = newest_prepare_commit(rounds_root(cfg))
+    return [r for r in all_hand_edits(rounds_root(cfg)) if r.get("prepare_commit") != pc]
+
+
+def _he_commit(rd, he, name):
+    r = _rgit(rd, "log", "--first-parent", "--format=%H%x00%s")
+    hs = [l.split("\x00")[0] for l in r.stdout.splitlines() if l.partition("\x00")[2].strip()
+          == HE_SUBJECT.format(he=he, doc=name)] if r.returncode == 0 else []
+    return hs
+
+
+def _changed(rd, commit):
+    r = _rgit(rd, "-c", "core.quotePath=false", "diff-tree", "--no-commit-id", "--name-only", "-r", "-m",
+              "--first-parent", "--relative", commit)
+    return sorted(set(x for x in r.stdout.splitlines() if x)) if r.returncode == 0 else None
+
+
+def doc_diff(rd, name, commit=None):
+    """The unified diff of document `name` (relative to the rounds dir): in `commit`, or of the working tree
+    against HEAD."""
+    a = (["show", "--first-parent", "--format=", "--no-color", "--no-ext-diff", "--relative", commit, "--", name]
+         if commit else ["diff", "--no-color", "--no-ext-diff", "--relative", "HEAD", "--", name])
+    r = _rgit(rd, *a)
+    return r.stdout if r.returncode == 0 else None
+
+
+def hand_edit_problems_at(rd, name, base):
+    """[problem] of document `name`'s live hand edits, given the hash prepare recorded (`base`): each edit is its
+    own commit "hand-edit HE<k> <name>" touching only the document and its two records, its diff the recorded one,
+    the edits chain base -> result in order to the file on disk, and nothing else changed the document since the
+    prepare (provenance: no edit outside such a commit)."""
+    import project as _p
+    out = []
+    live = live_hand_edits_at(rd, name)
+    pc = newest_prepare_commit(rd)
+    want = base
+    seen = set()
+    for r in live:
+        he = r["he"]
+        hs = _he_commit(rd, he, name)
+        if len(hs) != 1:
+            out.append(f"hand edit {he}: {len(hs)} commit(s) \"{HE_SUBJECT.format(he=he, doc=name)}\", not exactly one "
+                       f"(readers.py --hand-edit commits it)")
+            continue
+        c = hs[0]
+        seen.add(c)
+        files = _changed(rd, c)
+        allowed = {name, f"{HE_DIR}/{he}.json", f"{HE_DIR}/{he}.diff"}
+        if files is None or set(files) != allowed:
+            out.append(f"hand edit {he}: its commit {c[:11]} changes {files}, not exactly {sorted(allowed)}")
+        if _rgit(rd, "merge-base", "--is-ancestor", pc or "x", c).returncode != 0 or c == pc:
+            out.append(f"hand edit {he}: its commit {c[:11]} does not follow the newest prepare")
+        if r.get("base_sha256") != want:
+            out.append(f"hand edit {he}: it was made on {str(r.get('base_sha256'))[:12]}…, but the document before it "
+                       f"was {str(want)[:12]}…")
+        try:
+            diff_rec = open(os.path.join(rd, HE_DIR, f"{he}.diff"), encoding="utf-8").read()
+        except OSError:
+            diff_rec = None
+        if diff_rec is None or doc_diff(rd, name, c) != diff_rec:
+            out.append(f"hand edit {he}: {HE_DIR}/{he}.diff is not the diff its commit {c[:11]} made to {name}")
+        for f_ in (f"{HE_DIR}/{he}.json", f"{HE_DIR}/{he}.diff"):
+            st = _rgit(rd, "diff", "--quiet", c, "--", f_)
+            st2 = _rgit(rd, "status", "--porcelain", "--", f_)
+            if st.returncode != 0 or st2.stdout.strip():
+                out.append(f"hand edit {he}: {f_} changed after its commit {c[:11]}")
+        shown = _rgit(rd, "show", f"{c}:./{name}")
+        got = _p.doc_text_hash(name, shown.stdout) if shown.returncode == 0 else None
+        if got != r.get("result_sha256"):
+            out.append(f"hand edit {he}: {name} at its commit hashes to {str(got)[:12]}…, not the recorded "
+                       f"{str(r.get('result_sha256'))[:12]}…")
+        want = r.get("result_sha256")
+    disk = _p.file_hash(name, os.path.join(rd, name))
+    if disk != want:
+        out.append(f"{name} on disk ({str(disk)[:12]}…) is not the document its last hand edit made "
+                   f"({str(want)[:12]}…): a change outside a recorded hand edit (restore it: git checkout -- {name})")
+    if pc:
+        lg = _rgit(rd, "log", "--first-parent", "--format=%H%x00%s", f"{pc}..HEAD", "--", name)
+        for l in lg.stdout.splitlines() if lg.returncode == 0 else []:
+            h, _, subj = l.partition("\x00")
+            if h not in seen:
+                out.append(f"{name} was changed after the prepare by commit {h[:11]} \"{subj.strip()}\", which is no "
+                           f"recorded hand edit: restore it, or prepare again")
+    return out
+
+
+def hand_edit_problems(cfg, name):
+    import project as _p
+    man = _p.manifest(cfg) or {}
+    return hand_edit_problems_at(rounds_root(cfg), name, (man.get("hashes") or {}).get(name))
+
+
+def judgement_problems(cfg):
+    """[problem] (DOC-FIX G5): with live hand edits, the status check -- a fresh agent, the judge of meaning -- must
+    have read them: status-check/FINDINGS.md committed after the newest hand edit, its "## Hand edits" section saying
+    `- HE<k>: OK` for each (an edit that changes no status, statement, defect verdict or human answer, or changes one
+    only to what the records say). The file must be the issued agent's (DOC-FIX review #3, provenance): the last
+    status-check run was issued for exactly the live edits and its FINDINGS.md is sealed (run_record.py
+    --seal-status-check: the run's token, the agent's own digest) and unchanged since, so a verdict line typed by
+    the operator is refused. MISMATCH refuses: undo the edit by preparing again (it erases every hand edit; re-apply
+    those judged OK as new hand edits). Never a stop."""
+    rd = rounds_root(cfg)
+    live = live_hand_edits_at(rd)
+    if not live:
+        return []
+    fp = os.path.join(rd, "status-check", "FINDINGS.md")
+    rel = os.path.relpath(fp, rd)
+    newest = max((c for r in live for c in _he_commit(rd, r["he"], r.get("doc", ""))), default=None,
+                 key=lambda c: int(_rgit(rd, "rev-list", "--count", c).stdout.strip() or 0))
+    lg = _rgit(rd, "log", "-1", "--first-parent", "--format=%H", "--", rel)
+    fc = lg.stdout.strip() if lg.returncode == 0 else ""
+    dirty = _rgit(rd, "status", "--porcelain", "--", rel).stdout.strip()
+    ids = ", ".join(r["he"] for r in live)
+    rerun = ("run the status check again (python3 audits/prompt.py --prompt status-check --write, a fresh agent: it "
+             "judges each hand edit), commit status-check/ by name, then deliver again: never a stop")
+    if not fc or dirty or not newest or fc == newest \
+            or _rgit(rd, "merge-base", "--is-ancestor", newest, fc).returncode != 0:
+        return [f"the hand edit(s) {ids} were not judged by the status check (status-check/FINDINGS.md, committed after "
+                f"the newest hand edit): {rerun}"]
+    import run_record
+    runs, ids_l = run_record.status_runs(cfg), [r["he"] for r in live]
+    if not runs or list(runs[-1].get("hand_edits") or []) != ids_l:
+        return [f"the last status-check run ({(runs[-1].get('prompt') if runs else None) or 'none'}) was not issued "
+                f"for the live hand edit(s) {ids}: {rerun}"]
+    failed = run_record.status_run_failure(cfg, ids_l, runs)
+    if failed:
+        return [f"the status check's last run gave no sealed verdict on the hand edit(s) {ids} ({failed}): if its agent "
+                f"returned its {run_record.STATUS_COMPLETION} line, seal it (python3 audits/run_record.py "
+                f"--seal-status-check --sha256 <hex> --agent-id <id>; {run_record.RETURNED_SAVE} first); otherwise "
+                f"the run failed, a mechanical failure "
+                f"and never a judgement: {rerun}"]
+    text = open(fp, encoding="utf-8").read()
+    m = JUDGE_HEAD_RE.search(text)
+    said = {}
+    for he, v in JUDGE_LINE_RE.findall(m.group(1) if m else ""):
+        said.setdefault(he, set()).add(v)
+    out = []
+    for r in live:
+        v = said.get(r["he"], set())
+        if "MISMATCH" in v:
+            out.append(f"the status check judged hand edit {r['he']} of {r.get('doc')} a MISMATCH (it changes a status, a "
+                       f"statement, a defect verdict or a human answer away from the records): undo it by preparing again "
+                       f"(python3 audits/project.py --prepare-delivery: it erases every hand edit), re-apply each edit "
+                       f"judged OK as a new hand edit (patch -p1 -d <rounds dir> < <rounds dir>/{HE_DIR}/HE<k>.diff, then "
+                       f"readers.py --hand-edit) and answer its findings anew, then read and check again: never a stop "
+                       f"(a hand edit restoring the text does not undo it: the check judges each edit's own diff)")
+        elif "OK" not in v:
+            out.append(f"status-check/FINDINGS.md has no `- {r['he']}: OK` line under \"## Hand edits\": {rerun}")
+    return out
+
+
+def trust_problems(cfg):
+    """[problem] (approver 2026-10-26, "make sure the agent guards those lines"): every plain trust line code wrote
+    on SUMMARY page 1 and in REPORT (make_report.trust_line_events: a check that could not run, ...) was judged by
+    the status check, a fresh agent: its last run was issued for exactly these events, its FINDINGS.md is sealed
+    (the run's token, the agent's digest), says `- <TL-id>: OK` for each and has no `- extra: MISMATCH`. A MISMATCH
+    (the line missing, untrue, incomplete, or a line with no event) goes back through the route of a fault in a
+    generated document: the generator is fixed (a tool patch) or the document hand-edited, then the check judges
+    again (a verdict of the agent's is not "rejected" by the operator). Never a stop."""
+    import make_report, run_record
+    events = make_report.trust_line_events(cfg)
+    ids = [e.id for e in events]
+    root = rounds_root(cfg)
+    fix = ("fix it through the generator (stops.py open --cause tool-bug, the tool-patch route, then prepare again) or "
+           "a hand edit (readers.py --hand-edit), then the status check judges again: never a stop")
+    # review 3 (code flags, fail-safe): every plain trust sentence the documents carry stands for an event a provider
+    # gives; one that does not means a provider is missing -- nothing would guard it
+    lines = {e.line for e in events}
+    out = []
+    for doc in ("SUMMARY.md", "REPORT.md"):
+        try:
+            txt = open(os.path.join(root, doc), encoding="utf-8").read()
+        except OSError:
+            continue
+        out += [f"{doc} carries the trust sentence \"{t}\" but no event of the record stands for it (a provider of "
+                f"make_report.TRUST_LINE_PROVIDERS is missing: a fault of the generator, the tool-patch route)"
+                for t in make_report.trust_sentences(txt) if t not in lines]
+    runs = run_record.status_runs(cfg)
+    if not ids:
+        # an `extra` line the agent wrote is read even with no event (it has no token then: its file as it stands)
+        # re-check R1: only from a run that judged the current SUMMARY.md (a fixed summary drops a stale line; the code
+        # flag above still guards its text)
+        try:
+            said0 = run_record.item_verdicts(open(os.path.join(root, "status-check", "FINDINGS.md"),
+                                                  encoding="utf-8").read()) if runs else {}
+        except OSError:
+            said0 = {}
+        if said0.get("extra") == "MISMATCH" and runs[-1].get("summary_sha256") != run_record.summary_sha(cfg):
+            # re-check of 0adf59c: a stale extra MISMATCH is not dropped silently: the fixed summary is judged again
+            # (begin_status_run allows that run past the cap)
+            out.append("the status check's `extra: MISMATCH` was judged on an earlier SUMMARY.md: run the status check "
+                       "again (python3 audits/prompt.py --prompt status-check --write, a fresh agent), then deliver "
+                       "again: never a stop")
+        elif said0.get("extra") == "MISMATCH":
+            out.append(f"the status check found a trust line on SUMMARY or REPORT with no event in the record (`- extra: "
+                       f"MISMATCH`): {fix}")
+        return out
+    rerun = ("run the status check again (python3 audits/prompt.py --prompt status-check --write, a fresh agent: it "
+             "judges each trust line), seal it, then deliver again: never a stop")
+    if not runs or list(runs[-1].get("trust_lines") or []) != ids:
+        return out + [f"the trust line(s) {', '.join(ids)} were not judged by the status check: {rerun}"]
+    if runs[-1].get("summary_sha256") != run_record.summary_sha(cfg):
+        # review 3: a verdict on a trust line is bound to the SUMMARY.md it judged
+        return out + [f"the trust line(s) {', '.join(ids)} were judged on an earlier SUMMARY.md: {rerun}"]
+    failed = run_record.status_run_failure(cfg, ids, runs)
+    if failed:
+        return out + [f"the status check's last run gave no sealed verdict on the trust line(s) {', '.join(ids)} ({failed}): "
+                f"if its agent returned its {run_record.STATUS_COMPLETION} line, seal it (python3 audits/run_record.py "
+                f"--seal-status-check --sha256 <hex> --agent-id <id>; {run_record.RETURNED_SAVE} first); otherwise "
+                f"{rerun}"]
+    said = run_record.item_verdicts(open(os.path.join(root, "status-check", "FINDINGS.md"),
+                                         encoding="utf-8").read())
+    out += [f"the status check judged trust line {i} a MISMATCH (status-check/FINDINGS.md, \"## Trust lines\"): {fix}"
+           for i in ids if said.get(i) == "MISMATCH"]
+    out += [f"status-check/FINDINGS.md has no `- {i}: OK` line under \"## Trust lines\": {rerun}" for i in ids
+            if i not in said]
+    if said.get("extra") == "MISMATCH":
+        out.append(f"the status check found a trust line on SUMMARY or REPORT with no event in the record (`- extra: "
+                   f"MISMATCH`): {fix}")
+    return out
+
+
+def hand_edit_summary(cfg):
+    """[line] for HAND-EDITS in the status check's prompt: each live edit and its diff file, or "none"."""
+    live = live_hand_edits(cfg)
+    if not live:
+        return "none"
+    return "; ".join(f"{r['he']} ({r.get('doc')}): {cfg['rounds_dir']}/{HE_DIR}/{r['he']}.diff" for r in live)
+
+
+def finding_problems(rd, finding):
+    """[problem] with a --finding "<file under the rounds dir>: <quote>": the file is an agent's committed record
+    (readers/, status-check/, pdf/) and the quote, at least 15 characters, stands in it as committed."""
+    path, sep, quote = (finding or "").partition(": ")
+    path, quote = path.strip(), quote.strip()
+    if not sep or not path.startswith(FINDING_SOURCES) or ".." in path.split("/"):
+        return [f"--finding must be \"<record>: <quote>\", the record a file under {', '.join(FINDING_SOURCES)} of the "
+                f"rounds directory (a reader's record, status-check/FINDINGS.md, a PDF agent's record)"]
+    if len(_norm(quote)) < 15:
+        return ["--finding: quote at least 15 characters of the finding, as the agent wrote it"]
+    shown = _rgit(rd, "show", f"HEAD:./{path}")
+    dirty = _rgit(rd, "status", "--porcelain", "--", path).stdout.strip()
+    if shown.returncode or dirty:
+        return [f"--finding: {path} is not committed as it stands (the agent's record must be on record first)"]
+    if _norm(quote) not in _norm(re.sub(r"\s+", " ", shown.stdout)):
+        return [f"--finding: the quote does not stand in {path} as committed"]
+    return []
+
+
+def record_hand_edit(cfg, doc, finding):
+    """readers.py --hand-edit: record and commit the operator's edit of a generated document, made in the working
+    tree after the final prepare. Returns (HE id, [problem]); nothing is written when there is a problem."""
+    import project as _p
+    if doc not in HAND_EDIT_DOCS:
+        return None, [f"--hand-edit: --doc must be {' or '.join(HAND_EDIT_DOCS)} (the sheet and README A-C: reject the "
+                      f"finding, or fix their generator)"]
+    name = HAND_EDIT_DOCS[doc]
+    rd = rounds_root(cfg)
+    pc = newest_prepare_commit(rd)
+    man = _p.manifest(cfg) or {}
+    if not pc or name not in (man.get("hashes") or {}):
+        return None, ["--hand-edit: no prepare is recorded: a hand edit comes after the final prepare (python3 audits/"
+                      "project.py --prepare-delivery)"]
+    probs = finding_problems(rd, finding)
+    live = live_hand_edits_at(rd, name)
+    tip = live[-1].get("result_sha256") if live else man["hashes"][name]
+    head = _rgit(rd, "show", f"HEAD:./{name}")
+    if head.returncode or _p.doc_text_hash(name, head.stdout) != tip:
+        probs.append(f"--hand-edit: the committed {name} is not the prepared one or its last hand edit: restore it "
+                     f"(git checkout -- {name}) or prepare again")
+    disk = _p.file_hash(name, os.path.join(rd, name))
+    if disk == tip:
+        probs.append(f"--hand-edit: {name} is unchanged: make the edit in the file first")
+    prior = probs[:]
+    if not prior:
+        bad = hand_edit_problems_at(rd, name, man["hashes"][name])
+        probs += [p_ for p_ in bad if "on disk" not in p_]
+    if probs:
+        return None, probs
+    k = max([r["k"] for r in all_hand_edits(rd)] + [0]) + 1
+    lg = _rgit(rd, "log", "--format=%s")
+    for l in lg.stdout.splitlines() if lg.returncode == 0 else []:
+        m = HE_SUBJECT_RE.match(l.strip())
+        if m:
+            k = max(k, int(m.group(1)[2:]) + 1)
+    he = f"HE{k}"
+    diff = doc_diff(rd, name)
+    os.makedirs(os.path.join(rd, HE_DIR), exist_ok=True)
+    jp, dp = os.path.join(rd, HE_DIR, f"{he}.json"), os.path.join(rd, HE_DIR, f"{he}.diff")
+    open(dp, "w", encoding="utf-8", newline="").write(diff or "")
+    import datetime
+    json.dump({"doc": name, "finding": " ".join(finding.split()), "prepare_commit": pc, "base_sha256": tip,
+               "result_sha256": disk, "diff_sha256": hashlib.sha256((diff or "").encode("utf-8")).hexdigest(),
+               "date": datetime.date.today().isoformat()},
+              open(jp, "w", encoding="utf-8"), indent=1, sort_keys=True)
+    try:
+        _p.commit_only([os.path.join(rd, name), jp, dp], HE_SUBJECT.format(he=he, doc=name), repo=project.AUDITS)
+    except (ValueError, OSError) as e:
+        return he, [f"written but not committed: {e}"]
+    after = hand_edit_problems_at(rd, name, man["hashes"][name])
+    return he, after
 
 
 def save(cfg, doc, round_name, text, commit=True):
@@ -515,7 +1148,7 @@ def save(cfg, doc, round_name, text, commit=True):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--doc", help="signoff | questions | report | decisions | other:<absolute path>")
+    ap.add_argument("--doc", help="signoff | questions | report | decisions | summary | other:<absolute path>")
     ap.add_argument("--round", help="with --doc signoff/questions: the sheet's round "
                     "(`approved` = the round of the approval record)")
     ap.add_argument("--project")
@@ -523,12 +1156,18 @@ def main(argv=None):
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--next", action="store_true")
     ap.add_argument("--save", action="store_true", help="read a reader record on stdin, save and commit it")
+    ap.add_argument("--hand-edit", action="store_true",
+                    help="with --doc summary|report and --finding: record and commit your edit of the generated "
+                         "document (made after the final prepare) as hand-edit HE<k> (DOC-FIX)")
+    ap.add_argument("--finding", help="with --hand-edit: \"<record under the rounds dir>: <quote of the finding>\"")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest()
-    if not a.doc or (a.hash + a.check + a.next + a.save) != 1:
-        ap.error("give --doc and exactly one of --hash / --next / --check / --save")
+    if not a.doc or (a.hash + a.check + a.next + a.save + a.hand_edit) != 1:
+        ap.error("give --doc and exactly one of --hash / --next / --check / --save / --hand-edit")
+    if a.hand_edit and not a.finding:
+        ap.error("--hand-edit needs --finding \"<record>: <quote>\"")
     try:
         cfg, _ = project.select(a.project)
     except project.SelectionError as e:
@@ -543,22 +1182,38 @@ def main(argv=None):
     if a.next:
         print(os.path.join(readers_dir(cfg), f"{key}-{next_number(cfg, key)}.md"))
         return 0
+    if a.hand_edit:
+        he, probs = record_hand_edit(cfg, a.doc, a.finding)
+        for p in probs:
+            print(project.problem_line(p, "reader-check"))
+        if he is None or probs:
+            print("hand edit NOT recorded" if he is None else f"hand edit {he} written, see above")
+            return 1
+        print(f"recorded and committed hand edit {he} of {HAND_EDIT_DOCS[a.doc]} ({HE_DIR}/{he}.json, {he}.diff). "
+              f"Now: answer the finding `- fixed: <quote> — hand edit {he}` in a new response file; one fresh-reader "
+              f"pass on the edited version; the status check again (it judges the edit); render the PDF again")
+        return 0
     if a.save:
         path, probs = save(cfg, a.doc, a.round, sys.stdin.read())
         for p in probs:
-            print(f"PROBLEM  {p}")
+            print(project.problem_line(p, "reader-check"))
         if probs:
             print("record NOT saved" if path is None else f"record written to {path}, see above")
             return 1
         print(f"saved and committed {path}")
         return 0
-    probs = check(cfg, a.doc, a.round)
+    probs, disc = project.split(cfg, check(cfg, a.doc, a.round))
     for p in probs:
-        print(f"PROBLEM  {p}")
+        print(project.problem_line(p, "reader-check"))
+    for p in disc:
+        print(project.disclosed_line(p))
     for nt in history_notes(readers_dir(cfg), key):
         # harmless to the gate (records are read as first committed), but the human is told
         print(f"NOTE     reader record changed after its commit (shown to the human): {nt}")
-    print(f"fresh-reader gate for {key}: {'OK' if not probs else 'REFUSED'}")
+    oc = getattr(check, "outcome", None)
+    print(f"fresh-reader gate for {key}: {'OK' if not probs else 'REFUSED'}"
+          + (f" -- {oc[1]}" if oc and not probs else "")
+          + (f" ({len(disc)} disclosed, release mode: record them with stops.py disclose)" if disc else ""))
     return 1 if probs else 0
 
 
@@ -574,6 +1229,7 @@ def selftest():
         root = os.path.join(d, "rr"); rdir = os.path.join(root, "readers"); os.makedirs(rdir)
         RN = "2026-01-01-abc1234"
         os.makedirs(os.path.join(root, RN))
+        open(os.path.join(root, RN, "TARGET.json"), "w").write("{}")   # a round (project.is_round)
         doc = os.path.join(root, "DECISIONS.md")
         def put(text, tag=RN):
             open(doc, "w").write((f"<!-- decisions-round: {tag} -->\n" if tag else "") + text)
@@ -590,6 +1246,9 @@ def selftest():
         F2 = "- BLOCKING: tex l.447 is quoted with the wrong bound on m"
         h1 = put("v1\n")
         say("no pass: refused", any("no fresh-reader" in p for p in C()))
+        say("release mode: the gate's own findings are disclosed (reader); dev keeps them blocking",
+            bool(C()) and project.split({"mode": "release"}, C()) == ([], C()) and C()[0].code == "reader"
+            and project.split({"mode": "dev"}, C()) == (C(), []))
         reader(1, h1, "VERDICT: NO BLOCKING PROBLEMS", findings=("- NOT BLOCKING: style",))
         say("a clean pass on the delivered version: accepted", C() == [])
         put("v2\n")
@@ -597,6 +1256,12 @@ def selftest():
         h2 = put("v2\n")
         reader(2, h2, "VERDICT: BLOCKING PROBLEMS: 1", findings=(F1,))
         say("an unanswered blocking finding: refused", any("not answered" in p for p in C()))
+        say("review H2: an unanswered BLOCKING finding blocks in release too",
+            any("not answered" in p for p in project.split({"mode": "release"}, C())[0]))
+        say("review H2: on the sign-off sheet (the pre-approval faithfulness check) even a missing or stale pass "
+            "blocks in release; on another document it is disclosed",
+            project.split({"mode": "release"}, [stale_finding("signoff-2026-01-01-abc1234", "x")])[0] == ["x"]
+            and project.split({"mode": "release"}, [stale_finding("report-R", "x")])[1] == ["x"])
         respond(2, "- fixed: the count of CHECK rows says 15 — now says 16, matching SIGNOFF.json")
         say("'fixed' on the newest pass is not enough: a new pass must read the fix",
             any("marked fixed" in p for p in C()))
@@ -775,6 +1440,32 @@ def selftest():
         open(os.path.join(root, f"KNOWN_FAULTS-{key}.md"), "w").write(
             "- the report has no page-1 box\n    listing paper defects (closed by H4)\n")
         say("a notice copying the finding across a line break still quotes it", C() == [])
+        oc1 = check.outcome
+        open(os.path.join(rdir, f"{key}-7.response-2.md"), "w").write(
+            "- unfixable: the report has no page-1 box listing paper defects — fix budget reached\n")
+        C()
+        oc2 = check.outcome
+        open(os.path.join(root, "RUN_LOG.md"), "w").write(
+            "# Run log\n## Fresh readers\n- the fresh-reader gate for the decisions passed after 3 passes\n")
+        lc1 = C()
+        open(os.path.join(root, "RUN_LOG.md"), "w").write(
+            "# Run log\n## Fresh readers\n- decisions: 3 reader passes; NOT passed: 1 finding unfixable at the fix budget\n")
+        lc2 = C()
+        os.remove(os.path.join(root, "RUN_LOG.md"))
+        os.remove(os.path.join(rdir, f"{key}-7.response-2.md"))
+        say("mini4 audit: a gate that ends with a blocking finding answered unfixable says NOT passed (and the fix "
+            "budget); a run-log line saying it passed is refused until it says what happened",
+            oc1 and not oc1[0] and "NOT passed" in oc1[1] and "1 blocking finding(s) answered unfixable" in oc1[1]
+            and "fix budget" not in oc1[1] and oc2 and "(1 at the fix budget)" in oc2[1]
+            and any("RUN_LOG.md says the fresh-reader check" in p and "say what happened" in p for p in lc1)
+            and lc2 == [] and outcome_text("k", 0, 0)[0])
+        # conf1 (C1 audit): the README D line of the delivered summary, from the real gate's numbers
+        oc_c1 = outcome_text("summary-2026-10-25-full-ecc11cecdd0", 8, 8)
+        say("conf1: an unfixable finding is said to be quoted in RUN_RECORD.md, where the delivery folds its notice in, "
+            "never \"delivered with the document\" (no KNOWN_FAULTS file is delivered)",
+            not oc_c1[0] and oc_c1[1] == "NOT passed: it ended with 8 blocking finding(s) answered unfixable (8 at the fix "
+            "budget), quoted in RUN_RECORD.md (from the notice KNOWN_FAULTS-summary-2026-10-25-full-ecc11cecdd0.md, "
+            "folded in there; it is not delivered as a file)")
         open(os.path.join(root, f"KNOWN_FAULTS-{key}.md"), "w").write("- the report has no page-1\n")
         say("a notice quoting only the start of an unfixable finding is refused", any("does not quote" in p for p in C()))
         open(os.path.join(root, f"KNOWN_FAULTS-{key}.md"), "w").write(
@@ -798,12 +1489,24 @@ def selftest():
         say("the report's real date stamps (md and tex) do not change its hash",
             content_hash([a, ta], "report") == content_hash([b, tb], "report"))
         say("...but a date line in a hand-written document does", content_hash([a], "decisions") != content_hash([b], "decisions"))
-        tc = _w(d, "c/REPORT.tex", "{\\small Generated 2026-10-13 from the audit records. Do not edit this file.}\nY\n")
-        say("a generator-only change (the .tex differs) changes the report's hash",
-            content_hash([a, ta], "report") != content_hash([a, tc], "report"))
         _w(d, "rr/REPORT.md", "r"); _w(d, "rr/REPORT.tex", "t")
-        say("the report resolves to both its markdown and its LaTeX (generator changes count)",
-            [os.path.basename(x) for x in resolve(cfg, "report")[1]] == ["REPORT.md", "REPORT.tex"])
+        say("PDF-AGENTS: the report resolves to its markdown only (a leftover .tex is read by nothing)",
+            [os.path.basename(x) for x in resolve(cfg, "report")[1]] == ["REPORT.md"])
+        say("PDF-AGENTS migration shim: the old md+tex hash of the unchanged md is recognised; a changed md is not",
+            legacy_hash(resolve(cfg, "report")[1], "report") == content_hash(
+                [os.path.join(d, "rr/REPORT.md"), os.path.join(d, "rr/REPORT.tex")], "report")
+            and legacy_hash(resolve(cfg, "report")[1], "report") != content_hash(resolve(cfg, "report")[1], "report")
+            and legacy_hash([os.path.join(d, "rr/DECISIONS.md")], "decisions") is None)
+        _lr = os.path.join(d, "rr", "readers", f"report-{RN}-1.md")
+        _lh = content_hash([os.path.join(d, "rr/REPORT.md"), os.path.join(d, "rr/REPORT.tex")], "report")
+        _w(d, f"rr/readers/report-{RN}-1.md", f"sha256: {_lh}\ncoverage: all\nVERDICT: NO BLOCKING PROBLEMS\n")
+        _ok_old = check(cfg, "report", check_git=False) == []
+        _w(d, "rr/REPORT.md", "r changed")
+        _ok_new = any("changed after" in str(p_) for p_ in check(cfg, "report", check_git=False))
+        _w(d, "rr/REPORT.md", "r")
+        os.remove(_lr)
+        say("PDF-AGENTS migration shim, at the gate: a pass recorded on the md and its .tex stands while the md is "
+            "unchanged, and goes stale once the md changes", _ok_old and _ok_new)
         say("the report's history is per cycle (keyed by the newest round)", resolve(cfg, "report")[0] == f"report-{RN}")
         k1, _, _ = resolve(cfg, "other:" + _w(d, "rr/x/SUM.md", "s"))
         k2, _, _ = resolve(cfg, "other:" + _w(d, "rr/y/SUM.md", "s"))
@@ -811,10 +1514,10 @@ def selftest():
         say("an other: document outside the rounds directory is refused (a copy must not reset its history)",
             _raises(lambda: resolve(cfg, "other:" + _w(d, "elsewhere/SUM.md", "s"))))
         say("the sheet needs its round", _raises(lambda: resolve(cfg, "signoff")))
-        _w(d, f"rr/{RN}/SIGNOFF.md", "m"); _w(d, f"rr/{RN}/SIGNOFF.tex", "t")
-        say("the sheet hashes its rendered md and tex, not SIGNOFF.json",
+        _w(d, f"rr/{RN}/SIGNOFF.md", "m")
+        say("the sheet hashes its rendered md, not SIGNOFF.json (nor a PDF)",
             [os.path.basename(x) for x in (_try(lambda: resolve(cfg, "signoff", RN)) or ["", []])[1]]
-            == ["SIGNOFF.md", "SIGNOFF.tex"])
+            == ["SIGNOFF.md"])
         say("--round approved without an approval record: refused", _raises(lambda: resolve(cfg, "signoff", "approved")))
         _w(d, "rr/APPROVED_FINGERPRINTS.json", json.dumps({"round": RN}))
         say("--round approved reads the round from the approval record",
@@ -844,6 +1547,12 @@ def selftest():
                 rc = main(["--doc", "decisions", "--check"])
             say("the CLI gate runs the history check (an uncommitted record edit is refused)",
                 rc == 1 and "not committed" in buf.getvalue())
+            project.select = lambda name=None: (dict(cfg, mode="release"), None)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main(["--doc", "decisions", "--check"])
+            say("release mode: an uncommitted reader record still refuses the gate (integrity)",
+                rc == 1 and "PROBLEM[reader-check] reader record or notice not committed" in buf.getvalue())
             g("checkout", "--", os.path.relpath(os.path.join(rdir, f"{key}-1.md"), d))
         finally:
             project.select = sel
@@ -961,11 +1670,11 @@ def selftest():
         uni = tempfile.mkdtemp(prefix="readers-uni-")
         gu = lambda *x: subprocess.run(["git", "-c", "commit.gpgsign=false", "-C", uni, *x], capture_output=True, text=True)
         gu("init", "-q"); gu("config", "user.email", "t@t"); gu("config", "user.name", "t")
-        _w(uni, "Erdős/readers/k-1.md", "FIRSTVERSION\n"); gu("add", "-A"); gu("commit", "-qm", "reader k 1")
-        _w(uni, "Erdős/readers/k-1.md", "edited\n"); gu("commit", "-qam", "edit")
+        _w(uni, "Gödel/readers/k-1.md", "FIRSTVERSION\n"); gu("add", "-A"); gu("commit", "-qm", "reader k 1")
+        _w(uni, "Gödel/readers/k-1.md", "edited\n"); gu("commit", "-qam", "edit")
         saved_a = project.AUDITS; project.AUDITS = uni
         try:
-            tx_ = _try(lambda: record_texts(os.path.join(uni, "Erdős", "readers")))
+            tx_ = _try(lambda: record_texts(os.path.join(uni, "Gödel", "readers")))
             say("a non-ASCII rounds directory works, and records are read as first committed",
                 tx_ is not None and tx_.get("k-1.md") == "FIRSTVERSION\n")
         finally:
@@ -977,6 +1686,7 @@ def selftest():
         saved_ra = (project.REPO, project.AUDITS); project.REPO = project.AUDITS = sv
         try:
             os.makedirs(os.path.join(sv, "rr", RN))
+            open(os.path.join(sv, "rr", RN, "TARGET.json"), "w").write("{}")
             dp = os.path.join(sv, "rr", "DECISIONS.md")
             open(dp, "w").write(f"<!-- decisions-round: {RN} -->\nthe document\n")
             gs("add", "-A"); gs("commit", "-qm", "setup")
@@ -1004,8 +1714,441 @@ def selftest():
     finally:
         project.REPO, project.AUDITS = saved
         shutil.rmtree(d, ignore_errors=True)
+    for name, ok in _b10_controls():
+        say(name, ok)
+    for name, ok in _docfix_controls():
+        say(name, ok)
     print("selftest:", "ok" if all(res) else "FAILED")
     return 0 if all(res) else 1
+
+
+def _b10_controls():
+    """B10 (U2 §6.3, ADDENDUM N4): the summary document, the reader modes, finding labels and the fix budget."""
+    out = []
+    d = tempfile.mkdtemp(prefix="readers-b10-")
+    saved = (project.REPO, project.AUDITS)
+    G = lambda *a: subprocess.run(["git", "-C", d, *a], capture_output=True, text=True)
+    try:
+        project.REPO = project.AUDITS = d
+        G("init", "-q"); G("config", "user.email", "t@t"); G("config", "user.name", "t")
+        RN = "2026-01-01-abc1234"
+        root = os.path.join(d, "rr")
+        _w(root, f"{RN}/TARGET.json", "{}")
+        smd = _w(root, "SUMMARY.md", "# Summary\n- result: Lemma 1 — faithful\n")
+        rdir = os.path.join(root, "readers")
+        os.makedirs(rdir)
+        cfg = {"rounds_dir": "rr", "mode": "release"}
+        key = f"summary-{RN}"
+        out.append(("B10: --doc summary resolves to SUMMARY.md, keyed by the newest round; the reader reads the md",
+                    resolve(cfg, "summary")[0] == key and resolve(cfg, "summary")[1] == [smd]
+                    and resolve(cfg, "summary")[2].endswith("SUMMARY.md") and mode_of("summary") == "gated"
+                    and mode_of("report") == mode_of("decisions") == "single" and mode_of("other:/x") == "gated"))
+        miss = check(cfg, "summary", check_git=False)
+        out.append(("B10: a missing summary pass blocks in release too (gated at every level; never disclosed)",
+                    bool(miss) and project.split(cfg, miss)[1] == []))
+        h = content_hash([smd], "summary")
+
+        def rec(k, n, sha, findings=(), dkey=None):
+            _w(rdir, f"{dkey or key}-{n}.md", f"sha256: {sha}\ncoverage: all\n" + "".join(f + "\n" for f in findings)
+               + (f"VERDICT: BLOCKING PROBLEMS: {sum(1 for f in findings if f.startswith('- BLOCKING'))}"
+                  if any(f.startswith("- BLOCKING") for f in findings) else "VERDICT: NO BLOCKING PROBLEMS") + "\n")
+        CF = "- BLOCKING: [content] Lemma 1 reads faithful but PAPER_DEFECTS.md row 1 names it"
+        PF = "- BLOCKING: [presentation] the line about Lemma 2 wraps in the middle of a name"
+        rec(key, 1, h, (CF, PF))
+        _w(rdir, f"{key}-1.response.md", "- unfixable: Lemma 1 reads faithful but PAPER_DEFECTS — no fix open\n"
+           "- unfixable: the line about Lemma 2 wraps — a generator fault\n")
+        _w(root, f"KNOWN_FAULTS-{key}.md", "Lemma 1 reads faithful but PAPER_DEFECTS.md row 1 names it\n"
+           "the line about Lemma 2 wraps in the middle of a name\n")
+        G("add", "-A"); G("commit", "-qm", "x")
+        c0 = check(cfg, "summary", check_git=False)
+        out.append(("N4: a [content] finding answered unfixable while the run's reader-fix budget is unspent is refused "
+                    "(it goes to the adjudicator's reader-fix round); DOC-FIX G4: a [presentation] one answered "
+                    "\"unfixable: a generator fault\" is refused (reject, tool patch or hand edit)",
+                    any("content finding" in p and "reader-fix" in p for p in c0)
+                    and any("wraps" in p and "fault of the generated" in p for p in c0)))
+        # the operator rejects it with a reason (approver 2026-10-25, answer 1)
+        _w(rdir, f"{key}-1.response-2.md", "- dismissed: the line about Lemma 2 wraps — trivial: the PDF sets the name "
+           "on one line; neither faithfulness nor readability is affected\n")
+        G("add", "-A"); G("commit", "-qm", "x2")
+        cf0 = content_findings(cfg)
+        out.append(("N4: content_findings lists the unanswered-or-unfixable [content] findings, never a [presentation] one",
+                    [f for _k, _n, f in cf0] == [CF[len("- BLOCKING: "):]]))
+        for k in (1, 2):
+            G("commit", "-q", "--allow-empty", "-m", f"reader-fix {RN} {k}")
+        out.append(("N4: once both reader-fix rounds are spent, the content finding may be left unfixable (in the notice; "
+                    "release)", fix_rounds_used(cfg) == 2 and check(cfg, "summary", check_git=False) == []))
+        out.append(("U2 §6.3 (dev): a blocking finding past the fix budget is a stop, never disclosed",
+                    any("dev mode" in p for p in check(dict(cfg, mode="dev"), "summary", check_git=False))))
+        _w(rdir, f"{key}-1.response-3.md", "- dismissed: Lemma 1 reads faithful but PAPER_DEFECTS — row 1 is about Lemma 3\n")
+        out.append(("N4: a dismissed content finding is not sent to a reader fix",
+                    content_findings(cfg) == []))
+        # single mode: exactly one pass per version, once the delivery flow runs (DELIVERY.json)
+        dmd = _w(root, "DECISIONS.md", f"<!-- decisions-round: {RN} -->\n# D\n")
+        hd = content_hash([dmd], "decisions")
+        rec(None, 1, hd, dkey=f"decisions-{RN}")
+        rec(None, 2, hd, dkey=f"decisions-{RN}")
+        two_old = check(cfg, "decisions", check_git=False)
+        _w(root, DELIVERY_RECORD, "{}")
+        two_new = check(cfg, "decisions", check_git=False)
+        out.append(("U2 §6.3: a single-pass document (DECISIONS, REPORT) gets exactly one pass per version: a second "
+                    "pass on the same version is refused once prepare has run (an older run's records keep their rules)",
+                    two_old == [] and any("exactly one pass per version" in p for p in two_new)))
+        os.remove(os.path.join(rdir, f"decisions-{RN}-2.md"))
+        out.append(("U2 §6.3: one pass on the current version of a single-pass document is enough",
+                    check(cfg, "decisions", check_git=False) == []))
+        # with git: a pass recorded before the first prepare keeps its old rules (an older run's records)
+        rmd = _w(root, "REPORT.md", "# R\n")
+        os.remove(os.path.join(root, DELIVERY_RECORD))
+        hr = content_hash([rmd], "report")
+        rk = f"report-{RN}"
+        UF = "- BLOCKING: an old finding in the run's own words"
+        rec(None, 1, hr, (UF,), dkey=rk)
+        _w(rdir, f"{rk}-1.response.md", "- unfixable: an old finding in the run's own words — fix budget reached\n")
+        _w(root, f"KNOWN_FAULTS-{rk}.md", "an old finding in the run's own words\n")
+        rec(None, 2, hr, dkey=rk)
+        G("add", "-A"); G("commit", "-qm", "an older run's passes")
+        _w(root, DELIVERY_RECORD, "{}")
+        G("add", "-A"); G("commit", "-qm", "prepare delivery")
+        old_ok = check(cfg, "report")
+        rec(None, 3, hr, (CF,), dkey=rk)
+        _w(rdir, f"{rk}-3.response.md", "- unfixable: Lemma 1 reads faithful but PAPER_DEFECTS — no fix open\n")
+        G("add", "-A"); G("commit", "-qm", "a pass after prepare")
+        G("reset", "-q", "--soft", "HEAD~0")
+        out.append(("B10 honest path: a pass recorded before the first prepare keeps the rules it was answered under "
+                    "(unlabelled unfixable, two passes on one text); a pass after it follows the delivery rules",
+                    old_ok == [] and any("Lemma 1 reads faithful" in p for p in check(cfg, "report"))
+                    and flow_passes(cfg, [f"{rk}-1.md", f"{rk}-3.md"]) == {f"{rk}-3.md"}))
+    finally:
+        project.REPO, project.AUDITS = saved
+        shutil.rmtree(d, ignore_errors=True)
+    return out
+
+
+def _docfix_controls():
+    """DOC-FIX (approver 2026-10-25): a fault an agent finds in a generated document is rejected, fixed in the
+    generator, or hand-edited after the final prepare -- recorded, chained, judged by the status check."""
+    out = []
+    d = tempfile.mkdtemp(prefix="readers-docfix-")
+    saved = (project.REPO, project.AUDITS)
+    G = lambda *a: subprocess.run(["git", "-C", d, *a], capture_output=True, text=True)
+    try:
+        project.REPO = project.AUDITS = d
+        G("init", "-q"); G("config", "user.email", "t@t"); G("config", "user.name", "t")
+        RN = "2026-01-01-abc1234"
+        root = os.path.join(d, "rr")
+        cfg = {"rounds_dir": "rr", "mode": "release"}
+        _w(root, f"{RN}/TARGET.json", "{}")
+        gen = "# Summary\n- defect 1 — Lemma 1.2: false; typo; decided since (REPORT §5)\n- result: Lemma 1 — faithful\n"
+        smd = _w(root, "SUMMARY.md", gen)
+        rdir = os.path.join(root, "readers")
+        key = f"summary-{RN}"
+        PF = "- BLOCKING: [presentation] the defect 1 line is cut short after decided since and says nothing"
+        _w(rdir, f"{key}-1.md", f"sha256: {content_hash([smd], 'summary')}\ncoverage: all\n{PF}\n"
+           "VERDICT: BLOCKING PROBLEMS: 1\n")
+        G("add", "-A"); G("commit", "-qm", "records and a reader")
+        F = f"readers/{key}-1.md: the defect 1 line is cut short after decided since"
+        # before any prepare a hand edit is refused (it comes after the final prepare)
+        open(smd, "a").write("x\n")
+        he0, p0 = record_hand_edit(cfg, "summary", F)
+        open(smd, "w").write(gen)
+        json.dump({"hashes": {"SUMMARY.md": project.doc_text_hash("SUMMARY.md", gen)}},
+                  open(os.path.join(root, DELIVERY_RECORD), "w"))
+        G("add", "-A"); G("commit", "-qm", PREPARE_SUBJECT)
+        un = record_hand_edit(cfg, "summary", F)
+        sheet = record_hand_edit(cfg, "signoff", F)
+        open(smd, "w").write(gen.replace("decided since (REPORT §5)",
+                                         "decided by the operator under hands-off ([DELEGATED]), REPORT §5"))
+        bad_src = record_hand_edit(cfg, "summary", "RUN_LOG.md: the defect 1 line is cut short after decided since")
+        bad_q = record_hand_edit(cfg, "summary", f"readers/{key}-1.md: a quote the reader never wrote at all")
+        out.append(("DOC-FIX: a hand edit is refused before the final prepare, on an unchanged document, on the sheet, "
+                    "and for a finding that is not an agent's committed record (or not quoted from it); nothing is "
+                    "written",
+                    he0 is None and any("after the final prepare" in x for x in p0)
+                    and un[0] is None and any("unchanged" in x for x in un[1])
+                    and sheet[0] is None and any("sheet" in x for x in sheet[1])
+                    and bad_src[0] is None and any("--finding must be" in x for x in bad_src[1])
+                    and bad_q[0] is None and any("does not stand" in x for x in bad_q[1])
+                    and not os.path.isdir(os.path.join(root, HE_DIR))))
+        # a status check committed BEFORE the edit cannot have judged it
+        _w(root, "status-check/FINDINGS.md", "# Status check\n\n## Hand edits\n\n- HE1: OK -- written early\n")
+        G("add", "--", "rr/status-check"); G("commit", "-qm", "status-check: findings")
+        he, ps = record_hand_edit(cfg, "summary", F)
+        early = judgement_problems(cfg)
+        subj = G("log", "-1", "--format=%s").stdout.strip()
+        files = G("show", "--format=", "--name-only", "HEAD").stdout.split()
+        rec_ = json.load(open(os.path.join(root, HE_DIR, "HE1.json")))
+        out.append(("DOC-FIX: readers.py --hand-edit records HE1 (the finding, the prepare, the hashes before and "
+                    "after, the diff) and commits it with the document alone as \"hand-edit HE1 SUMMARY.md\"; the "
+                    "chain then holds",
+                    he == "HE1" and ps == [] and subj == "hand-edit HE1 SUMMARY.md"
+                    and sorted(files) == ["rr/SUMMARY.md", "rr/hand-edits/HE1.diff", "rr/hand-edits/HE1.json"]
+                    and rec_["base_sha256"] == project.doc_text_hash("SUMMARY.md", gen)
+                    and rec_["result_sha256"] == project.file_hash("SUMMARY.md", smd)
+                    and "+- defect 1 — Lemma 1.2: false; typo; decided by the operator" in
+                    open(os.path.join(root, HE_DIR, "HE1.diff")).read()
+                    and hand_edit_problems(cfg, "SUMMARY.md") == []
+                    and [r["he"] for r in live_hand_edits(cfg)] == ["HE1"]))
+        # the answer: fixed by HE1, and a fresh reader's pass on the edited version
+        _w(rdir, f"{key}-1.response.md", "- fixed: the defect 1 line is cut short — hand edit HE1\n")
+        _w(rdir, f"{key}-2.md", f"sha256: {content_hash([smd], 'summary')}\ncoverage: all\n"
+           "VERDICT: NO BLOCKING PROBLEMS\n")
+        G("add", "-A"); G("commit", "-qm", f"reader {key} 2")
+        ok_gate = check(cfg, "summary")
+        # an unrecorded edit on top: refused by the chain (on disk, then committed in another commit)
+        open(smd, "a").write("- stop S9 — gone\n")
+        disk_bad = hand_edit_problems(cfg, "SUMMARY.md")
+        G("add", "-A"); G("commit", "-qm", "tidy the summary")
+        commit_bad = hand_edit_problems(cfg, "SUMMARY.md")
+        G("reset", "-q", "--hard", "HEAD~1")
+        # a hand edit whose diff record was altered after its commit
+        open(os.path.join(root, HE_DIR, "HE1.diff"), "a").write("+ smuggled\n")
+        diff_bad = hand_edit_problems(cfg, "SUMMARY.md")
+        G("checkout", "-q", "--", "rr/hand-edits/HE1.diff")
+        # a forged "hand-edit HE2" commit by hand whose diff record is not the diff it made
+        open(smd, "a").write("- forged line\n")
+        rec2 = dict(rec_, base_sha256=rec_["result_sha256"], result_sha256=project.file_hash("SUMMARY.md", smd))
+        json.dump(rec2, open(os.path.join(root, HE_DIR, "HE2.json"), "w"))
+        open(os.path.join(root, HE_DIR, "HE2.diff"), "w").write("diff --git a/SUMMARY.md b/SUMMARY.md\n+- another line\n")
+        G("add", "-A"); G("commit", "-qm", "hand-edit HE2 SUMMARY.md")
+        forged = hand_edit_problems(cfg, "SUMMARY.md")
+        G("reset", "-q", "--hard", "HEAD~1")
+        out.append(("DOC-FIX G1: an edit outside a recorded hand edit is refused, uncommitted or committed under "
+                    "another subject, and so is a hand-edit record changed after its commit; the honest chain and "
+                    "the reader gate pass",
+                    ok_gate == [] and any("outside a recorded hand edit" in x for x in disk_bad)
+                    and any("no recorded hand edit" in x for x in commit_bad)
+                    and any("changed after its commit" in x or "is not the diff" in x for x in diff_bad)
+                    and any("HE2.diff is not the diff" in x for x in forged)))
+        # G5: the status check judges the edit; its FINDINGS.md must be the issued agent's, sealed (DOC-FIX review #3)
+        import run_record as RR
+        no_judge = judgement_problems(cfg)
+        sc = os.path.join(root, "status-check", "FINDINGS.md")
+        HEAD_ = "# Status check\n\n## Mismatches\n\n- none\n\n## Hand edits\n\n"
+
+        def begin_():
+            try:
+                return RR.begin_status_run(cfg)
+            except ValueError as e_:
+                return "refused: " + str(e_)
+
+        def agent_(body):
+            """the issued agent: FINDINGS.md with its run's token; returns the digest of its completion line"""
+            txt = HEAD_ + f"run-token: {RR.begin_status_run.token}\n" + body
+            open(sc, "w").write(txt)
+            return hashlib.sha256(txt.encode()).hexdigest()
+
+        def seal_(dg, who="agent-1"):
+            try:
+                return RR.seal_status_run(cfg, dg, who)
+            except ValueError as e_:
+                return "refused: " + str(e_)
+        # a mutant may break this fixture's sequence (a refusal where a run was expected): a failed check, never
+        # a crash (mutants.py counts a crash as saying nothing)
+        g5_ok = True
+        try:
+            n1 = begin_()
+            # the operator types the verdict (the early file, re-committed after the edit): no token, no seal
+            open(sc, "w").write(HEAD_ + "- HE1: OK -- typed by the operator\n")
+            G("add", "-A"); G("commit", "-qm", "status-check: findings")
+            typed = judgement_problems(cfg)
+            typed_seal = seal_(hashlib.sha256(open(sc, "rb").read()).hexdigest())
+            n2 = begin_()             # run 1 gave no sealed verdict: a failed run, run again (the same SUMMARY.md)
+            failed1 = RR.status_runs(cfg)[0].get("failed", "")
+            no_file = judgement_problems(cfg)       # run 2's agent wrote nothing
+            n3 = begin_()
+            failed2 = RR.status_runs(cfg)[1].get("failed", "")
+            agent_("- HE1: fine\n")                # run 3's agent wrote no verdict line
+            G("add", "-A"); G("commit", "-qm", "status-check: findings")
+            no_line = judgement_problems(cfg)
+            n4 = begin_()                           # past the cap of 3: a failed run is never counted as a judgement
+            dg = agent_("- HE1: MISMATCH -- it says the operator decided; the records say so too, but it also drops "
+                        "the defect\n")
+            dirty = judgement_problems(cfg)
+            # DOC-FIX re-check #3(a): the tokened, complete, unsealed MISMATCH is a judgement -- no new run on it, and
+            # none either once it is deleted after a version of it was committed
+            unsealed_shop = begin_()
+            saved_ = open(sc).read()
+            G("add", "--", sc); G("commit", "-qm", "status-check: findings", "--", sc)
+            os.remove(sc)
+            deleted_shop = begin_()
+            G("reset", "-q", "--soft", "HEAD~1"); G("reset", "-q", "--", sc)
+            open(sc, "w").write(saved_)
+            bad_seal = seal_("0" * 64)
+            sealed = seal_(dg)
+            seal_subj = G("log", "-1", "--format=%s").stdout.strip()
+            mism = judgement_problems(cfg)
+            shop = begin_()                         # a sealed verdict is a judgement: no new run on the same edits
+            typed_over = open(sc).read().replace("MISMATCH", "OK")
+            open(sc, "w").write(typed_over)
+            G("add", "-A"); G("commit", "-qm", "status-check: findings")
+            over = judgement_problems(cfg)
+            restore_msg = begin_()            # review 2: a sealed run's file replaced -> restore the sealed version
+            G("reset", "-q", "--hard", "HEAD~1")
+            rr_lines = "\n".join(RR.status_check_lines(cfg))
+            out.append(("DOC-FIX review #2/#3: a status-check run that gave no sealed verdict on the live hand edits (a "
+                        "verdict typed by the operator, no FINDINGS.md, no verdict line) failed: a mechanical failure, "
+                        "recorded, never a judgement; it is run again whatever the SUMMARY.md and the cap. A verdict "
+                        "line not in the issued agent's sealed file is refused, the seal refuses a file without the run's "
+                        "token or with another digest; a sealed MISMATCH is a judgement (no re-run on the same edits)",
+                        n1 == "status-check.txt" and any("no sealed verdict" in x and "not sealed" in x for x in typed)
+                        and typed_seal.startswith("refused: ") and "token" in typed_seal
+                        and n2 == "status-check-2.txt" and "not sealed" in failed1 and "HE1: OK" in failed1
+                        and any("not judged" in x for x in no_file) and n3 == "status-check-3.txt"
+                        and "wrote no FINDINGS.md" in failed2
+                        and any("no `- <HE>: OK|MISMATCH` line" in x for x in no_line) and n4 == "status-check-4.txt"
+                        and any("not judged" in x for x in dirty) and bad_seal.startswith("refused: ")
+                        and "not the file the agent returned" in bad_seal and not sealed.startswith("refused")
+                        and seal_subj == "status-check: seal run 4" and shop.startswith("refused: ")
+                        and any("not the one its seal names" in x for x in over)
+                        and "FAILED, a mechanical failure and not a judgement" in rr_lines
+                        and "sealed (agent `agent-1`)" in rr_lines))
+            out.append(("DOC-FIX re-check #3(a): an unsealed FINDINGS.md carrying the run's token and a verdict on every "
+                        "live hand edit is a judgement: no new run (it must be sealed), also after it is deleted once a "
+                        "version of it was committed",
+                        "restore the sealed version" in restore_msg and "checkout" in restore_msg
+                        and unsealed_shop.startswith("refused: ") and "it is a judgement" in unsealed_shop
+                        and "HE1: MISMATCH" in unsealed_shop and deleted_shop.startswith("refused: ")
+                        and "committed in" in deleted_shop))
+            out.append(("DOC-FIX review #4: a MISMATCH is undone by preparing again and re-applying the edits judged OK; "
+                        "the refusal never offers a hand edit restoring the text (the check judges each diff: it looped)",
+                        any("MISMATCH" in x and "preparing again" in x and "does not undo it" in x for x in mism)
+                        and not any("a hand edit restoring the generated text" in x for x in mism)))
+            # a second edit (HE2): the next run judges both, sealed OK
+            open(smd, "a").write("- result: Lemma 2 — faithful\n")
+            he2, _p2 = record_hand_edit(cfg, "summary", F)
+            n5 = begin_()
+            seal_(agent_("- HE1: OK -- it names who decided, as RUN_LOG.md does; no status changes\n"
+                         "- HE2: OK -- adds a row the records hold\n"))
+            okj = judgement_problems(cfg)
+            prompt_list = hand_edit_summary(cfg)
+        except (IndexError, KeyError, AttributeError, OSError, TypeError, ValueError):
+            g5_ok = False
+            out.append(("DOC-FIX review #2/#3/#4: the status-check fixture ran to its end", False))
+        out.append(("DOC-FIX G5: with a live hand edit --deliver needs the status check's judgement, committed after "
+                    "the edit: none, one committed before the edit or uncommitted is refused, MISMATCH is refused (undo "
+                    "it), OK passes; the prompt lists the edit's diff",
+                    g5_ok and any("not judged by the status check" in x for x in no_judge)
+                    and any("not judged by the status check" in x for x in early)
+                    and any("MISMATCH" in x for x in mism) and he2 == "HE2" and n5 == "status-check-5.txt"
+                    and okj == []
+                    and prompt_list == "HE1 (SUMMARY.md): rr/hand-edits/HE1.diff; HE2 (SUMMARY.md): rr/hand-edits/HE2.diff"))
+        # a later prepare erases the edit: the fixed answer naming it then refuses the gate (never silent)
+        open(smd, "w").write(gen)
+        G("add", "-A"); G("commit", "-qm", PREPARE_SUBJECT)
+        _w(rdir, f"{key}-3.md", f"sha256: {content_hash([smd], 'summary')}\ncoverage: all\n"
+           "VERDICT: NO BLOCKING PROBLEMS\n")
+        G("add", "-A"); G("commit", "-qm", f"reader {key} 3")
+        erased = check(cfg, "summary")
+        out.append(("DOC-FIX G3: a later prepare erases the hand edit (no longer live; named as erased), and the "
+                    "`fixed ... hand edit HE1` answer then refuses the gate although a reader passed the regenerated "
+                    "version",
+                    live_hand_edits(cfg) == [] and [r["he"] for r in erased_hand_edits(cfg)] == ["HE1", "HE2"]
+                    and any("hand edit HE1" in x and "re-apply" in x for x in erased)
+                    and judgement_problems(cfg) == []))
+        # approver 2026-10-26 ("make sure the agent guards those lines"): a plain trust line the generator wrote (here
+        # a stand-in event) is judged by the status check; the generator omitting or misstating it -> MISMATCH ->
+        # delivery refused, through the generator or a hand edit; judged OK after the fix -> accepted
+        import make_report as MR, inspect
+        keep_tp = list(MR.TRUST_LINE_PROVIDERS)
+        MR.TRUST_LINE_PROVIDERS[:] = [lambda c_: [MR.TrustEvent(
+            "TL-not-verified-S9", "a check could not be run", "Not verified: the check X could not be run.",
+            "RUN_RECORD.md: stop S9", "every result's status reads \"not verified: X\"")]]
+        try:
+            tl0 = trust_problems(cfg)
+            nt = begin_()
+            prompt_tl = MR.trust_line_summary(cfg)
+            dgt = agent_("- none\n\n## Trust lines\n\n- TL-not-verified-S9: MISMATCH -- the summary's first lines omit "
+                         "it; RUN_RECORD.md says \"stop S9\"\n")
+            tl_unsealed = trust_problems(cfg)
+            seal_t = seal_(dgt)
+            tl1 = trust_problems(cfg)
+            open(smd, "a").write("**Not verified: the check X could not be run.**\n")
+            G("add", "-A"); G("commit", "-qm", PREPARE_SUBJECT)
+            nt2 = begin_()
+            dgt2 = agent_("- none\n\n## Trust lines\n\n- TL-not-verified-S9: OK -- on the first lines and true\n"
+                          "- extra: MISMATCH -- \"Not verified: the record ...\" has no event\n")
+            seal_(dgt2)
+            tl_extra = trust_problems(cfg)
+            open(smd, "a").write("\n")       # the generator fixed, the documents prepared again
+            G("add", "-A"); G("commit", "-qm", PREPARE_SUBJECT)
+            nt3 = begin_()
+            dgt3 = agent_("- none\n\n## Trust lines\n\n- TL-not-verified-S9: OK -- on the first lines and true\n")
+            seal_(dgt3)
+            tl2 = trust_problems(cfg)
+            # review 3: an OK is bound to the SUMMARY.md it judged -- a later prepare asks for a new run, past the cap
+            open(smd, "a").write("- a later prepare\n")
+            G("add", "-A"); G("commit", "-qm", PREPARE_SUBJECT)
+            tl_stale = trust_problems(cfg)
+            nt4 = begin_()
+            seal_(agent_("- none\n\n## Trust lines\n\n- TL-not-verified-S9: OK -- still true\n"))
+            tl3 = trust_problems(cfg)
+            # review 3 (fail-safe): a trust sentence in SUMMARY.md that no provider stands for refuses delivery
+            open(smd, "a").write("**Not verified: the check Y could not be run (details for maintainers in "
+                                 "RUN_RECORD.md).**\n")
+            G("add", "-A"); G("commit", "-qm", PREPARE_SUBJECT)
+            tl_cov = trust_problems(cfg)
+            # with no event at all, an `extra` line the agent wrote is still read
+            MR.TRUST_LINE_PROVIDERS[:] = []
+            rp_ = os.path.join(root, "status-check", RR.STATUS_RUNS)    # that run read this SUMMARY.md
+            runs_ = json.load(open(rp_))
+            runs_[-1]["summary_sha256"] = RR.summary_sha(cfg)
+            json.dump(runs_, open(rp_, "w"))
+            open(sc, "w").write(HEAD_ + "- none\n\n## Trust lines\n\n- extra: MISMATCH -- \"Not verified: Y\" has no "
+                                "event\n")
+            tl_zero = trust_problems(cfg)
+            # re-check R1: the generator fixed (the stray sentence gone) and prepared again, past the cap: the extra
+            # line no longer counts, and a new run may judge the fixed summary
+            open(smd, "w").write(open(smd).read().replace("**Not verified: the check Y could not be run (details for "
+                                                          "maintainers in RUN_RECORD.md).**\n", ""))
+            G("add", "-A"); G("commit", "-qm", PREPARE_SUBJECT)
+            tl_fixed = trust_problems(cfg)
+            nt5 = begin_()
+            open(sc, "w").write(HEAD_ + "- none\n\n## Trust lines\n\n- none\n")     # the new run finds no extra line
+            tl_after = trust_problems(cfg)
+        finally:
+            MR.TRUST_LINE_PROVIDERS[:] = keep_tp
+        out.append(("approver 2026-10-26: a plain trust line is judged by the status check (its prompt lists the event): "
+                    "not judged, unsealed, a sealed MISMATCH (the generator omitted it) or an `extra` line refuse "
+                    "delivery (the generator or a hand edit, then judged again); judged OK passes",
+                    any("not judged by the status check" in x for x in tl0) and not nt.startswith("refused")
+                    and "TL-not-verified-S9" in prompt_tl and tl_unsealed and not seal_t.startswith("refused")
+                    and any("MISMATCH" in x and "hand edit" in x and "generator" in x for x in tl1)
+                    and not nt2.startswith("refused") and any("extra" in x for x in tl_extra)
+                    and not nt3.startswith("refused") and tl2 == [] and "what it weakens" in prompt_tl
+                    and any("earlier SUMMARY.md" in x for x in tl_stale) and not nt4.startswith("refused") and tl3 == []
+                    and any("no event of the record stands for it" in x and "check Y" in x for x in tl_cov)
+                    and any("extra" in x for x in tl_zero) and any("no event of the record" in x for x in tl_zero)
+                    and any("earlier SUMMARY.md" in x for x in tl_fixed) and not nt5.startswith("refused")
+                    and tl_after == []
+                    and "readers.trust_problems(cfg)" in inspect.getsource(MR.delivery_problems)))
+        # G4 on a content finding blaming the generator (after the reader-fix budget), and the report
+        rmd = _w(root, "REPORT.md", "# R\n| 1 | md row 1; no corrected variant |\n")
+        rk = f"report-{RN}"
+        CF = "- BLOCKING: [content] Section 5 row 1 decision cell begins mid-sentence"
+        _w(rdir, f"{rk}-1.md", f"sha256: {content_hash([rmd], 'report')}\ncoverage: all\n{CF}\n"
+           "VERDICT: BLOCKING PROBLEMS: 1\n")
+        _w(rdir, f"{rk}-1.response.md", "- unfixable: Section 5 row 1 decision cell — a fault of the pinned generator "
+           "make_report.py; fix budget reached\n")
+        _w(root, f"KNOWN_FAULTS-{rk}.md", "Section 5 row 1 decision cell begins mid-sentence\n")
+        for k_ in (1, 2):
+            G("commit", "-q", "--allow-empty", "-m", f"reader-fix {RN} {k_}")
+        G("add", "-A"); G("commit", "-qm", f"reader {rk} 1")
+        g4 = check(cfg, "report")
+        g4_dev = check(dict(cfg, mode="dev"), "report")
+        _w(rdir, f"{rk}-1.response-2.md", "- unfixable: Section 5 row 1 decision cell — the paper's own row is "
+           "garbled at tex l.93; nothing can fix it\n")
+        G("add", "-A"); G("commit", "-qm", f"reader {rk} 1 (response)")
+        paper = check(cfg, "report")
+        out.append(("DOC-FIX G4: \"unfixable\" blaming the generator is refused on the report even past the fix "
+                    "budget, in release and dev; an unfixable finding about the paper itself stays allowed",
+                    any("fault of the generated REPORT.md" in x for x in g4)
+                    and any("fault of the generated REPORT.md" in x for x in g4_dev)
+                    and not any("fault of the generated" in x for x in paper)
+                    and not any("Section 5" in x for x in paper)))
+    finally:
+        project.REPO, project.AUDITS = saved
+        shutil.rmtree(d, ignore_errors=True)
+    return out
 
 
 def _try(f):
@@ -1031,4 +2174,5 @@ def _w(d, name, text):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import project
+    sys.exit(project.run_main(main))

@@ -65,6 +65,17 @@ def check_sentence(s):
     return None
 
 
+def expected_verdict(kind, prompt_file):
+    """The verdict file a fallback child must name in its LANE_COMPLETION, from its prompt."""
+    return re.search(r'Write that JSON object, and nothing else, to (\S+\.json)', open(prompt_file).read()).group(1)
+
+
+def fallback_agent_id(log):
+    """The agent id a fallback lane is sealed under: its `codex exec` run's final-message log, which
+    identifies that run and where its output is (a bare "fallback-<n>" identified nothing)."""
+    return "codex-exec:" + os.path.abspath(log)
+
+
 def run_one(i, kind, sentence, log_dir, model, codex):
     log = os.path.join(log_dir, f"{i}-{kind}.md")
     # A reused log directory must never let a stale final message certify a failed run.
@@ -86,10 +97,10 @@ def run_one(i, kind, sentence, log_dir, model, codex):
                 raise ValueError("missing or ambiguous owner completion")
             done = __import__("json").loads(completions[0])
             prompt_file = SENTENCE_RE.match(sentence).group(1)
-            expected = re.search(r'Write that JSON object, and nothing else, to (\S+\.json)', open(prompt_file).read()).group(1)
+            expected = expected_verdict(kind, prompt_file)
             if os.path.realpath(done["verdict"]) != os.path.realpath(expected):
                 raise ValueError("child returned a different verdict path")
-            lane_auth.seal(expected, done["sha256"], f"fallback-{i}")
+            lane_auth.seal(expected, done["sha256"], fallback_agent_id(log))
         except (OSError, ValueError, KeyError, AttributeError) as e:
             with open(os.path.join(log_dir, f"{i}-{kind}.stderr.txt"), "a") as fh:
                 fh.write(f"\nSTOP: lane completion/seal failed: {e}\n")
@@ -151,6 +162,8 @@ def selftest():
         say("auditor input: the reviewer instructions without front matter, then the sentence",
             inp.startswith("You are one audit lane.") and "tools: Read" not in inp and inp.rstrip().endswith("whole task."))
         say("general input: the sentence alone", build_input("general", sent, ag) == sent + "\n")
+        say("a fallback lane is sealed under an id naming its own codex exec log",
+            fallback_agent_id("x/3-auditor.md") == "codex-exec:" + os.path.abspath("x/3-auditor.md"))
         say("a sentence naming an existing prompt file is accepted", check_sentence(sent) is None)
         say("free text is refused (nothing typed by the operator reaches a reviewer)",
             check_sentence("Please review thm_1_1 carefully") is not None)
@@ -203,4 +216,5 @@ def selftest():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import project
+    sys.exit(project.run_main(main))

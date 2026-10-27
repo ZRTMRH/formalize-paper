@@ -1,0 +1,540 @@
+{
+ "dev/hands-off": [
+  {
+   "gate": "integrity --check",
+   "rc": 1,
+   "tags": {
+    "FAIL[stop-trail]": 1,
+    "NOTE[before-pin]": 1,
+    "NOTE[config-grew]": 1,
+    "NOTE[repinned]": 1
+   }
+  },
+  {
+   "gate": "lanecheck 2026-10-21-161691dcf1d",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-d4f35bd5c88",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-60194cfb24a",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-c342ef1ef93",
+   "rc": 0,
+   "tags": {
+    "NOTE[independence]": 3
+   }
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-d4f35bd5c88",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "phase0 --readonly",
+   "rc": 1,
+   "tags": {
+    "FAIL[index]": 1,
+    "PENDING[adjudication]": 1,
+    "RED[dependencies]": 1,
+    "RED[index]": 1
+   }
+  },
+  {
+   "gate": "make_report --check",
+   "rc": 1,
+   "tags": {
+    "FAIL[adj-record]": 1
+   }
+  },
+  {
+   "gate": "decisions --check",
+   "rc": 1,
+   "tags": {
+    "PROBLEM[decisions]": 16
+   }
+  },
+  {
+   "gate": "readers --check report",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "readers --check decisions",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "readers --check signoff 2026-10-21-full-60194cfb24a",
+   "rc": 1,
+   "tags": {
+    "PROBLEM[reader-check]": 1
+   }
+  },
+  {
+   "gate": "stops list",
+   "rc": 0,
+   "tags": {
+    "disclosed[pdf]": 1,
+    "stop[mechanical]:the operator": 1
+   }
+  }
+ ],
+ "dev/involved": [
+  {
+   "gate": "integrity --check",
+   "rc": 1,
+   "tags": {
+    "FAIL[stop-trail]": 2,
+    "NOTE[before-pin]": 1,
+    "NOTE[config-grew]": 1,
+    "NOTE[repinned]": 1
+   }
+  },
+  {
+   "gate": "lanecheck 2026-10-21-161691dcf1d",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-d4f35bd5c88",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-60194cfb24a",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-c342ef1ef93",
+   "rc": 0,
+   "tags": {
+    "NOTE[independence]": 3
+   }
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-d4f35bd5c88",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "phase0 --readonly",
+   "rc": 1,
+   "tags": {
+    "FAIL[index]": 1,
+    "FAIL[report]": 1,
+    "PENDING[adjudication]": 1,
+    "RED[dependencies]": 1,
+    "RED[index]": 1,
+    "RED[report]": 1
+   }
+  },
+  {
+   "gate": "make_report --check",
+   "rc": 1,
+   "tags": {
+    "FAIL[adj-record]": 1,
+    "FAIL[report]": 1
+   }
+  },
+  {
+   "gate": "decisions --check",
+   "rc": 1,
+   "tags": {
+    "PROBLEM[decisions]": 8
+   }
+  },
+  {
+   "gate": "readers --check report",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "readers --check decisions",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "readers --check signoff 2026-10-21-full-60194cfb24a",
+   "rc": 1,
+   "tags": {
+    "PROBLEM[reader-check]": 1
+   }
+  },
+  {
+   "gate": "stops list",
+   "rc": 0,
+   "tags": {
+    "disclosed[pdf]": 1,
+    "stop[mechanical]:the operator": 1
+   }
+  }
+ ],
+ "dev/statements-only": [
+  {
+   "gate": "integrity --check",
+   "rc": 1,
+   "tags": {
+    "FAIL[stop-trail]": 1,
+    "NOTE[before-pin]": 1,
+    "NOTE[config-grew]": 1,
+    "NOTE[repinned]": 1
+   }
+  },
+  {
+   "gate": "lanecheck 2026-10-21-161691dcf1d",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-d4f35bd5c88",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-60194cfb24a",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-c342ef1ef93",
+   "rc": 0,
+   "tags": {
+    "NOTE[independence]": 3
+   }
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-d4f35bd5c88",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "phase0 --readonly",
+   "rc": 1,
+   "tags": {
+    "FAIL[index]": 1,
+    "FAIL[report]": 23,
+    "PENDING[adjudication]": 1,
+    "RED[dependencies]": 1,
+    "RED[index]": 1,
+    "RED[report]": 1
+   }
+  },
+  {
+   "gate": "make_report --check",
+   "rc": 1,
+   "tags": {
+    "FAIL[adj-record]": 1,
+    "FAIL[report]": 23
+   }
+  },
+  {
+   "gate": "decisions --check",
+   "rc": 1,
+   "tags": {
+    "PROBLEM[decisions]": 32
+   }
+  },
+  {
+   "gate": "readers --check report",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "readers --check decisions",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "readers --check signoff 2026-10-21-full-60194cfb24a",
+   "rc": 1,
+   "tags": {
+    "PROBLEM[reader-check]": 1
+   }
+  },
+  {
+   "gate": "stops list",
+   "rc": 0,
+   "tags": {
+    "disclosed[pdf]": 1,
+    "stop[mechanical]:the operator": 1
+   }
+  }
+ ],
+ "release/hands-off": [
+  {
+   "gate": "integrity --check",
+   "rc": 0,
+   "tags": {
+    "NOTE[before-pin]": 1,
+    "NOTE[config-grew]": 1,
+    "NOTE[repinned]": 1
+   }
+  },
+  {
+   "gate": "lanecheck 2026-10-21-161691dcf1d",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-d4f35bd5c88",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-60194cfb24a",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-c342ef1ef93",
+   "rc": 0,
+   "tags": {
+    "NOTE[independence]": 3
+   }
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-d4f35bd5c88",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "phase0 --readonly",
+   "rc": 1,
+   "tags": {
+    "FAIL[index]": 1,
+    "PENDING[adjudication]": 1,
+    "RED[dependencies]": 1,
+    "RED[index]": 1
+   }
+  },
+  {
+   "gate": "make_report --check",
+   "rc": 1,
+   "tags": {
+    "FAIL[adj-record]": 1
+   }
+  },
+  {
+   "gate": "decisions --check",
+   "rc": 1,
+   "tags": {
+    "PROBLEM[decisions]": 16
+   }
+  },
+  {
+   "gate": "readers --check report",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "readers --check decisions",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "readers --check signoff 2026-10-21-full-60194cfb24a",
+   "rc": 1,
+   "tags": {
+    "PROBLEM[reader-check]": 1
+   }
+  },
+  {
+   "gate": "stops list",
+   "rc": 0,
+   "tags": {
+    "disclosed[pdf]": 1,
+    "stop[mechanical]:the operator": 1
+   }
+  }
+ ],
+ "release/involved": [
+  {
+   "gate": "integrity --check",
+   "rc": 1,
+   "tags": {
+    "FAIL[stop-trail]": 1,
+    "NOTE[before-pin]": 1,
+    "NOTE[config-grew]": 1,
+    "NOTE[repinned]": 1
+   }
+  },
+  {
+   "gate": "lanecheck 2026-10-21-161691dcf1d",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-d4f35bd5c88",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-60194cfb24a",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-c342ef1ef93",
+   "rc": 0,
+   "tags": {
+    "NOTE[independence]": 3
+   }
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-d4f35bd5c88",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "phase0 --readonly",
+   "rc": 1,
+   "tags": {
+    "FAIL[index]": 1,
+    "FAIL[report]": 1,
+    "PENDING[adjudication]": 1,
+    "RED[dependencies]": 1,
+    "RED[index]": 1,
+    "RED[report]": 1
+   }
+  },
+  {
+   "gate": "make_report --check",
+   "rc": 1,
+   "tags": {
+    "FAIL[adj-record]": 1,
+    "FAIL[report]": 1
+   }
+  },
+  {
+   "gate": "decisions --check",
+   "rc": 1,
+   "tags": {
+    "PROBLEM[decisions]": 8
+   }
+  },
+  {
+   "gate": "readers --check report",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "readers --check decisions",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "readers --check signoff 2026-10-21-full-60194cfb24a",
+   "rc": 1,
+   "tags": {
+    "PROBLEM[reader-check]": 1
+   }
+  },
+  {
+   "gate": "stops list",
+   "rc": 0,
+   "tags": {
+    "disclosed[pdf]": 1,
+    "stop[mechanical]:the operator": 1
+   }
+  }
+ ],
+ "release/statements-only": [
+  {
+   "gate": "integrity --check",
+   "rc": 0,
+   "tags": {
+    "NOTE[before-pin]": 1,
+    "NOTE[config-grew]": 1,
+    "NOTE[repinned]": 1
+   }
+  },
+  {
+   "gate": "lanecheck 2026-10-21-161691dcf1d",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-d4f35bd5c88",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-60194cfb24a",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-c342ef1ef93",
+   "rc": 0,
+   "tags": {
+    "NOTE[independence]": 3
+   }
+  },
+  {
+   "gate": "lanecheck 2026-10-21-full-d4f35bd5c88",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "phase0 --readonly",
+   "rc": 1,
+   "tags": {
+    "FAIL[index]": 1,
+    "FAIL[report]": 23,
+    "PENDING[adjudication]": 1,
+    "RED[dependencies]": 1,
+    "RED[index]": 1,
+    "RED[report]": 1
+   }
+  },
+  {
+   "gate": "make_report --check",
+   "rc": 1,
+   "tags": {
+    "FAIL[adj-record]": 1,
+    "FAIL[report]": 23
+   }
+  },
+  {
+   "gate": "decisions --check",
+   "rc": 1,
+   "tags": {
+    "PROBLEM[decisions]": 32
+   }
+  },
+  {
+   "gate": "readers --check report",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "readers --check decisions",
+   "rc": 0,
+   "tags": {}
+  },
+  {
+   "gate": "readers --check signoff 2026-10-21-full-60194cfb24a",
+   "rc": 1,
+   "tags": {
+    "PROBLEM[reader-check]": 1
+   }
+  },
+  {
+   "gate": "stops list",
+   "rc": 0,
+   "tags": {
+    "disclosed[pdf]": 1,
+    "stop[mechanical]:the operator": 1
+   }
+  }
+ ]
+}

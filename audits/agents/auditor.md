@@ -6,8 +6,8 @@ disallowedTools: Agent, Edit, NotebookEdit
 ---
 
 You are one audit lane. The prompt you were given names your criterion. It is the only criterion
-you hold. If the project has an `AUDIT_PROTOCOL.md`, read it for the output schema and for the
-scope conventions; the prompt you were given overrides it where they differ.
+you hold. The prompt is your complete instructions, the output schema and the scope rules
+included: read no protocol file for them.
 
 # The one rule that is not negotiable
 
@@ -85,6 +85,10 @@ scratch scripts. Build the intended JSON bytes in memory, calculate their SHA-25
 those exact bytes to your verdict file. Keep the calculated digest in memory. Do not reread
 the file to determine the digest: another process could have replaced it.
 
+Before you build those bytes, write your last probe and put the output of
+`python3 audits/lane_auth.py manifest --verdict <your verdict path>` into the JSON as `"probes"`:
+the seal checks your probe directory against it, so nobody can delete or change a probe after you.
+
 Return `LANE_COMPLETION {"verdict":"<absolute verdict path>","sha256":"<digest>"}` in your
 final message. The launcher takes that digest only from your own thread's completion, checks
 your token and bytes, and commits an immutable completion seal. Never write commitments or
@@ -93,20 +97,12 @@ necessary to catch a replacement that copies your token. These are protocol rest
 with detection, not per-agent filesystem isolation, and do not detect transient writes that
 were subsequently restored.
 
-Write exactly the JSON object the protocol specifies for your lane to your verdict file. Then
-return a SHORT final message (at most 10 lines): the verdict file's path, the decision, the
+Write exactly the JSON object your prompt specifies (its schema and rules) to your verdict file.
+Then return a SHORT final message (at most 10 lines): the verdict file's path, the decision, the
 verdict counts, and the items that are not Pass. The file is the record; do not repeat it.
 Probes your verdicts rely on go under the probe directory your prompt names, not in scratch.
-
-- Every item in your scope gets an explicit verdict, and list that scope in the `scope` field.
-- **An item you omit is read as `NotDoneYet`, never as a pass.**
-- `NotDoneYet` means "I did not examine this carefully." It costs you nothing and it is the honest
-  answer whenever it is true. Marking `Pass` on something you skimmed is the only unrecoverable
-  error available to you: it silently retires the item, and no later round will look again.
-- `Fail` requires `evidence` (file:line and the exact text at fault) and `next_step` (a concrete
-  recommendation, not a complaint).
-- Anything outside your criterion goes in `out_of_lane`, unacted on. Do not chase it. Another lane
-  owns it, or the next round does.
+Anything outside your criterion goes in `out_of_lane`, unacted on. Do not chase it. Another lane
+owns it, or the next round does.
 
 # Two things you are trusted to get right
 

@@ -32,6 +32,8 @@ PATH.before-formalize-paper, created exclusively and never through a symlink.
 import sys
 sys.dont_write_bytecode = True   # stale bytecode would run code no file shows
 import argparse, json, os, re, shutil, tempfile
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import project  # noqa: E402
 
 KEY, VALUE = "PYTHONDONTWRITEBYTECODE", "1"
 # Claude Code permission rules, so that a run in the normal (default) permission mode asks for
@@ -45,30 +47,43 @@ KEY, VALUE = "PYTHONDONTWRITEBYTECODE", "1"
 # project settings; deny rules win over allow rules; project allow rules apply only after the
 # person accepts the workspace-trust dialog. Every rule below is something RUN.md,
 # AUDIT_PROTOCOL.md or the skill has the agent or a subagent run or write (checked 2026-10-19).
-SCRIPTS = ["audit_coverage", "axiom_sweep", "decisions", "integrity", "lane_auth", "lanecheck",
-           "phase0", "project", "prompt", "readers", "scope", "selftest_all", "signoff",
-           "tree_state", "unused_args"]
+SCRIPTS = sorted(project.scripts(agent_run=True))     # the registry (project.SCRIPTS)
 # The files the agent and its subagents write by hand: Lean (formalizer, helpers, probes), the
 # lakefile, the helpers' work_dir, the project config, and the records each role owns.
 RECORD_FILES = ["RUN_LOG.md", "AUTHOR_NOTES.md", "DEVIATIONS.md", "OUTCOMES.md", "READER_NOTES.md",
                 "DECISIONS.md", "PAPER_DEFECTS.md", "SKIPPED.md", "VACUOUS.md", "KNOWN_FAULTS-*.md",
-                "QUESTIONS-B-*.md", "readers/*.response*.md"]
+                "QUESTIONS-B-*.md", "readers/*.response*.md", "status-check/*.md"]
 EDITS = (["Edit(/**/*.lean)", "Edit(/lakefile.toml)", "Edit(/lakefile.lean)", "Edit(/.formalization-work/**)",
           "Edit(/audits/projects/*.json)"]
          + [f"Edit(/audits/*/{f})" for f in RECORD_FILES]
          + ["Edit(/audits/*/20*/*.json)", "Edit(/audits/*/20*/ADOPTED.md)", "Edit(/audits/*/20*/*.probes/**)",
             "Edit(/audits/*/20*/revote/*.json)", "Edit(/audits/*/20*/OUTCOMES.md)"])
+# PDF-AGENTS (approver, 2026-10-23): the rendering agents' own free use (render_record.py; run/render-pdf.md). The
+# input holds the paper's LaTeX, so a TeX engine is allowed only with shell escape off (-no-shell-escape first; a
+# later -shell-escape is denied below), LuaTeX also --safer, and pandoc only in its --sandbox; never latexmk (it runs
+# Perl from a latexmkrc). Not a sandbox (INSTALL.md, "Permissions"): anything else still asks.
+RENDER_TOOLS = ["Bash(pdflatex -no-shell-escape:*)", "Bash(xelatex -no-shell-escape:*)",
+                "Bash(lualatex --safer -no-shell-escape:*)", "Bash(pandoc --sandbox:*)",
+                "Bash(pdftoppm:*)", "Bash(pdftotext:*)", "Bash(pdfinfo:*)", "Bash(sha256sum:*)"]
+RENDER_DENY = ([f"Bash({e} * {o}*)" for e in ("pdflatex", "xelatex", "lualatex")
+                for o in ("-shell-escape", "--shell-escape", "-shell-restricted", "--shell-restricted",
+                          "-enable-write18", "--enable-write18")]
+               + [f"Bash(pandoc * {o}*)" for o in ("--filter", "-F", "--lua-filter", "-L", "--pdf-engine-opt",
+                                                  "--pdf-engine=latexmk", "--pdf-engine latexmk")])
 ALLOW = (["Bash(lake build:*)", "Bash(lake env lean:*)", "Bash(lake exe cache get)"]
          + [f"Bash(python3 audits/{n}.py:*)" for n in SCRIPTS]
          + ["Bash(git status:*)", "Bash(git rev-parse:*)", "Bash(git branch --show-current)",
             "Bash(git switch -c:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(git fetch upstream)",
             "Bash(git -C audits status:*)", "Bash(git -C audits add:*)", "Bash(git -C audits commit:*)",
+            # read-only history of the audit record: the adjudicator reads it
+            "Bash(git -C audits log:*)", "Bash(git -C audits show:*)",
             "Bash(git -C audits mv:*)", "Bash(git -C audits checkout -- *)"]
-         + EDITS)
+         + RENDER_TOOLS + EDITS)
 # What nobody in a run may edit (RUN.md rule 4: the pinned apparatus), whatever else allows it,
 # and Lake's package checkouts.
 DENY = ["Edit(/audits/*.py)", "Edit(/audits/*.lean)", "Edit(/audits/*.md)", "Edit(/audits/*.json)", "Edit(/audits/*.sh)",
-        "Edit(/audits/agents/**)", "Edit(/audits/skills/**)", "Edit(/audits/tests/**)", "Edit(/.lake/**)"]
+        "Edit(/audits/agents/**)", "Edit(/audits/run/**)", "Edit(/audits/skills/**)", "Edit(/audits/tests/**)", "Edit(/.lake/**)"] \
+    + RENDER_DENY
 
 
 class Refused(ValueError):
@@ -203,7 +218,7 @@ def selftest():
                 ok = bool(ok())
             except Exception as e:  # noqa: BLE001
                 name, ok = f"{name} ({type(e).__name__}: {e})", False
-        print(f"  {'ok  ' if ok else 'FAIL'} {name}")
+        print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
         if not ok:
             bad.append(name)
     def env_of(t):
@@ -274,6 +289,14 @@ def selftest():
                                        "audits/paper/readers/report-2.response-2.md",
                                        "audits/paper/QUESTIONS-B-2026-10-19-abc1234.md",
                                        ".formalization-work/scratch/correspondence-20261019T120000-1/p.lean")))
+    say("PDF-AGENTS: every TeX engine rule starts with -no-shell-escape (LuaTeX also --safer), pandoc only with "
+        "--sandbox, no latexmk; a later -shell-escape, a pandoc filter or engine option is denied",
+        all(("-no-shell-escape" in r) for r in RENDER_TOOLS if "latex" in r)
+        and all("--sandbox" in r for r in RENDER_TOOLS if "pandoc" in r)
+        and not any("latexmk" in r for r in RENDER_TOOLS)
+        and "Bash(xelatex:*)" not in ALLOW and "Bash(pandoc:*)" not in ALLOW
+        and all(f"Bash({e} * -shell-escape*)" in DENY for e in ("pdflatex", "xelatex", "lualatex"))
+        and "Bash(pandoc * --lua-filter*)" in DENY and "Bash(pandoc * --filter*)" in DENY)
     say("deny rules cover the pinned apparatus and Lake's packages on their own (whatever else allows)",
         all(any(glob_re(r[len("Edit(/"):-1]).match(p) for r in DENY)
             for p in ("audits/integrity.py", "audits/AUDIT_PROTOCOL.md", "audits/fingerprint_tail.lean",
@@ -281,6 +304,7 @@ def selftest():
                       "audits/skills/formalize-paper/SKILL.md", "audits/tests/mutants.py", ".lake/packages/x/X.lean")))
     say("the pinned apparatus and Lake's packages are not",
         not any(edit_allowed(p) for p in ("audits/integrity.py", "audits/AUDIT_PROTOCOL.md", "audits/RUN.md",
+                                           "audits/run/stage4-rounds.md",
                                            "audits/agents/auditor.md", "audits/fingerprint_tail.lean",
                                            "audits/skills/formalize-paper/SKILL.md", ".lake/packages/mathlib/Mathlib/X.lean")))
     say("bypassPermissions is warned about, never set",
@@ -390,4 +414,5 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import project
+    sys.exit(project.run_main(main))

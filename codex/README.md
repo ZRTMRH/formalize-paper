@@ -1,8 +1,10 @@
 # Codex CLI support (experimental)
 
-> **What "experimental" means in practice (0.2.0, Codex CLI 0.163.0)**
-> - It has been run end to end on one paper only: the one-page example note
->   (`examples/sparse-note`). For a real paper, use Claude Code.
+Codex support is experimental. One hands-off run on a small synthetic paper has completed end to end under Codex CLI 0.163.0, on a pre-release version of this protocol (about 12.5 h on a shared machine); the person had to step in six times (four "Selected model is at capacity" stalls, two sandbox approval requests, one of which left the run waiting 30 minutes for a child that declining had stopped). The fixes from that run are included here; Codex has not been re-run end to end on this exact version. For a real paper, use Claude Code.
+
+> **What "experimental" means in practice (tested with Codex CLI 0.163.0)**
+> - It has been run end to end twice: on the one-page example note (`examples/sparse-note`, 0.2.0)
+>   and on a small synthetic paper (a pre-release of 0.3.0). For a real paper, use Claude Code.
 > - A run can stall: a "Selected model is at capacity" error stops the session until someone
 >   types "resume". The optional watchdog only notifies you; it never resumes.
 > - Without `--add-dir <project>/.git` every git commit of the agent waits for your approval.
@@ -11,9 +13,11 @@
 > - Reviewers are not sandboxed from each other: they share the parent's sandbox, and their
 >   independence rests on instructions plus after-the-fact checks (tokens, seals, lanecheck,
 >   tree_state), as under Claude Code.
-> - The reference test run took 9 h 34 min, including stalls.
+> - The test runs took 9 h 34 min (sparse-note, 0.2.0) and 12 h 26 min (the synthetic paper, a
+>   pre-release of 0.3.0, on a shared machine), including stalls.
 
-The shared Claude/Codex protocol is `audits/RUN.md` (its Codex section lists every difference).
+The shared Claude/Codex protocol is `audits/RUN.md` (`audits/run/codex.md` lists every difference, and
+`audits/run/spawn-and-seal.md` how children are spawned and waited for).
 Reviewers run as Codex built-in subagents, not as separate `codex exec` processes.
 
 ## Install and start
@@ -27,10 +31,12 @@ cd ~/my-formalization && codex --sandbox workspace-write --add-dir ~/my-formaliz
 ```
 
 (`install.sh --codex` prints this command with the project's actual git directory.) Install
-before starting the session, so that its role catalog includes all five generated agents. When
+before starting the session, so that its role catalog includes all eleven generated agents. When
 Codex first opens the project it asks whether you trust the folder: answer yes; the project's
 `.codex/config.toml` and roles are loaded only for a trusted folder. Do not turn the sandbox off to
-load roles. Then type `$formalize-paper`.
+load roles. If a startup warning (`F2`) still says project-local config is disabled after you trusted
+the folder, restart Codex's background server (`/daemon`, "Restart background server") before you
+go on (seen with 0.163.0). Then type `$formalize-paper`.
 
 The installer requires Python 3.11+ (or Python 3.10 with `tomli`) for safe TOML edits. It adds
 the following required setting to `${CODEX_HOME:-~/.codex}/config.toml` (which applies to every
@@ -61,6 +67,26 @@ How to undo every change: INSTALL.md, "Uninstall".
 | `formalize_informalizer` | Same common rules; generated blind informalizer prompt |
 | `formalize_reader` | Same common rules; generated fresh-reader prompt |
 | `formalize_writer` | Same common rules; generated sign-off writer prompt |
+| `formalize_escalation` | Same common rules; the escalation-check prompt plus the question |
+| `formalize_renderer` | Same common rules; the generated PDF prompts (renderer, verifier, cover, checkers; `run/render-pdf.md`) |
+| `formalize_tool_patch_reviewer` | Same common rules; the generated tool-patch reviewer prompt (release mode: `tool_patch.py review`, RUN.md "Tool patches") |
+| `formalize_status_check` | Same common rules; the generated status-check prompt (advisory, at delivery: `prompt.py --prompt status-check --write`, run/stage5-delivery.md "Status check") |
+| `formalize_citations` | Same common rules; the citation prompts (agents 1 and 2, Stage 5 step 5a), each with intake 1c's network rule |
+| `formalize_helper` | Same common rules; the author-side helper brief (`--prompt formalizer`) plus its assignment |
+
+`audits/run/codex.md` maps every subagent the Claude Code path spawns to its role, and lists every
+other Claude/Codex difference (network, PDF viewing, waits). No role sets the network, the sandbox
+or tools: each child inherits the parent's sandbox (network off), so under Codex the citation
+agents reach the cited works only when the session was started with `--search`, which is untested
+for children; use it only for a public paper (intake 1c). Without it the citation notes degrade
+(items "not reachable", or "not produced: no network"), never a stop.
+
+Each role's instructions end with one Codex-only sandbox rule (`codex_agents.SANDBOX_RULE`): a command
+the sandbox blocks is recorded as a failure, never escalated to an approval.
+
+Not yet covered by a generated role in this version: the advisory citation agents (Stage 5 step
+5a) and the author-side helpers; `audits/run/codex.md` does not map them to a role yet. A Codex
+run may therefore skip or improvise these steps (the citation notes are advisory).
 
 `audits/codex_agents.py` generates project `.codex/agents/*.toml`; all roles select
 `gpt-6.1-sol` with `model_reasoning_effort="medium"`. `integrity.py` checks deterministic
@@ -70,7 +96,7 @@ role invalidates the run. There is no separately maintained Codex reviewer instr
 Always use fresh context (`fork_turns="none"`, or v1 `fork_context=false`), never author-history
 forks or reused reviewer threads. Wait for children with one blocking `wait_agent` call with a
 long `timeout_ms` (minutes), not with repeated short waits, `sleep` or `list_agents` polls: each
-poll is a model turn that re-sends the whole context (RUN.md, Codex section). The installed backend accepts `agent_type` plus the role name.
+poll is a model turn that re-sends the whole context (`audits/run/spawn-and-seal.md`, "Under Codex"). The installed backend accepts `agent_type` plus the role name.
 Spawn lanes in parallel; seal individual completions as they arrive. A fresh agent still receives
 normal system, environment and skill context; it must not inherit author conversation or other
 lanes' judgments. These boundaries were tested by independent canary tests, with retained logs.
@@ -104,8 +130,12 @@ verdict tokens/seals do not cryptographically bind every probe byte.
 
 The orchestrator checks **every child's result and expected files**, even when the parent exits
 0. A child error, a missing output or a missing completion digest is a mechanical failure: that
-child alone is re-run with its original message (RUN.md, rule 7). A failed seal, token or
-lanecheck is an integrity failure: the run stops for you, at every involvement level.
+child alone is re-run with its original message, within a time budget (`audits/run/spawn-and-seal.md`).
+What a failed seal, token or lanecheck line does is RUN.md's failure table: a token, digest or seal
+mismatch is an integrity fault -- in the default release installation the agent redoes the review
+and the report discloses it (the run stops for you only at the four release stops), in a dev
+installation it stops the run for you at every involvement level; a lane's own mistake is a NOTE the
+adjudicator settles.
 The actual per-child status matters; a parent process can exit 0 after reporting a child's error.
 Never retry a failed reviewer outside the sandbox automatically.
 
@@ -113,15 +143,15 @@ Never retry a failed reviewer outside the sandbox automatically.
 
 A Codex turn can end on a service error instead of a result: in the reference run the parent
 stopped on "Selected model is at capacity. Please try a different model." and sat idle until a
-person noticed. `audits/watchdog.py` notices for you. **It never types into the session**: an
+person noticed. `codex/watchdog.py` (in the formalize-paper clone) notices for you. **It never types into the session**: an
 adversarial test of an auto-resume version showed that injecting keystrokes into a live TUI cannot
 be made safe (an approval overlay, a draft, a resized screen or a misread log turn the keys into
 answers nobody gave), so automatic resume is deferred (a future version may use Codex's app-server
 API). You resume yourself; the watchdog prints a suggested resume line.
 
 ```bash
-cd ~/my-formalization && python3 audits/watchdog.py --once     # check: it names the session it pinned
-python3 audits/watchdog.py --notify-cmd "notify-send formalize-paper"   # then leave it running
+cd ~/my-formalization && python3 ~/formalize-paper/codex/watchdog.py --once    # check: it names the session it pinned
+python3 ~/formalize-paper/codex/watchdog.py --notify-cmd "notify-send formalize-paper"   # then leave it running
 ```
 
 - **What it reads.** One session log, pinned at startup: `--session-log FILE`, or the single
@@ -141,11 +171,13 @@ python3 audits/watchdog.py --notify-cmd "notify-send formalize-paper"   # then l
   look like a lane write to `tree_state.py`), and `--notify-cmd`, if given, run with the
   notification text as one extra argument (split once with shlex at startup; never a shell string
   built from log text).
-- **Why Python, why `audits/`.** A shell `until/while … sleep` loop started in the project would
-  match `lanecheck.py`'s stray-loop scan. The script lives in `audits/` so that it is installed at
-  the run's pinned version and covered by `selftest_all.py` and the mutation suite (WD1–WD25). It
-  is not part of the protocol: the agent never runs it.
-- **Tested** with the reference run's real events as fixtures (`audits/watchdog_fixtures.json`: its
+- **Why Python, why `codex/`.** A shell `until/while … sleep` loop started in the project would
+  match `lanecheck.py`'s stray-loop scan. It is not part of the protocol (the agent never runs it,
+  and it only notifies), so it lives in the clone's `codex/`, outside the pinned apparatus; it reads
+  the clone's `audits/project.py` for the script registry. Its tests run from the clone:
+  `python3 -B codex/watchdog.py --selftest` and the mutation suite's codex kind (WD1–WD26,
+  `python3 -B audits/tests/mutants.py --kind codex`).
+- **Tested** with the reference run's real events as fixtures (`codex/watchdog_fixtures.json`: its
   capacity stop, a child's integrity FAIL in a JSON tool result, a JSON-wrapped FAIL command output,
   two real truncated multi-chunk outputs) and the adversarial scenarios that concern detection, and
   replayed over the whole real parent log (its capacity stop is the one *stalled*; its FAILs are
@@ -166,9 +198,9 @@ prompts. Sensitive spawn tokens should be redacted in exported evidence.
 ## Git commits without approval prompts
 
 The default workspace-write sandbox keeps the project's top-level `.git` read-only, so every
-`git switch`, `git add` and `git commit` of the author asks the person for approval (F9: 12
+`git switch`, `git add` and `git commit` of the author asks the person for approval (12
 approvals in the reference run, each a stall until someone answered). Under a delegating
-involvement level the run must not wait at them (RUN.md, Codex section). Tested on Codex 0.163.0
+involvement level the run must not wait at them (`audits/run/codex.md`). Tested on Codex 0.163.0
 in a scratch repository with `codex exec --sandbox workspace-write -c approval_policy="never"`
 (`approval_policy="never"` only so that the scratch test could not prompt; never use it for a
 run):
@@ -193,7 +225,9 @@ the operator or you run git, outside the sandbox.** This is a route out of the s
 `tree_state.py` records every hook file (content and mode) and the repository config (local and
 worktree scope, included files read; only user, branch and remote URL/fetch keys left out) of the
 project's and the audit record's repositories at Phase 0, and any change, at the adjudicator's
-check or at the next Phase 0, is an integrity failure (the run stops for you). It detects; it does
+check or at the next Phase 0, is an integrity failure (release: the agent restores the snapshot
+and discloses it, and a changed remote, credential or user setting, or a change that keeps
+recurring, is stop 3, yours; dev: the run stops for you). It detects; it does
 not prevent a hook or a config entry that runs before the check, and it does not cover other
 nested repositories (for example Lake's packages under `.lake/packages/`). The
 protection stays the same as under Claude Code: detection, not isolation. A reviewer commit moves
@@ -206,18 +240,19 @@ reviewers.
 ## Tests
 
 The capability tests established fresh context, canonical instructions, medium effort, artifact
-return and explicit failure delivery. A live attribution test (kept in the private test archive,
-not in this repository) passed a clean parallel round plus project writes, pinned-definition edits, and token-preserving
-sibling replacements before and after owner completion. Self-tests and mutants cover the checks.
+return and explicit failure delivery. A live attribution test passed a clean parallel round plus project writes, pinned-definition edits, and
+token-preserving sibling replacements before and after owner completion. Self-tests and mutants
+cover the checks. `codex/watchdog.py --selftest` and the `codex` mutant kind test the watchdog.
+The test logs are not public (they contain machine-specific details); the results are summarised
+here. These tests ran on 0.2.0 and earlier, not on this version.
 
 ## History
 
 An earlier Codex path ran each reviewer as a separate `codex exec` process: its full test run on
-the example took 2 h 21 min with 26 approvals, reviewers outside the parent sandbox and at
-reasoning effort none. The built-in-subagent run took 9 h 34 min including service and driver
+the example (0.1.0) took 2 h 21 min with 26 approvals, reviewers outside the parent sandbox and at
+reasoning effort none. The built-in-subagent run (0.2.0) took 9 h 34 min including service and driver
 pauses, with 12 author-only approvals, no reviewer approvals or escapes, at medium effort; all ten
 proofs and delivery gates passed, with document limitations disclosed. That is not a speed
-improvement. The investigation log, report and raw evidence are kept in a private archive.
-Official sources:
+improvement. Official sources:
 [OpenAI subagents documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents)
 and [version-pinned implementation](https://github.com/openai/codex/tree/83086188ae0614bd882818ff1aa23f3194962012/codex-rs/core/src/agent).

@@ -29,6 +29,7 @@ import json, os, re, sys, glob, argparse
 sys.dont_write_bytecode = True   # stale bytecode would run code no file shows
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import project  # noqa: E402  (ROUND_RE lives there, once)
+import lanecheck  # noqa: E402  (lane_entries: the one reader of a lane file's `verdicts`)
 from collections import defaultdict
 
 # The canonical lanes, in protocol order. This list is NOT the set that gets read -- lanes are
@@ -40,6 +41,12 @@ from collections import defaultdict
 # checkers that do not read files.
 _AUDITS_DIR = []
 ROUND_DIR_RE = project.ROUND_RE
+
+
+def _dirs(audits_dir):
+    """The directories of a rounds dir, without abandoned rounds (stops.py set-aside): their
+    verdicts were never adjudicated, so none of them counts as a pass, a fail or a decision."""
+    return [d for d in glob.glob(os.path.join(audits_dir, "*")) if not project.is_abandoned(d)]
 CANONICAL = ["substantiveness", "correspondence", "paper-faithfulness", "non-vacuity", "prior-art"]
 VALID = {"Pass", "Fail", "NotDoneYet", "Ambiguous"}
 SEVERITY = ["Pass", "NotDoneYet", "Ambiguous", "Fail"]   # later = worse
@@ -55,30 +62,6 @@ def _repo_of(audits_dir):
     return None
 
 
-def order_rounds(rounds, repo):
-    """Round directories oldest-first by the COMMIT TIME of the hash in their name.
-
-    prompt.py was fixed to do this; this file was not, and kept sorting by directory name. With
-    several rounds on one date the order falls through to the hex hash, which is how
-    2026-09-29-7759e702fdb (19:35) sorted after 2026-09-29-60672ca5567 (21:02). Reported by an
-    adjudicator reading the roll-up, days after the same bug was fixed one file away -- a fix
-    applied to the instance rather than to the class.
-    """
-    import subprocess
-    def key(d):
-        name = os.path.basename(d)
-        h = name.split("-")[-1]
-        if repo:
-            r = subprocess.run(["git", "-C", repo, "show", "-s", "--format=%ct", h],
-                               capture_output=True, text=True)
-            if r.returncode == 0 and r.stdout.strip().isdigit():
-                return (int(r.stdout.strip()), name)
-        # Fallback for a hash git cannot resolve. The name breaks ties: directories created in
-        # the same instant have equal mtimes, and an unstable sort there made a fixture flap.
-        return (int(os.path.getmtime(d)), name)
-    return sorted(rounds, key=key)
-
-
 def discover_lanes(audits_dir):
     """Lane names, found by CONTENT rather than filename.
 
@@ -88,7 +71,7 @@ def discover_lanes(audits_dir):
     bookkeeping files do not.
     """
     found = set()
-    for d in glob.glob(os.path.join(audits_dir, "*")):
+    for d in _dirs(audits_dir):
         if not os.path.isdir(d):
             continue
         for f in glob.glob(os.path.join(d, "*.json")):
@@ -96,7 +79,7 @@ def discover_lanes(audits_dir):
                 doc = json.load(open(f, encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
-            if isinstance(doc, dict) and isinstance(doc.get("verdicts"), list):
+            if lanecheck.lane_entries(doc) is not None:
                 found.add(os.path.splitext(os.path.basename(f))[0].split("@")[0])
     ordered = [l for l in CANONICAL if l in found] + sorted(found - set(CANONICAL))
     return ordered, sorted(found - set(CANONICAL))
@@ -110,10 +93,6 @@ def discover_lanes(audits_dir):
 # round. That is the NotDoneYet failure one level up: the item stays visible while quietly
 # ceasing to be anyone's decision.
 VERDICT_RE = re.compile(r"\*\*(ADOPT|REJECT|DEFER|QUESTION|UNCOVERED)\b", re.I)
-# The table is | lane | item | verdict | decision | reason |, so the ITEM is the SECOND cell.
-# Reading the first gave four "repeated decisions" whose items were lane names -- a roll-up that
-# was aggregating the wrong column and still printed a confident number.
-LANE_ITEM_RE = re.compile(r"^\|\s*([^|]+?)\s*\|\s*`?([^|`]+?)`?\s*\|")
 
 
 def norm_item(item):
@@ -131,24 +110,65 @@ def norm_item(item):
     return t.rsplit(".", 1)[-1] if not t.endswith(".lean") else t
 
 
+def strict_rows(rounds_dir):
+    """Are the round's decision rows read strictly (lanecheck.decision_rows)? Yes when the run's pin
+    (TOOLING_PIN.json) records ownership version 2 or later: the version (0.3.0) whose settle check
+    refuses a row naming no lane or item of the round exactly (R3e). No pin, or a pin of version 1
+    (0.2.0 and earlier records, written before strict rows), is read best-effort (read_adopted)."""
+    import integrity
+    return os.path.exists(os.path.join(rounds_dir, integrity.PIN)) and integrity.pinned_version(rounds_dir) >= 2
+
+
 def read_adopted(path):
-    """{item: verdict} from one ADOPTED.md table. Best-effort: the file is prose around a table."""
+    """{"<lane> :: <item>": decision} from one round's ADOPTED.md. A current-format record (strict_rows)
+    is read through THE reader, lanecheck.decision_rows (R3f): only the rows that name a lane and an item
+    of the round exactly, by their decision cell (project.decision_of), the lane by its base. An older
+    record keeps the best-effort reading below: the file is prose around a table."""
     out = {}
     if not os.path.exists(path):
         return out
+    rd = os.path.dirname(os.path.abspath(path))
+    if strict_rows(os.path.dirname(rd)):
+        import lanecheck
+        for r in lanecheck.valid_rows(rd):
+            if r.decision.startswith("?") or r.decision == "REVOTE NEEDED":
+                continue          # no decision recorded; a re-vote request is not a decision
+            k = f"{r.base} :: {norm_item(r.item)}"
+            # UNCOVERED is a coverage status: inside one file too, it never replaces a decision
+            if r.decision != "UNCOVERED" or k not in out:
+                out[k] = r.decision
+        return out
+    # Older records (no pin, or ownership 1): best effort.
+    header = None
     for line in open(path, encoding="utf-8"):
         if not line.lstrip().startswith("|"):
+            header = None
             continue
         cells = project.split_row(line)
+        if all(set(c) <= set("-: ") for c in cells):
+            continue
+        if header is None:
+            header = [c.lower().strip("* ") for c in cells]
+            if "decision" in header and "item" in header:
+                continue
         if len(cells) < 3:
             continue
         lane_cell, item = cells[0], cells[1]
         if not item or item.lower() in ("item", "---", ":--") or set(item) <= set("-: "):
             continue
-        # The decision: the first bold ADOPT/REJECT/DEFER in the row, else the first such word
-        # in upper case in a later cell (older records did not bold it).
-        v = VERDICT_RE.search(line)
-        dec = v.group(1).upper() if v else None
+        structured = "decision" in header and "item" in header and len(cells) >= len(header)
+        if structured:
+            # a table with a decision column: its cell, read by the one parser the carry and
+            # settle checks use (ROUND3 M2); a re-vote request is not a decision
+            lane_cell = cells[header.index("lane")] if "lane" in header else lane_cell
+            item = cells[header.index("item")]
+            dec = project.decision_of(cells[header.index("decision")])
+            if dec in (None, "REVOTE NEEDED"):
+                continue
+        # Older records: the first bold ADOPT/REJECT/DEFER in the row, else the first such word
+        # in upper case in a later cell (they did not bold it, nor always have a decision column).
+        v = None if structured else VERDICT_RE.search(line)
+        dec = dec if structured else (v.group(1).upper() if v else None)
         if dec is None:
             for c in cells[2:]:
                 m = re.search(r"\b(ADOPT|REJECT|DEFER|QUESTION|UNCOVERED)\b", c)
@@ -177,15 +197,15 @@ def repeated_notes(audits_dir):
     """[(key, [rounds])] for a declaration named in lanes' `out_of_lane` notes in 2+ rounds that no
     ADOPTED.md row ever decided. Out-of-lane notes are read by nobody's criterion: in a
     test run one stale docstring was noted five times and never became a row (F-I13)."""
-    rounds = order_rounds([d for d in glob.glob(os.path.join(audits_dir, "*"))
+    rounds = project.order_rounds([d for d in _dirs(audits_dir)
                            if os.path.isdir(d) and project.ROUND_RE.match(os.path.basename(d))], _repo_of(audits_dir))
     seen, decided, examined = defaultdict(list), set(), set()
     # names some lane examined as an item: a bare word in a note counts only if it is one of these
     for d in rounds:
         for f in glob.glob(os.path.join(d, "*.json")):
             try:
-                for v in json.load(open(f, encoding="utf-8")).get("verdicts") or []:
-                    if isinstance(v, dict) and v.get("item"):
+                for v in lanecheck.lane_entries(json.load(open(f, encoding="utf-8"))) or []:
+                    if v.get("item"):
                         examined.add(norm_item(str(v["item"])).lower())
             except (ValueError, AttributeError):
                 continue
@@ -221,7 +241,7 @@ def repeated_notes(audits_dir):
 def decision_streaks(audits_dir):
     """[(item, verdict, [rounds])] for anything decided the same way in 2+ rounds."""
     from collections import defaultdict
-    rounds = order_rounds([d for d in glob.glob(os.path.join(audits_dir, "*"))
+    rounds = project.order_rounds([d for d in _dirs(audits_dir)
                            if os.path.isdir(d)], _repo_of(audits_dir))
     runs = defaultdict(list)
     for d in rounds:
@@ -294,7 +314,7 @@ def lane_doc(d, lane):
     for f in files:
         doc = json.load(open(f, encoding="utf-8"))   # malformed JSON propagates to the caller
         merged["scope"] += doc.get("scope") or doc.get("request_summary", {}).get("items") or []
-        merged["verdicts"] += doc.get("verdicts", [])
+        merged["verdicts"] += lanecheck.lane_entries(doc) or []
     return merged
 
 
@@ -305,7 +325,7 @@ def scope_drift(audits_dir, lanes):
     cannot be checked must not read the same as a round that passed.
     """
     out, unrecorded = [], []
-    for d in order_rounds([x for x in glob.glob(os.path.join(audits_dir, "*"))
+    for d in project.order_rounds([x for x in _dirs(audits_dir)
                            if os.path.isdir(x)], _repo_of(audits_dir)):
         sent = read_target(d)
         if not sent:
@@ -349,7 +369,7 @@ def load_rounds(audits_dir, lanes):
     chronological.
     """
     rounds = []
-    for d in order_rounds([x for x in glob.glob(os.path.join(audits_dir, "*"))
+    for d in project.order_rounds([x for x in _dirs(audits_dir)
                            if os.path.isdir(x)], _repo_of(audits_dir)):
         if not os.path.isdir(d):
             continue
@@ -367,7 +387,7 @@ def load_rounds(audits_dir, lanes):
             # which a Pass must say what was `checked`. Older rounds predate that rule and are not
             # re-judged by it after the fact.
             proof_of_work = os.path.exists(os.path.join(d, "FINGERPRINTS.json"))
-            for v in doc.get("verdicts", []):
+            for v in lanecheck.lane_entries(doc) or []:
                 item, verd = v.get("item"), v.get("verdict")
                 if not item:
                     continue
@@ -411,7 +431,7 @@ def stale_passes(audits_dir, state):
     reported as such rather than counted as fresh.
     """
     snaps = {}
-    for d in glob.glob(os.path.join(audits_dir, "*")):
+    for d in _dirs(audits_dir):
         f = os.path.join(d, "FINGERPRINTS.json")
         if os.path.isdir(d) and os.path.exists(f):
             try:
@@ -420,7 +440,7 @@ def stale_passes(audits_dir, state):
                 print(f"MALFORMED {os.path.basename(d)}/FINGERPRINTS.json: {e}", file=sys.stderr)
     if not snaps:
         return [], None
-    ordered = order_rounds([os.path.join(audits_dir, r) for r in snaps], _repo_of(audits_dir))
+    ordered = project.order_rounds([os.path.join(audits_dir, r) for r in snaps], _repo_of(audits_dir))
     newest = os.path.basename(ordered[-1])
     current = snaps[newest]
     out = []
@@ -686,12 +706,16 @@ def selftest():
         write("2026-01-02-bbbbbbb", "prior-art", [("E", "Fail")])
         write("2026-01-02-bbbbbbb", "invented-lane", [("F", "Fail")])
 
+        # an abandoned round (stops.py set-aside): never adjudicated, so its Pass of C
+        # must not retire C
+        write("2026-01-02-full-bbbbbbb", "correspondence", [("C", "Pass")])
+        open(os.path.join(tmp, "2026-01-02-full-bbbbbbb", project.ABANDONED), "w").write("{}")
         lanes, _ = discover_lanes(tmp)
         rounds = load_rounds(tmp, lanes)
         state = roll_up(rounds)
 
         checks = []
-        checks.append(("C never passed",
+        checks.append(("C never passed (an abandoned round's Pass does not count)",
                        "Pass" not in [v for _, v in state[("correspondence", "C")]["history"]]))
         checks.append(("C was recorded despite omission in round 1",
                        state[("correspondence", "C")]["history"][0][1] == "NotDoneYet"))
@@ -763,7 +787,10 @@ def selftest():
                                  "| substantiveness@3 | Ns.l410b | Fail (REJECT proposed) | **QUESTION** | nonExt idle |\n"
                                  "| correspondence | Ns.PL | STALE PASS | **UNCOVERED** | renamed |\n"
                                  "| substantiveness | Ns.bar\\|baz | Fail | **REJECT** | quoted |\n"
-                                 "| non-vacuity | Ns.unb | Fail | QUESTION | older record, not bold |\n")
+                                 "| non-vacuity | Ns.unb | Fail | QUESTION | older record, not bold |\n"
+                                 "\nAn older table, without a decision column:\n\n| lane | item | found | outcome |\n|---|---|---|---|\n"
+                                 "| non-vacuity | Ns.legb | Fail (REJECT proposed) | **QUESTION** to the human |\n"
+                                 "| non-vacuity | Ns.legu | Fail | asked: QUESTION |\n")
             _ad = read_adopted(_ap)
             checks.append(("read_adopted: multi-lane row registers each lane, unbolded DEFER read",
                            _ad.get("substantiveness :: avg_nonneg") == "DEFER"
@@ -774,6 +801,8 @@ def selftest():
                            _ad.get("substantiveness :: l410b") == "QUESTION"
                            and _ad.get("correspondence :: PL") == "UNCOVERED"))
             checks.append(("read_adopted: an unbolded QUESTION is read", _ad.get("non-vacuity :: unb") == "QUESTION"))
+            checks.append(("read_adopted: in a table without a decision column, a bold and an unbolded QUESTION are read",
+                           _ad.get("non-vacuity :: legb") == "QUESTION" and _ad.get("non-vacuity :: legu") == "QUESTION"))
             open(_ap, "a").write("| correspondence | Ns.S4.hd_le_Wc | Fail | **ADOPT** | fix |\n"
                                  "| correspondence | Ns.S4.Setting.hd_le_Wc | STALE | **UNCOVERED** | gone |\n")
             checks.append(("read_adopted: a later UNCOVERED row in the same file does not replace a decision",
@@ -1039,7 +1068,7 @@ STATEMENT_ROUND_LANES = set(STATEMENT_LANES)
 def round_kinds(audits_dir):
     """{round name: kind} from each round's TARGET.json (`_meta.kind`); "unknown" if unreadable."""
     out = {}
-    for d in glob.glob(os.path.join(audits_dir, "*")):
+    for d in _dirs(audits_dir):
         if os.path.isdir(d) and ROUND_DIR_RE.match(os.path.basename(d)):
             try:
                 k = json.load(open(os.path.join(d, "TARGET.json"))).get("_meta", {}).get("kind")
@@ -1112,4 +1141,5 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import project
+    sys.exit(project.run_main(main))

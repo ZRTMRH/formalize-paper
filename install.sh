@@ -3,6 +3,13 @@
 #
 #   ./install.sh <lean-project-dir>            Claude Code
 #   ./install.sh --codex <lean-project-dir>    also the Codex CLI files (experimental, see codex/README.md)
+#   ./install.sh --dev <lean-project-dir>      run mode "dev": every check stops the run (maintainers);
+#                                              the default, "release", stops only for the four human
+#                                              stops (RUN.md, "Stops that remain at every level")
+#   ./install.sh --upgrade <lean-project-dir>  between runs: replace the apparatus in an existing audits/
+#                                              with this version, keeping the records (audits/projects/ and
+#                                              each project's rounds directory) and the run mode; committed in
+#                                              the audit record as "upgrade formalize-paper <version>"
 #
 # What it does, and nothing else:
 #   1. copies the apparatus (audits/ of this repository) into <lean-project-dir>/audits/ and makes
@@ -22,9 +29,20 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODEX=0
-if [[ "${1:-}" == "--codex" ]]; then CODEX=1; shift; fi
+MODE=release
+MODE_GIVEN=0
+UPGRADE=0
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --codex) CODEX=1 ;;
+    --dev) MODE=dev; MODE_GIVEN=1 ;;
+    --upgrade) UPGRADE=1 ;;
+    *) echo "usage: $0 [--codex] [--dev] [--upgrade] <lean-project-dir>" >&2; exit 2 ;;
+  esac
+  shift
+done
 if [[ $# -ne 1 ]]; then
-  echo "usage: $0 [--codex] <lean-project-dir>" >&2; exit 2
+  echo "usage: $0 [--codex] [--dev] [--upgrade] <lean-project-dir>" >&2; exit 2
 fi
 TARGET="$(cd "$1" && pwd)"
 VERSION="$(cat "$HERE/VERSION" 2>/dev/null || echo unknown)"
@@ -43,8 +61,61 @@ git -C "$TARGET" rev-parse --show-toplevel >/dev/null 2>&1 \
   || fail "$TARGET is not a git repository (run 'git init' and commit once first)"
 [[ "$(git -C "$TARGET" rev-parse --show-toplevel)" == "$TARGET" ]] \
   || fail "$TARGET is inside a git repository but not its root; install at the root"
-[[ -e "$TARGET/audits" ]] \
-  && fail "$TARGET/audits already exists. To upgrade, see INSTALL.md, 'Upgrading' (a run in progress is pinned to its tooling)."
+# --upgrade's bookkeeping: the records are audits/projects/ and each project's rounds directory (a top-level
+# directory of audits/); everything else tracked is the apparatus. check: no tracked change anywhere and no
+# untracked file outside the records (untracked files inside a rounds directory are left alone); apply: remove
+# the old apparatus; add: stage the new apparatus only (never a record).
+upgrade_py() {
+  python3 -B - "$1" "$TARGET/audits" "$HERE/audits" <<'PY'
+import glob, json, os, subprocess, sys
+op, a, src = sys.argv[1:4]
+keep = {"projects"}
+for p in sorted(glob.glob(os.path.join(a, "projects", "*.json"))):
+    try:
+        rd = json.load(open(p, encoding="utf-8")).get("rounds_dir", "")
+    except (OSError, ValueError):
+        sys.exit(f"install.sh: --upgrade: {p} is not JSON")
+    parts = os.path.normpath(rd).split(os.sep)
+    if len(parts) >= 2 and parts[0] == "audits":
+        if os.path.exists(os.path.join(src, parts[1])):
+            sys.exit(f"install.sh: --upgrade: {p}'s rounds directory {rd} has the name of an apparatus path")
+        keep.add(parts[1])
+        if op == "check" and os.path.exists(os.path.join(a, parts[1], *parts[2:], "TOOLING_PIN.json")):
+            print(f"  note: {os.path.basename(p)[:-5]} was pinned to the old tooling: its record stays, but a run "
+                  f"continued on it would fail integrity's tooling check (upgrade between runs only)")
+G = lambda *x: subprocess.run(["git", "-C", a, *x], capture_output=True, text=True, check=True).stdout
+if op == "check":
+    bad = []
+    for e in [x for x in G("status", "--porcelain", "-z", "--untracked-files=all").split("\0") if x]:
+        st, path = e[:2], e[3:]
+        if st == "??" and path.split("/")[0] in keep:
+            continue
+        bad.append(f"{st.strip()} {path}")
+    if bad:
+        sys.exit(f"install.sh: --upgrade: {a} has uncommitted changes ({', '.join(bad[:5])}"
+                 f"{', ...' if len(bad) > 5 else ''}): commit them first (a run in progress is never upgraded)")
+elif op == "apply":
+    for f in [x for x in G("ls-files", "-z").split("\0") if x]:
+        if f.split("/")[0] not in keep:
+            os.remove(os.path.join(a, f))
+    for d, _subs, _fs in sorted(os.walk(a, topdown=False)):
+        rel = os.path.relpath(d, a)
+        if rel != "." and rel.split(os.sep)[0] not in keep | {".git"} and not os.listdir(d):
+            os.rmdir(d)
+else:
+    G("add", "-A", "--", ".", *[f":(exclude){k}" for k in sorted(keep)])
+PY
+}
+if [[ $UPGRADE -eq 1 ]]; then
+  [[ -d "$TARGET/audits/.git" && ! -L "$TARGET/audits" ]] \
+    || fail "--upgrade: $TARGET/audits is not an installed audit record (no audits/.git); install without --upgrade"
+  upgrade_py check || fail "--upgrade: nothing was changed"
+  [[ $MODE_GIVEN -eq 1 ]] || MODE="$(python3 -B -c 'import json,sys; print(json.load(open(sys.argv[1])).get("mode","release"))' \
+    "$TARGET/audits/project_template.json" 2>/dev/null || echo release)"
+else
+  [[ -e "$TARGET/audits" ]] \
+    && fail "$TARGET/audits already exists. To upgrade it between runs: $0 --upgrade $TARGET (INSTALL.md, 'Upgrading')."
+fi
 [[ -e "$TARGET/.claude/agents/auditor.md" ]] \
   && fail "$TARGET/.claude/agents/auditor.md exists; it would override the pinned reviewer. Remove it first."
 # (A project .claude/settings.json is fine and is kept: step 4 only adds an env variable and
@@ -80,17 +151,36 @@ if [[ $CODEX -eq 1 && -x "$HERE/codex/install-codex.sh" ]]; then
 fi
 
 # --- 1. the apparatus, as a git repository of its own -------------------------------------------
-mkdir "$TARGET/audits"
+if [[ $UPGRADE -eq 1 ]]; then
+  # every tracked file outside the records goes (an apparatus file this version no longer has must not
+  # linger); the records -- audits/projects/ and each project's rounds directory -- are kept as they are
+  upgrade_py apply || fail "--upgrade: could not remove the old apparatus"
+else
+  mkdir "$TARGET/audits"
+fi
 ( cd "$HERE/audits" && tar cf - --exclude='__pycache__' . ) | ( cd "$TARGET/audits" && tar xf - )
 mkdir -p "$TARGET/audits/projects"
-git -C "$TARGET/audits" init -q
-git -C "$TARGET/audits" add -A
-git -C "$TARGET/audits" -c user.name="${GIT_AUTHOR_NAME:-$(git config user.name || echo formalize-paper)}" \
-  -c user.email="${GIT_AUTHOR_EMAIL:-$(git config user.email || echo formalize-paper@localhost)}" \
-  commit -q -m "install formalize-paper $VERSION"
+# the run mode every config of this installation copies (project.mode; the config check refuses another)
+python3 -B - "$TARGET/audits/project_template.json" "$MODE" <<'PY' || fail "could not set the run mode"
+import json, sys
+p, m = sys.argv[1], sys.argv[2]
+d = json.load(open(p, encoding="utf-8")); d["mode"] = m
+open(p, "w", encoding="utf-8").write(json.dumps(d, indent=1, ensure_ascii=False) + "\n")
+PY
+if [[ $UPGRADE -eq 1 ]]; then
+  upgrade_py add || fail "--upgrade: could not stage the new apparatus"
+else
+  git -C "$TARGET/audits" init -q
+  git -C "$TARGET/audits" add -A
+fi
+if [[ $UPGRADE -eq 0 ]] || ! git -C "$TARGET/audits" diff --cached --quiet; then
+  git -C "$TARGET/audits" -c user.name="${GIT_AUTHOR_NAME:-$(git config user.name || echo formalize-paper)}" \
+    -c user.email="${GIT_AUTHOR_EMAIL:-$(git config user.email || echo formalize-paper@localhost)}" \
+    commit -q -m "$([[ $UPGRADE -eq 1 ]] && echo upgrade || echo install) formalize-paper $VERSION"
+fi
 
 # --- 2. protocol link and excludes ---------------------------------------------------------------
-ln -s audits/AUDIT_PROTOCOL.md "$TARGET/AUDIT_PROTOCOL.md"
+[[ $UPGRADE -eq 1 && -L "$TARGET/AUDIT_PROTOCOL.md" ]] || ln -s audits/AUDIT_PROTOCOL.md "$TARGET/AUDIT_PROTOCOL.md"
 EXCL="$(git -C "$TARGET" rev-parse --git-path info/exclude)"
 [[ "$EXCL" = /* ]] || EXCL="$TARGET/$EXCL"
 mkdir -p "$(dirname "$EXCL")"
@@ -129,6 +219,10 @@ if [[ $CODEX -eq 1 ]]; then
   fi
 fi
 
-echo "formalize-paper $VERSION installed in $TARGET"
+echo "formalize-paper $VERSION $([[ $UPGRADE -eq 1 ]] && echo "upgraded" || echo "installed") in $TARGET (run mode: $MODE)"
 echo "Next: cd $TARGET && python3 -B audits/selftest_all.py --fast   (last line: ALL SELFTESTS: ok)"
-echo "Then open Claude Code there and type /formalize-paper."
+if [[ $CODEX -eq 1 ]]; then
+  echo "Then start Codex there with the command printed above and type \$formalize-paper."
+else
+  echo "Then open Claude Code there and type /formalize-paper."
+fi

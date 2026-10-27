@@ -9,11 +9,14 @@ sending keys into the Codex terminal, and an adversarial test showed that keystr
 be made safe (an approval overlay, a person's draft, a resized screen or a misread log turn the
 keys into answers nobody gave). A future version may resume through Codex's app-server API.
 
-  python3 audits/watchdog.py [--project DIR] [--session-log FILE] [--max-age-h 12]
-                             [--poll 60] [--notify-cmd "CMD ARGS"] [--log FILE] [--once]
-  python3 audits/watchdog.py --selftest
+  python3 <CLONE>/codex/watchdog.py [--project DIR] [--session-log FILE] [--max-age-h 12]
+                                    [--poll 60] [--notify-cmd "CMD ARGS"] [--log FILE] [--once]
+  python3 <CLONE>/codex/watchdog.py --selftest
 
-Start it in a second terminal, in the project, after the Codex session has started. It is a
+<CLONE> is the formalize-paper clone that installed the project: the watchdog is Codex-only and
+notify-only, so it lives in codex/, outside the pinned apparatus (it reads the clone's audits/ for
+the script registry). Start it in a second terminal, in the project, after the Codex session has
+started. It is a
 Python program on purpose: a shell `until/while … sleep` loop in the project would be flagged (and
 killed) by lanecheck.py's stray-loop scan.
 
@@ -47,6 +50,9 @@ shlex, when it starts; text from the log is never part of a shell string). Examp
 import sys
 sys.dont_write_bytecode = True   # stale bytecode would run code no file shows
 import argparse, datetime, glob, json, os, re, shlex, subprocess, time
+AUDITS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "audits")
+sys.path.insert(0, AUDITS)
+import project  # noqa: E402  (the script registry, project.SCRIPTS)
 
 SERVICE_INFO = {"server_overloaded", "internal_server_error", "service_unavailable",
                 "response_stream_disconnected", "response_stream_failed", "http_connection_failed"}
@@ -66,9 +72,7 @@ FAIL_ANY_RE = re.compile(r"\b\d+ FAIL(?:ED|S|\(s\))?\b|\bFAILED\b|\bPHASE 0(?: R
 MSG_STOP_RE = re.compile(r"\bSTOP\b|\b\d+ FAIL(?:ED|S|\(s\))?\b|\bPHASE 0(?: RESULT)?: RED\b|"
                          r"(?i:\b(?:must|have to|had to|will|should|i'll|we'll) stop\b|\bstopped\b|\bstopping\b)")
 EXITED_RE = re.compile(r"Process exited with code (-?\d+)")
-CHECKER_RE = re.compile(r"audits/(?:integrity|tree_state|lanecheck|lane_auth|phase0|scope|decisions|"
-                        r"make_report|readers|signoff|prompt|audit_coverage|check_index|axiom_sweep|"
-                        r"fingerprint|unused_args|codex_spawn|codex_agents|project)\.py")
+CHECKER_RE = re.compile(r"audits/(?:" + "|".join(n for n in project.SCRIPTS if "/" not in n) + r")\.py")
 # checkers whose normal output is protocol prose (prompt.py prints the blocks): exit code only
 PROSE_CHECKER_RE = re.compile(r"audits/(?:prompt|project)\.py")
 RESUME_TEXT = ("The previous turn ended with a service error, not with a protocol stop or a question. "
@@ -368,7 +372,7 @@ def selftest():
                 ok = bool(ok())
             except Exception as e:  # noqa: BLE001
                 name, ok = f"{name} ({type(e).__name__}: {e})", False
-        print(f"  {'ok  ' if ok else 'FAIL'} {name}")
+        print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
         if not ok:
             bad.append(name)
 
@@ -573,11 +577,10 @@ def selftest():
     src = open(os.path.abspath(__file__), encoding="utf-8").read()
     say("no code path sends keys or text into a terminal",
         all(w not in src.replace("say(\"no code path", "") for w in ("send-" + "keys", "paste-" + "buffer", "load-" + "buffer")))
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     try:
         import lanecheck
         say("lanecheck's stray-loop scan does not match the watchdog",
-            lanecheck.LOOP_RE.search("python3 audits/watchdog.py --poll 60") is None)
+            lanecheck.LOOP_RE.search("python3 ~/formalize-paper/codex/watchdog.py --poll 60") is None)
     except ImportError:
         say("lanecheck's stray-loop scan does not match the watchdog (lanecheck.py importable)", False)
     print("selftest:", "ok" if not bad else f"FAILED ({len(bad)})")

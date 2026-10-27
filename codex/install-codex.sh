@@ -17,7 +17,8 @@ if [[ $# -ge 1 ]]; then
   # keep the generated roles and the project Codex config out of the project's history
   EXCL="$(git -C "$1" rev-parse --git-path info/exclude)"; [[ "$EXCL" = /* ]] || EXCL="$1/$EXCL"
   grep -qxF ".codex/" "$EXCL" 2>/dev/null || echo ".codex/" >> "$EXCL"
-  echo "  Codex: five generated project roles installed; integrity.py pins their actual bytes."
+  # the count is read from what was installed, never typed here (safety review LOW 5: it said "eight" of nine)
+  echo "  Codex: $(ls "$1/.codex/agents"/formalize_*.toml | wc -l | tr -d ' ') generated project roles installed; integrity.py pins their actual bytes."
   # Git without approval prompts (F9): workspace-write keeps the project's .git read-only, so every
   # branch/stage/commit of the author waits for a person's approval -- and a hands-off run stalls.
   # Tested on Codex 0.163.0: --add-dir <git dir> (same as sandbox_workspace_write.writable_roots)
@@ -31,6 +32,7 @@ if [[ $# -ge 1 ]]; then
     echo "  Codex: start the run with the project's git metadata writable (no approval prompt per commit):"
     echo "         cd $(printf %q "$1") && codex --sandbox workspace-write $ADD"
     echo "         (see codex/README.md, 'Git commits without approval prompts', for what this allows)"
+    echo "         (public paper only, optional: add --search so the citation agents can search; audits/run/codex.md)"
   fi
 else
   echo "  Run install.sh --codex <project> to install the built-in roles before starting Codex."

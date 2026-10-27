@@ -25,3 +25,13 @@ Required Notice: Copyright (c) 2026 Wesley Pegden.
 Anyone receiving these parts receives them under those terms and must receive the Required Notice
 line above with them. Commercial use of these parts needs Wes Pegden's permission.
 audits/AUDIT_PROTOCOL.md, "Credit and licence", says what differs from Trellis.
+
+Other adapted sources
+---------------------
+
+The paper-faithfulness checklist (audits/AUDIT_PROTOCOL.md, section "Lane C — Paper-faithfulness")
+adapts, as that file states:
+
+  - LeanMarathon's falsification patterns (Apache-2.0);
+  - LeanFlow's "encoding bridge" criterion (arXiv:2607.20503; that file states no licence);
+  - TauCetiReview's correctness rubric (Apache-2.0).

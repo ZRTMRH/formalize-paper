@@ -9,8 +9,9 @@ type: software
 authors:
   - family-names: Zhou
     given-names: Runtian
-version: 0.2.0
-# date-released: set to the date of the v0.2.0 tag when it is tagged (YYYY-MM-DD)
+version: 0.3.0
+date-released: 2026-10-26
+# version: keep it equal to the VERSION file (the one version source); date-released: set at the tag
 # Apache-2.0 except the parts adapted from Trellis (PolyForm-Noncommercial-1.0.0); see NOTICE.
 license:
   - Apache-2.0
