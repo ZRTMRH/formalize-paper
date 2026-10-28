@@ -30,6 +30,9 @@ git -C "$DST" "${G[@]}" commit -q -m "sparse-note example: statements (sorry)"
 "$REPO/install.sh" ${FLAGS[@]+"${FLAGS[@]}"} "$DST"
 BASE="$(git -C "$DST" rev-parse --short=11 HEAD)"
 sed "s/<<set by setup.sh>>/$BASE/" "$HERE/sparse-note.json" > "$DST/audits/projects/sparse-note.json"
+# the run mode of this installation (install.sh writes it into the template; a config without it would run as dev)
+python3 -B -c 'import json,sys; t=json.load(open(sys.argv[1]))["mode"]; p=sys.argv[2]; d=json.load(open(p)); d["mode"]=t; open(p,"w").write(json.dumps(d,indent=1,ensure_ascii=False)+"\n")' \
+  "$DST/audits/project_template.json" "$DST/audits/projects/sparse-note.json"
 git -C "$DST/audits" add projects/sparse-note.json
 git -C "$DST/audits" "${G[@]}" commit -q -m "setup sparse-note (example)"
 echo "sparse-note example ready in $DST"

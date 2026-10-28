@@ -75,9 +75,10 @@ is lost: record its step `fail` (or respawn it once, as above).
 the old md is refused, `next` says `begin`, and the loop starts again at round 1 with a new budget.
 Only a document whose md changed is rendered again.
 
-**The guard.** `project.py --deliver` and `signoff.py approve --by human` refuse unless the PDF at
-the document's usual path is the one `RENDER.json` shipped and was made from the md as it is now
-(`render_record.py check`; `no-pdf` passes, the md ships). On a refusal, render again: never a
+**The guard.** `signoff.py approve --by human` refuses unless the PDF at the document's usual path
+is the one `RENDER.json` shipped and was made from the md as it is now (`render_record.py check`;
+`no-pdf` passes, the md ships). `project.py --deliver` does not refuse (approver, 2026-10-28): it
+leaves such a PDF out, delivers the md alone and prints a note. Either way, render again: never a
 stop.
 
 **What the human is told.** `render_record.py next` prints `DONE[render]` with the outcome lines:

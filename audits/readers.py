@@ -2120,7 +2120,9 @@ def _docfix_controls():
                     and any("extra" in x for x in tl_zero) and any("no event of the record" in x for x in tl_zero)
                     and any("earlier SUMMARY.md" in x for x in tl_fixed) and not nt5.startswith("refused")
                     and tl_after == []
-                    and "readers.trust_problems(cfg)" in inspect.getsource(MR.delivery_problems)))
+                    # approver (2026-10-28): the status check no longer runs at delivery; trust_problems stays for an
+                    # older run's records and is no longer part of --deliver's checks
+                    and "readers.trust_problems(cfg)" not in inspect.getsource(MR.delivery_problems)))
         # G4 on a content finding blaming the generator (after the reader-fix budget), and the report
         rmd = _w(root, "REPORT.md", "# R\n| 1 | md row 1; no corrected variant |\n")
         rk = f"report-{RN}"

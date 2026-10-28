@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """The PDFs a human reads, rendered and verified by fresh agents (approver, 2026-10-23; PDF-AGENTS).
 
-WHAT THIS IS.  The generators write markdown only (SUMMARY.md and REPORT.md by make_report.py, SIGNOFF.md by
-signoff.py render). Once a document's markdown is audited at its current hash (its fresh-reader gate passes;
-for the hands-off sheet `signoff.py check`), fresh agents turn it into a PDF (approver, 2026-10-23):
+WHAT THIS IS.  SUMMARY.md and REPORT.md are written by the main agent and reviewed by the delivery reviewers
+(approver, 2026-10-28; run/stage5-delivery.md); SIGNOFF.md is written by signoff.py render and audited at its current
+hash (its fresh-reader gate passes; for the hands-off sheet `signoff.py check`). Fresh agents turn each into a PDF
+(approver, 2026-10-23):
 
   * A, the renderer, makes a PDF of the md by any engine, layout or method, faithful to the md and readable (it
     may rephrase or re-lay out for readability, never change the mathematics; Lean code character for character);
@@ -19,7 +20,7 @@ for the hands-off sheet `signoff.py check`), fresh agents turn it into a PDF (ap
 This script only keeps the books. It never opens, reads or parses a PDF: it copies files, hashes them, checks
 the agents' output FORMAT, and commits each step alone (`render <key> ...`), as readers.py --save does. The one
 guard (check) is a fingerprint: the delivered PDF is the recorded one, and it was made from the md as it is
-now. It runs in project.py --deliver and in signoff.py approve --by human.
+now. It refuses in signoff.py approve --by human; in project.py --deliver it is a note (approver, 2026-10-28).
 
 NEVER A STOP.  Nothing here opens a stop or asks a human, in any mode. The loop is bounded (BUDGET renderer rounds, each
 with at most one verifier and one checker pair, then at most COVER_TRIES cover attempts, each a cover and its
@@ -341,7 +342,10 @@ def step(rec, cur_sha):
 def _audit_gate(cfg, doc, rnd):
     """[problem]: is the md audited at its current hash? The fresh-reader gate of the document (readers.py
     --check: its newest pass read exactly this version, every blocking finding answered); for the hands-off
-    sheet, which has no reader, `signoff.py check`."""
+    sheet, which has no reader, `signoff.py check`. Approver (2026-10-28): SUMMARY and REPORT are the main agent's,
+    reviewed by the four delivery reviewers and judged by it (run/stage5-delivery.md): no reader gate, never refused."""
+    if doc in ("SUMMARY", "REPORT"):
+        return []
     if doc == "SIGNOFF" and project.involvement(cfg) == "hands-off":
         r = subprocess.run([sys.executable, "-B", os.path.join(project.AUDITS, "signoff.py"), "check", "--round", rnd]
                            + (["--project", cfg["name"]] if cfg.get("name") else []),
@@ -370,6 +374,8 @@ def reader_pass_cmd(cfg, doc, rnd):
 
 
 def gate_cmd(doc, rnd, cfg=None):
+    if doc in ("SUMMARY", "REPORT"):
+        return "the delivery reviewers, judged by the main agent (JUDGEMENT.md; run/stage5-delivery.md)"
     if doc == "SIGNOFF" and cfg is not None and project.involvement(cfg) == "hands-off":
         return f"python3 audits/signoff.py check --round {rnd}"
     return f"python3 audits/readers.py --doc {doc.lower()}" + (f" --round {rnd}" if rnd else "") + " --check"
@@ -1220,11 +1226,12 @@ def selftest():
             S() == ("begin",) and "no rendering record" in " ".join(check(cfg, "REPORT")))
         globals()["AUDIT_GATE"] = lambda c_, d_, r_: ["no fresh-reader pass for report-x"]
         _nb = refused(begin, cfg, "REPORT")
-        say("begin refuses an md that is not audited at its current hash (never a stop), and names the reader pass "
-            "to run (smoke test: it did not say which)",
-            "not audited at its current hash" in _nb and L() is None
-            and "python3 audits/prompt.py --prompt fresh-reader --doc report --round" in _nb
-            and "readers.py --doc report --check" in _nb)
+        globals()["AUDIT_GATE"] = _audit_gate
+        say("begin refuses an md its gate does not pass (never a stop) and says the gate; approver 2026-10-28: SUMMARY "
+            "and REPORT, the main agent's, have no reader gate (the delivery reviewers advise), so the real gate passes "
+            "them",
+            "not audited at its current hash" in _nb and L() is None and "JUDGEMENT.md" in _nb
+            and _audit_gate(cfg, "REPORT", None) == [] and _audit_gate(cfg, "SUMMARY", None) == [])
         globals()["AUDIT_GATE"] = lambda c_, d_, r_: []
         rc, ls = begin(cfg, "REPORT")
         say("begin records the md's sha256 and commits RENDER.json alone as `render REPORT begin v1`",

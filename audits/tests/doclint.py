@@ -256,23 +256,20 @@ def lint(run_md, run_files, on_disk, intake, ap):
     # changing the project's files included), (4) a genuine ambiguity of the paper's meaning. The old fourth stop
     # ("a cure that keeps failing") is gone from every release text, and the four appear consistently
     checks += four_stops_checks(run_md, run_files, intake, ap, release_docs())
-    # DOC-FIX (approver 2026-10-25): a fault an agent finds in a generated document is rejected with a reason, fixed
-    # in the generator, or hand-edited after the final prepare; "unfixable: generator fault" is no answer, and the
-    # status check judges every hand edit
+    # approver (2026-10-28), replacing DOC-FIX: after the mathematics is verified the main agent writes SUMMARY and
+    # REPORT from the records and the Lean, four fresh reviewers advise, the agent judges (JUDGEMENT.md) and must fix
+    # every overstatement; --deliver refuses only on the math gate and prints the rest as notes
     fr, s5 = rf("fresh-reader.md"), " ".join(rf("stage5-delivery.md").split())
-    sc_block = " ".join((prompt.blocks_after(ap, prompt.EXTRA_PROMPTS["status-check"]) or "").split())
-    checks.append(("DOC-FIX: RUN.md, fresh-reader.md, stage5 and AUDIT_PROTOCOL.md give the three answers to a fault "
-                   "in a generated document (reject with a reason, the generator by a tool patch, a recorded hand edit "
-                   "after the final prepare), never \"unfixable: generator fault\"; the status check judges each "
-                   "hand edit",
-                   "**A fault an agent finds in a generated document**" in core and "readers.py --hand-edit" in core
-                   and "**A fault in a generated document**" in fr and "--hand-edit --finding" in fr
-                   and "hand edit HE<k>" in fr and "tool patch TP<k>" in fr and "`trivial:`" in fr
-                   and "Never a fault of a generated document's own text" in fr
-                   and "**A fault in a generated document**" in s5 and "after the final prepare" in s5
-                   and "otherwise note it" not in s5 and "a generator fault) is answered `unfixable`" not in s5
-                   and "## Hand edits" in sc_block and "<HAND-EDITS>" in sc_block and "MISMATCH" in sc_block
-                   and "Never hand-edit an output." not in ap and "readers.py --hand-edit" in ap))
+    checks.append(("approver 2026-10-28: RUN.md, stage5 and fresh-reader.md give one delivery: the agent writes the "
+                   "documents from a facts draft, four reviewers (claims, readability, decisions, trust) advise, the "
+                   "agent judges each finding in JUDGEMENT.md and fixes every overstatement; only the math gate refuses",
+                   "**The delivered documents**" in core and "except by the math gate" in " ".join(core.split())
+                   and "**Not at delivery**" in fr
+                   and "**The math gate**" in s5 and "facts/" in s5 and "JUDGEMENT.md" in s5
+                   and all(f"- {k}:" in s5 for k in ("CLAIMS", "READABILITY", "DECISIONS", "TRUST"))
+                   and "must** fix every overstatement" in s5 and "notes for the main agent (not blocking)" in s5
+                   and "## Delivery reviewer prompt" in s5 and "hand-edit --finding" not in s5
+                   and "status-check --write" not in s5))
     texts = dict(run_files, **{"RUN.md": run_md, "AUDIT_PROTOCOL.md": ap})
     dang = dangling_refs(texts, code_sources())
     checks.append(("RUN.md, the stage and procedure files and AUDIT_PROTOCOL.md name only scripts, flags (of the "

@@ -25,7 +25,7 @@ Prove the results. Habits that pay:
   adjudicator writes a `reading choice` row (it settles an Ambiguous verdict) or a `differs` row (after
   an F10 finding), since those set a result's status in the summary. A line you add under "Route
   changes" after the last adjudication (a Stage 5 fix, say) must reach one before delivery:
-  `--deliver` refuses it (`RED[adj-record]`, pending the next adjudication) until a round's
+  `--deliver` names it in a note (`[adj-record]`, pending the next adjudication) until a round's
   adjudicator has seen it -- a diff round, or a full round when `scope.py` exits 3 with
   `NEXT[full-round]`. In a run pinned before
   ownership 3 (`TOOLING_PIN.json` `"ownership"` 1 or 2) you write the `DEVIATIONS.md` row yourself, as

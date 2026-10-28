@@ -32,14 +32,15 @@ one of those needs extra care, and closing such a gap is welcome work.
   named hypothesis, delegated decision, unproved non-goal result, stop, self-cure and disclosed fault
   reaches the one-page summary (SUMMARY.pdf, delivered first), REPORT, DECISIONS.md and the
   delivery notes. Enforced by `make_report.py --check` (`index_check`, `dead_witnesses`,
-  `vacuous_rows`, `delegation_problems`), `decisions.py --check`, and `--deliver`, which refuses
-  until `make_report.py --check --delivery` passes (`summary_problems`: every disclosure line of the
-  summary re-enumerated and present in full; no result a record names reads plain) and every stop,
-  self-cure and disclosure line is present (`stops.deliver_blocking`, `stops.disclosed_rows`). A
-  delivery-phase record (a reader's, the PDF's or the rendering's disclosure; a delivery-code stop)
-  is listed in the delivery README's section D, written only into the delivery copy by `--deliver`
-  (`stops.delivery_phase`, `project.readme_d`). The hands-off sheet has no fresh reader:
-  `signoff.py check` is kept and the README says so (`stops.deliver_checks`).
+  `vacuous_rows`, `delegation_problems`) and `decisions.py --check` on the records. Since the
+  approver's decision of 2026-10-28 the delivered SUMMARY and REPORT are written by the main agent
+  from the records and the Lean (`--prepare-delivery` gives it a facts draft in `<rounds>/facts/`)
+  and reviewed by four fresh agents (claims, readability, decisions, trust; `run/stage5-delivery.md`),
+  the agent judging every finding in `JUDGEMENT.md` and fixing every overstatement the claims
+  reviewer reports. `--deliver` prints what `make_report.py --check --delivery`, the run-record
+  listing (`integrity.run_record_problems`) and `stops.unnamed` find as notes for the agent, never a
+  refusal: this invariant is now held by agents, flagged by code. The hands-off sheet has no fresh
+  reader: `signoff.py check` is kept and the README says so.
 - **F3 Stay with the paper.** When there is no recommendation, a delegated or default choice keeps
   the paper's statement and hypotheses and documents unused or vacuous parts in docstrings. Enforced
   in `RUN.md` (level table, failure table) and `run/stage2-statements.md`. **(not yet enforced:
@@ -138,10 +139,19 @@ one of those needs extra care, and closing such a gap is welcome work.
 - **S3 A release-mode change never alters dev mode.** Each release branch is gated on
   `project.mode(cfg)`. Enforced by tier 1, which runs the fast selftests under both modes
   (`FORMALIZE_TEST_MODE`) and every level, and by the tier-2 snapshot replay, whose dev rows
-  (`tests/replay_baseline/`) must never change. One deliberate exception (U2 §6.4, H4): dev
-  `--deliver` now also runs `stops.deliver_blocking` -- `integrity.py --check`, `phase0.py
-  --readonly` and `fingerprint.py --check` once something is approved -- and refuses when one
-  fails; the disclosing checks and coverage stay release-only.
+  (`tests/replay_baseline/`) must never change. Deliberate exceptions: (U2 §6.4, H4) dev
+  `--deliver` also runs the math gate; (approver 2026-10-28) in both modes `--deliver` refuses only
+  on the math gate (`stops.math_gate`: Phase 0 read-only, `fingerprint.py --check`, an
+  `integrity.py --check` FAIL on the proof-validity core, a freeze record or a judgement record;
+  `project._deliver`: an open re-approval, `deliver-stale`) and prints everything else as notes;
+  no delivery-document code (`deliver`, `unverified`, `reader`, `reader-check`, `decisions`,
+  `status-unmapped`) opens a stop in either mode (`project.NEVER_STOP`). Known side effect (review
+  2026-10-28, left as is): `NEVER_STOP` is checked by `stops.py open` at every stage, so `reader` and
+  `reader-check` faults of the documents that still have a fresh reader before delivery (the sign-off
+  sheet, the Checkpoint B questions) can no longer open a stop either; they are answered through the
+  reader's own route (`run/fresh-reader.md`). Since the same review, `--deliver` again waits
+  (`PENDING[question]`, `PENDING[stop]`, never a stop) for Checkpoint C under `involved` and for an
+  open stop that waits for the human (a release human stop, any open stop in dev).
 - **S4 Unclassified means blocking.** An unknown or uncoded cause is class I and kind rerun (fail
   closed): it closes only by re-running a recorded read-only check that must pass. A stop with no
   such check is a human stop; release refuses a `--note` cause that is not a code (an uncoded
@@ -228,10 +238,10 @@ one of those needs extra care, and closing such a gap is welcome work.
   [PROXY] rows and any change to an approved statement; under `statements-only`: Checkpoint B and
   any change to a statement the human approved (the run goes on; only `--deliver` waits); under
   `hands-off`: none (U2 §0). No operator line closes them. Enforced by `decisions.needs_human`,
-  `open_question_rows` and `decisions.question_refusal` (`--deliver`). Checkpoint C under `involved`
-  is asked before delivery: `--deliver` waits (PENDING[question]) while an item of the decisions
-  document has no answer of the human's, a [PROXY] answer counting for nothing
-  (`decisions.checkpoint_c_open`, B12); after the answers, stage5 step 7 (Lean changed: a diff round;
+  `open_question_rows`; an open re-approval refuses `--deliver` (the math gate).
+  Checkpoint C under `involved` is asked before delivery: `--deliver` waits (PENDING[question], a
+  designed human wait, not a deliverable check) while an item of the decisions document has no answer
+  of the human's, a [PROXY] answer counting for nothing (`decisions.checkpoint_c_open`, B12); after the answers, stage5 step 7 (Lean changed: a diff round;
   statement changed: re-approval; then the documents again).
 - **V3 A delegated decision never strengthens or generalizes a statement.** A change that is unclear
   counts as a weakening and is disclosed. Enforced by `RUN.md` and `run/reapproval.md`, with

@@ -40,6 +40,12 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # The protocol is versioned in this audits/ repo; ../AUDIT_PROTOCOL.md is a symlink to it.
 DEFAULT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "AUDIT_PROTOCOL.md")
 
+# Lanes A-C are adapted from Trellis (PolyForm Noncommercial 1.0.0, see NOTICE); their generated
+# prompts carry the Required Notice.
+TRELLIS_LANES = ("substantiveness", "correspondence", "paper-faithfulness")
+TRELLIS_NOTICE = ("Rubric adapted from Trellis (W. Pegden). "
+                  "Required Notice: Copyright (c) 2026 Wesley Pegden.")
+
 # lane name -> heading substring that precedes its prompt block
 LANES = [
     ("substantiveness", "### Lane A"),
@@ -1170,6 +1176,8 @@ def render_lanes(text, cfg, round_name=None, revote=None, batch=None, revote_lan
             out.append((lane, None, [f"! common lane rules not found under {COMMON_HEADING!r}"]))
             continue
         body, notes = fill_project(common + "\n\n" + body, cfg, lane)
+        if lane in TRELLIS_LANES:
+            body = TRELLIS_NOTICE + "\n\n" + body
         allowed_left = {"<VERDICT-FILE>", "<PROBE-DIR>"}
         if target is not None:
             if not target[lane]:

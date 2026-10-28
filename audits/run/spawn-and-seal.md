@@ -23,6 +23,9 @@ one home of these rules; the stage files point here.
   the text, `<delimiter>`), then seal as usual: the seal accepts the file
   only if its sha256 is the digest the child returned and it carries the child's token, so a file
   not saved byte for byte is refused (re-run the child). Never retype, reformat or summarize it.
+  That refusal is Claude Code's own rule for subagents, not a permission the user or anyone set:
+  saving the returned text as described is a normal protocol step and needs no one's approval.
+  Never ask the human about it.
 - **Lanes** (subagent type `auditor`): everything after "with:" in the printed line, the lane
   token included, is the lane's whole prompt. That machine-generated envelope is never saved to a
   prompt file, re-typed or hand-composed. Spawn every lane of a wave in ONE message, in parallel;

@@ -37,6 +37,27 @@ principle is to remove the causes of stops instead of adding machinery to cure t
 decision, clearance, set-aside and waiver is still disclosed in the report. A stall-resolver agent
 was added during 0.3.0-dev and removed again before release (see "Removed").
 
+### Delivery: only the math gate refuses; the agent writes the documents (approver, 2026-10-28)
+- After the mathematics is verified, delivery never stops and is never refused except by the math gate: Phase 0
+  read-only GREEN, the freeze (`fingerprint.py --check`; an open re-approval waits as `PENDING[question]`), an
+  `integrity.py --check` FAIL on the proof-validity core, a freeze record or a judgement record, and a Lean commit
+  after the last audited round (`deliver-stale`). Everything else `--deliver` used to refuse on (stale documents,
+  reader gates, hand edits, the status check, result_status disagreements, pending adjudication, `unverified`,
+  ownership of document and reader files, the PDF render guard, an open stop that waits for no human, the run
+  record's listing) is printed as "notes for the main agent (not blocking)"; a PDF not rendered from the markdown as it is now
+  is not shipped (the markdown is). No stop opens on a delivered document in either mode (`reader`, `reader-check`,
+  `decisions`, `status-unmapped` join `NEVER_STOP`). The designed human waits stay: `PENDING[question]` for
+  Checkpoint C under `involved`, `PENDING[stop]` for a stop that waits for the human (any open stop in dev).
+  The generator writes its drafts to `<ROUNDS-DIR>/facts/` (Phase 0 included) and never overwrites or deletes
+  the agent's SUMMARY.md and REPORT.md; README D states only the reviews on record.
+- `--prepare-delivery` writes a facts draft (`facts/SUMMARY.md`, `REPORT.md`, `RUN_RECORD.md`) and never overwrites
+  the main agent's documents. Stage 5 step 5: the agent writes SUMMARY and REPORT from the records and the Lean,
+  four fresh reviewers (claims, readability, decisions, trust) advise with returned text, the agent judges each
+  finding in `JUDGEMENT.md` (every overstatement fixed), renders the PDFs and delivers. The fresh readers, hand
+  edits and status check are no longer part of delivery. Validated by a simulation on two real runs and by replaying
+  `--deliver` on copies of both (the stuck example run now delivers). Mutants MG1-MG5; 23 mutants of removed
+  delivery refusals dropped.
+
 ### Codex end-to-end fixes: stated-only conjectures, reproducible tool-patch facts (2026-10-26)
 - Lane D (non-vacuity) rule 5b: on a stated-only conjecture (a `def : Prop` no theorem asserts) Pass means the
   sets/predicates it quantifies over are witnessed and the 4b probes close neither it nor its negation; never

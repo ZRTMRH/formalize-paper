@@ -2665,56 +2665,98 @@ def tool_patch_checks(cfg):
     return out
 
 
-def deliver_gate(cfg):
-    """[why delivery is refused]: in both modes a blocking check of deliver_blocking that fails on the
-    state delivered (U2 §6.4, H4); in release mode also a disclosing check that fails, a live DISCLOSED
-    line no D record covers, and what a prepared document must name and does not (unnamed: RUN_RECORD.md every stop,
-    self-cure, D record, set-aside and tool patch; REPORT.md every human-answered stop; DECISIONS.md every decision
-    stop)."""
+# THE MATH GATE (approver, 2026-10-28, binding): after the mathematics is verified, delivery never stops and is never
+# refused except by these checks: Phase 0 read-only GREEN (the build, no `sorry` beyond a logged leave line, standard
+# axioms only), the freeze (fingerprint.py --check), and the integrity of the proof-validity core (an integrity.py
+# FAIL that concerns a core file, a record of the statement freeze, or a record that carries a judgement: a lane's
+# verdict, an adjudication, an approval, a round's files). Every other integrity FAIL (a reader, render or hand-edit
+# record, a delivered document, a bookkeeping trail, a non-core tool) is a NOTE for the main agent, as is every
+# other delivery-phase fault (project._deliver); none opens a stop. A Lean commit after the last audited round
+# (deliver-stale) and an open re-approval are checked by project._deliver.
+GATE_NOTE_CODES = ("tooling", "pin", "ownership", "tool-patch", "set-aside-changed", "stop-trail", "waiver",
+                   "record-changed", "uncommitted-record", "gitmeta", "resolution-trail")
+GATE_ROUND_FILE = re.compile(r"(?:^|[\s`'\"(/])\d{4}-\d{2}-\d{2}-[^/\s]+/")
+
+
+def integrity_blocks(cfg, line):
+    """Does the integrity.py --check failure line `line` (a `FAIL[<code>] text` line) concern the proof-validity core
+    (the math gate: True), or only a delivery-side or bookkeeping record (a NOTE: False)? Fail closed: only a
+    bookkeeping code (GATE_NOTE_CODES) whose faulty thing is no core file, no record of the statement freeze, no
+    round's file and no record that carries a judgement (integrity.ackable's test) is a note."""
+    import integrity
+    m = re.match(r"^\s*FAIL\[([a-z0-9-]+)\]\s*(.*)$", line or "")
+    if not m or m.group(1) not in GATE_NOTE_CODES:
+        return True
+    code, text = m.groups()
+    head = integrity._fault_paths(f"[{code}] {text}")
+    if integrity.NEVER_ACK_RE.search(" " + head) or GATE_ROUND_FILE.search(" " + head):
+        return True
+    if code in ("ownership", "set-aside-changed"):
+        need = integrity.owner(head.strip(), integrity.pinned_version(rounds_dir(cfg))) or ()
+        return bool(set(need) & set(integrity.JUDGEMENT_OWNERS))
+    return False
+
+
+def math_gate(cfg):
+    """(block, notes): the math gate's refusals, and what the gate's checks found that does not refuse (NOTEs for the
+    main agent). Runs standard_blocking (integrity, Phase 0 read-only, the freeze); in release a failure a core-fault
+    close recorded is covered (C2-FIX 5b). Every self-cured stop's recorded check, the disclosures of release mode and
+    what a prepared document does not name are run or computed for the notes only."""
     rel = project.mode(cfg) == "release"
-    out, live = [], []
-    regs = tool_patch_checks(cfg)
-    for cmd in list(dict.fromkeys((deliver_checks(cfg) if rel else []) + deliver_blocking(cfg))):
-        if cmd.startswith("(") and cmd.endswith(")"):     # no command to run: why a self-cure does not hold
-            out.append(cmd[1:-1] + ": restore a changed stop record (git checkout <its file>), else open a stop on it "
-                       "(a self-cure; a history fault no restore clears: integrity.py --ack-request)")
-            continue
-        why = None if cmd in deliver_checks(cfg) or cmd in regs else command_problem(cmd, cfg)
+    block, notes = [], []
+    for cmd in standard_blocking(cfg):
+        why = command_problem(cmd, cfg)
         rc, txt = (2, why) if why else run_cmd(cmd.split())
-        if rc != 0 and not why and rel and core_covered(cfg, cmd, txt):
-            continue        # C2-FIX 5b: the failure a core-fault close recorded; unnamed() requires its marker shown
-        if rc != 0:
-            cs = causes(txt) if not why else []
-            pdf_ = [c for c in cs if c["code"] in project.NEVER_STOP]
-            if cs and len(pdf_) == len(cs):
-                # attack 8: a PDF fault (or a delivery precondition) never opens a stop
-                out.append(f"`{cmd}` fails (exit {rc}) on a PDF fault or delivery precondition only "
-                           f"({'; '.join(c['line'][:120] for c in pdf_[:2])}): never a stop -- {pdf_route(txt)}, "
-                           f"then deliver again")
-            else:
-                out.append(f"`{cmd}` fails (exit {rc}){': ' + why if why else ''}: fix it, or open a stop (stops.py open "
-                           f"--cmd \"{cmd}\")" + (f"; its PDF fault is not part of the stop: {pdf_route(txt)}"
-                                                    if pdf_ else ""))
-        live += [(cmd, m.group(1), m.group(2)) for m in (DISCLOSED_LINE.match(l) for l in txt.splitlines()) if m]
-    if not rel:
-        return out
-    try:
-        live += [("python3 audits/phase0.py --readonly", c, t) for c, t in phase0_lines(cfg)]
-    except Exception as e:      # a crash of a blocking check blocks
-        out.append(f"phase0's docstring/run-log check crashed: {e!r}")
-    rows = [load(f) or {} for f in glob.glob(os.path.join(rounds_dir(cfg), STOPS, DISCLOSED, "D*.json"))]
-    have = {_norm(x.get("code"), x.get("line", "")) for r in rows for x in r.get("faults") or []}
-    todo = {}
-    for cmd, c, t in live:
-        if _norm(c, t.strip()[:300]) not in have:
-            todo.setdefault(cmd, []).append(f"DISCLOSED[{c}] {' '.join(t.split())[:160]}")
-    for cmd, ls in todo.items():
-        out.append(f"{len(ls)} disclosed fault(s) with no record -- python3 audits/stops.py disclose --cmd \"{cmd}\": "
-                   + "; ".join(dict.fromkeys(ls)))
-    for doc, gone in unnamed(cfg).items():
-        out.append(f"{doc} does not name {'; '.join(sorted(gone))}: prepare again (python3 audits/project.py "
-                   f"--prepare-delivery regenerates the report, RUN_RECORD.md and the box entries), then its reader")
-    return out
+        if rc == 0 or (not why and rel and core_covered(cfg, cmd, txt)):
+            continue
+        if "integrity.py" in cmd and not why:
+            fails = [l.strip() for l in txt.splitlines() if re.match(r"^\s*FAIL\b", l)]
+            core_ = [l for l in fails if integrity_blocks(cfg, l)]
+            notes += [f"integrity (not the proof-validity core): {l}" for l in fails if l not in core_]
+            if fails and not core_:
+                continue
+            block.append(f"`{cmd}` fails (exit {rc}) on the proof-validity core: "
+                         + ("; ".join(core_[:6]) if core_ else (txt.strip().splitlines() or ["no output"])[-1][:300]))
+            continue
+        tail = [l.strip() for l in (txt or "").splitlines() if FAIL_LINE.search(l)][:6] or \
+               [((txt or "").strip().splitlines() or ["no output"])[-1][:300]]
+        block.append(f"`{cmd}` fails (exit {rc}){': ' + why if why else ''}: " + "; ".join(tail))
+    def noted(what, f):
+        try:
+            f()
+        except Exception as e:      # noqa: BLE001 -- a note, never a refusal
+            notes.append(f"{what} could not be computed: {type(e).__name__}: {e}")
+
+    def self_cures():
+        for cmd in deliver_blocking(cfg)[len(standard_blocking(cfg)):]:
+            if cmd.startswith("(") and cmd.endswith(")"):
+                notes.append(cmd[1:-1])
+                continue
+            why = None if cmd in tool_patch_checks(cfg) else command_problem(cmd, cfg)
+            rc, _txt = (2, why) if why else run_cmd(cmd.split())
+            if rc:
+                notes.append(f"a self-cured stop's recorded check `{cmd}` fails now (exit {rc}){': ' + why if why else ''}")
+
+    def disclosures():
+        live = list(phase0_lines(cfg))
+        rows = [load(f) or {} for f in glob.glob(os.path.join(rounds_dir(cfg), STOPS, DISCLOSED, "D*.json"))]
+        have = {_norm(x.get("code"), x.get("line", "")) for r in rows for x in r.get("faults") or []}
+        notes.extend(f"DISCLOSED[{c}] {' '.join(t.split())[:160]} (no D record)" for c, t in live
+                     if _norm(c, t.strip()[:300]) not in have)
+
+    def named():
+        for doc, gone in unnamed(cfg).items():
+            notes.append(f"{doc} does not name {'; '.join(sorted(gone))}")
+    noted("the self-cured stops' checks", self_cures)
+    if rel:
+        noted("phase0's disclosures", disclosures)
+    noted("what the prepared documents name", named)
+    return block, notes
+
+
+def deliver_gate(cfg):
+    """[why delivery is refused]: the math gate's refusals (math_gate)."""
+    return math_gate(cfg)[0]
 
 
 def unnamed(cfg):
@@ -3383,7 +3425,7 @@ def _selftest():
         say("open refuses tool-fault (in any mode), and in release a failure whose causes are all disclosed",
             "tool-fault is recorded with stops.py disclose" in refused(open_stop, cfg_r, note="x", cause="tool-fault")
             and "tool-fault is recorded" in refused(open_stop, cfg, note="x", cause="tool-fault"))
-        outs["lanecheck"] = (1, "PROBLEM[reader] x\n")
+        outs["lanecheck"] = (1, "PROBLEM[label] x\n")
         say("release: open refuses a failure all of whose causes are disclosed", "disclosed in release mode, not a stop" in refused(
             open_stop, cfg_r, cmd="python3 audits/lanecheck.py --round 2026-10-19-full-1a2b3c4"))
         outs["lanecheck"] = (1, "PROBLEM[reader] x\nPROBLEM[stray-loop] pid 7\n")
@@ -3451,12 +3493,16 @@ def _selftest():
                                  f"(report-2026-10-2{n}-abc1234_{n}.md read {h}…, the source is now 0f0f0f0f0f0f…)\n")
         outs["readers"], outs["decisions"] = stale(1, "0123456789ab"), (0, "ok\n")
         outs["integrity"] = (0, "integrity: OK\n")
-        g1 = deliver_gate(cfg_r)
-        say("H3: the delivery gate refuses a live disclosed line with no record, naming the disclose command; "
-            "the recorded ones (make_report, selftest_all, phase0) pass; dev has no gate",
-            len(g1) == sum("readers.py" in c for c in deliver_checks(cfg_r))
-            and all("no record" in x and "readers.py --doc" in x and "DISCLOSED[reader]" in x for x in g1)
-            and deliver_gate(cfg) == [])
+        g1, n1 = math_gate(cfg_r)
+        PHASE0_LINES = lambda c_: [("docstring", "A.lean:3  a placeholder"), ("docstring", "B.lean:9  NEWQZ")]
+        g1b, n1b = math_gate(cfg_r)
+        PHASE0_LINES = lambda c_: [("docstring", "A.lean:3  a placeholder")]
+        say("H3 (approver 2026-10-28): the delivery gate's disclosure bookkeeping is notes only: a recorded disclosure "
+            "is no note, a live one with no D record is a note, never a refusal; dev has none; no disclosing check "
+            "(readers, decisions, make_report, selftests) is run by the gate",
+            g1 == [] and not any("no D record" in x for x in n1) and g1b == []
+            and any("NEWQZ" in x and "no D record" in x for x in n1b)
+            and not any("DISCLOSED" in x for x in math_gate(cfg)[1]) and deliver_gate(cfg) == [])
         dr = disclose(cfg_r, cmd="python3 audits/readers.py --doc report --check")
         outs["readers"] = stale(2, "ba9876543210")
         g2 = deliver_gate(cfg_r)
@@ -3470,8 +3516,9 @@ def _selftest():
         outs["decisions"] = (1, "FAIL: x\n")
         g4 = deliver_gate(cfg_r)
         outs["decisions"] = (0, "ok\n")
-        say("H3: the gate passes once every disclosure is recorded and named; a failing check refuses",
-            g3 == [] and len(g4) == 1 and "decisions.py --check` fails (exit 1)" in g4[0])
+        say("H3 (approver 2026-10-28): the gate passes once every disclosure is recorded and named; a failing "
+            "decisions.py --check (a document check) is not the gate's",
+            g3 == [] and g4 == [])
         PHASE0_LINES = None
         # release self-cure (approver, 2026-10-21): only the four human stops stop a release run
         R_ = "2026-10-19-full-1a2b3c4"
@@ -3494,7 +3541,7 @@ def _selftest():
             and f"stop {sc} self-cured" in log_ and not strail(cfg_r, sc))
         say("release-cure: a self-cure in a dev run is a trail fault",
             any("self-cured in a run whose mode is 'dev'" in p for p in strail(cfg, sc)))
-        g5 = deliver_gate(cfg_r)
+        g5 = math_gate(cfg_r)[1]
         say("release-cure (approver 2026-10-24): RUN_RECORD.md must name each self-cured stop, in its stop list and "
             "under \"Stops cleared without you\" (REPORT.md and DECISIONS.md need not: the process record)",
             any(x.startswith("RUN_RECORD.md does not name") and re.search(rf"stop {sc} under", x)
@@ -3503,7 +3550,7 @@ def _selftest():
         _rrk = open(os.path.join(rd, "RUN_RECORD.md")).read()
         open(os.path.join(rd, "RUN_RECORD.md"), "w").write(_rrk + f"\nStop {sc} mentioned in passing; | {sc} | inline\n")
         say("release-cure: a mention of a self-cured stop in passing is not its row in RUN_RECORD.md (review L2)",
-            any(x.startswith("RUN_RECORD.md does not name") and re.search(rf"\b{sc}\b", x) for x in deliver_gate(cfg_r)))
+            any(x.startswith("RUN_RECORD.md does not name") and re.search(rf"\b{sc}\b", x) for x in math_gate(cfg_r)[1]))
         names(["D1", "D2", "D3", "D4", "D5", "D6", sc])
         cp_ = os.path.join(rd, STOPS, sc, "CLOSED.json")
         c_ = load(cp_)
@@ -3726,12 +3773,13 @@ def _selftest():
         outs["tree_state"] = (0, "ok\n")
         close_stop(cfg_r, st_, cured="restored the tree")
         outs["tree_state"], outs["integrity"], outs["phase0"] = (1, "FAIL[tree-changed] y\n"), (1, "FAIL[seal-mismatch] y\n"), (1, "RED\n")
-        g_m4 = deliver_gate(cfg_r)
+        g_m4, n_m4 = math_gate(cfg_r)
         outs["tree_state"], outs["integrity"], outs["phase0"] = (0, "ok\n"), (0, "ok\n"), (0, "PHASE 0: GREEN\n")
-        say("release-cure: delivery refuses when integrity, Phase 0 or a self-cured stop's own check fails on the "
-            "state delivered (review M4)", all(any(f"`python3 audits/{x}` fails" in g for g in g_m4) for x in
-                                               ("integrity.py --check", "phase0.py --readonly", "tree_state.py --check"))
-            and not any("fails" in g for g in deliver_gate(cfg_r)))
+        say("release-cure: delivery refuses when integrity (a verdict's seal) or Phase 0 fails on the state delivered; a "
+            "self-cured stop's own check that fails is re-run and noted (review M4; approver 2026-10-28)",
+            all(any(f"`python3 audits/{x}` fails" in g for g in g_m4) for x in ("integrity.py --check", "phase0.py --readonly"))
+            and any("tree_state.py --check` fails" in n for n in n_m4) and not any("tree_state" in g for g in g_m4)
+            and not any("fails" in g for g in sum(math_gate(cfg_r), [])))
         # re-check M4: a self-cure whose check names a round since superseded or set aside is verified from its
         # recorded pass, not re-run on the delivered state (it would stall a correct release run)
         R5, R6 = "2026-10-22-full-5e6f7a8", "2026-10-23-full-6f7a8b9"
@@ -3742,13 +3790,13 @@ def _selftest():
         outs["lanecheck"] = (0, "lane check: OK\n")
         close_stop(cfg_r, s5_, cured="re-sealed the lane")
         outs["lanecheck"] = (1, "PROBLEM[stray-loop] pid 9\n")
-        g_cur = deliver_gate(cfg_r)          # R5 is still the current round: its check is re-run, and fails
+        g_cur = math_gate(cfg_r)[1]          # R5 is still the current round: its check is re-run, and fails
         os.makedirs(os.path.join(rd, R6)); open(os.path.join(rd, R6, "TARGET.json"), "w").write("{}")
         G("add", "-A"); G("commit", "-qm", f"scope {R6}")
-        g_old = deliver_gate(cfg_r)
+        g_old = math_gate(cfg_r)[1]
         cp5 = os.path.join(rd, STOPS, s5_, "CLOSED.json")
         c5_ = load(cp5); json.dump(dict(c5_, text="edited"), open(cp5, "w"), indent=1, sort_keys=True)
-        g_ed = deliver_gate(cfg_r)
+        g_ed = math_gate(cfg_r)[1]
         json.dump(c5_, open(cp5, "w"), indent=1, sort_keys=True)
         outs["lanecheck"] = (0, "lane check: OK\n")
         say("release-cure: delivery verifies a self-cure whose check names a superseded round from its committed "
@@ -3757,7 +3805,7 @@ def _selftest():
             any(f"lanecheck.py --round {R5}` fails" in g for g in g_cur) and not any("lanecheck" in g for g in g_old)
             and any(g.startswith(f"the check of self-cured stop {s5_}") and "recorded pass does not hold" in g
                     and "differs" in g for g in g_ed)
-            and not any("lanecheck" in g for g in deliver_gate(cfg_r)))
+            and not any("lanecheck" in g for g in math_gate(cfg_r)[1]))
         # review M1: a self-cure's set-aside carries the SEALED Fail of a verdict tampered after its seal
         R3 = "2026-10-20-full-3c4d5e6"
         r = os.path.join(rd, R3)
@@ -4013,7 +4061,8 @@ def _selftest():
                             if "never a stop" not in why_:
                                 l1_bad.append(case + ": a delivery precondition opened a stop")
                             continue
-                        if (md == "release" and kind == "disclose") or code == "tool-fault":   # tool-fault: disclose only
+                        # tool-fault: disclose only; escalation-cite: a flag in every mode (approver, 2026-10-27)
+                        if (md == "release" and kind == "disclose") or code in ("tool-fault", "escalation-cite"):
                             why_ = refused(open_stop, c_, note=f"x ({code})", cause=code, check=chk)
                             if "disclosed in release mode" not in why_ and "recorded with stops.py disclose" not in why_:
                                 l1_bad.append(case + ": a disclosed code opened a stop")
@@ -4087,7 +4136,7 @@ def _selftest():
         db_ = deliver_blocking(c_)
         say("H-1: delivery re-runs each self-cured stop's code closer as well as its recorded check",
             lc_ in db_ and bad_["check"] in db_
-            and any(lc_ in w for w in deliver_gate(c_)) if not outs.update(lanecheck=(1, "FAIL[independence] x\n")) else False)
+            and any(lc_ in w for w in math_gate(c_)[1]) if not outs.update(lanecheck=(1, "FAIL[independence] x\n")) else False)
         G("reset", "-q", "--hard", h_h1)
         # review M-2: --delegated records the run mode; a release-mode operator close is a trail fault
         c_d = dict(cfg, mode="dev", involvement="hands-off")

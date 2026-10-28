@@ -256,6 +256,9 @@ CAUSES = {
     "unlisted": ("document", "a project .lean file is missing from lean_files"),
     "docstring": ("document", "a docstring placeholder or a tex line outside the source"),
     "run-log": ("document", "RUN_LOG.md does not mention every adjudicated round"),
+    # approver 2026-10-27: a flag, never a stop, in every mode (disclosed)
+    "escalation-cite": ("document", "a record cites an escalation never written or whose answer is not accepted "
+                                    "(under involved: a re-ask of the human's question)"),
     "index": ("document", "the index check fails"),
     "unused-args": ("document", "UNUSED_ARGS.md could not be written"),
     "report": ("document", "the report check fails"),
@@ -280,16 +283,17 @@ CAUSES = {
     "adj-record": ("adjudication", "an adjudicator-owned record (PAPER_DEFECTS/SKIPPED/VACUOUS.md, a carried item's "
                                    "row) is faulty: the next adjudication clears it (run a round: prompt.py 3 "
                                    "--full if no Lean changed); Phase 0 shows it as PENDING[adjudication]"),
-    # U2 §6.4, ADDENDUM N1: the three delivery codes are RED preconditions of project.py --deliver, never a
-    # stop (stops.py open refuses them, in both modes); each is cleared by the step it names
-    "deliver": ("document", "a precondition of project.py --deliver, never a stop: a prepared document is stale or "
-                            "missing, a document lacks its fresh-reader pass on its current version, or the summary's "
-                            "coverage check fails: run project.py --prepare-delivery, then the readers"),
-    "unverified": ("document", "a precondition of project.py --deliver, never a stop: the verdicts are not current "
-                               "(no full-scope round since the approval): run a full round (prompt.py 3 --full), then "
-                               "prepare and the readers"),
-    "deliver-stale": ("document", "a precondition of project.py --deliver, never a stop: a .lean commit after the last "
-                                  "audited round: run a diff round on it (prompt.py 3), then prepare and the readers; "
+    # U2 §6.4, ADDENDUM N1: the three delivery codes are never a stop (stops.py open refuses them, in both modes).
+    # Approver (2026-10-28): deliver-stale is the math gate's and refuses --deliver; deliver and unverified are notes
+    # project.py --deliver prints for the main agent, never a refusal
+    "deliver": ("document", "project.py --deliver's own code, never a stop: RED, the math gate refused (Phase 0, the "
+                            "freeze, the proof-validity core: fix what it names); as a note, a facts draft is stale or "
+                            "missing, or a check of a delivered document fails: judge it (run/stage5-delivery.md)"),
+    "unverified": ("document", "a note of project.py --deliver, never a stop and never a refusal: the verdicts are not "
+                               "current (no full-scope round since the approval): judge it; a full round (prompt.py 3 "
+                               "--full) brings them up to date"),
+    "deliver-stale": ("document", "the math gate of project.py --deliver, never a stop: a .lean commit after the last "
+                                  "audited round: run a diff round on it (prompt.py 3), then deliver; "
                                   "asked only until two rounds ran after the final full round (DELIVERY_ROUND_CAP): "
                                   "past that the commit ships disclosed"),
     # sweep L1: the adjudicator's and the record correction's own commit tools
@@ -319,11 +323,10 @@ CAUSES = {
     # B9 (U2 §1 routing): a result's status that no route covers ("not established" for a reason result_status.py
     # cannot map): disclosed in release, a stop in dev
     "status-unmapped": ("presentation", "a result reads \"not established\" for a reason no route covers "
-                                        "(result_status.py): disclosed in release, the summary says it; in dev a stop "
-                                        "(stops.py open --cmd \"python3 audits/make_report.py --check --delivery\"): "
-                                        "re-run Phase 0 (it rewrites DEPENDENCIES.json) or correct the index cell; "
-                                        "what remains is accepted as shown when the stop closes (the human under "
-                                        "involved), then prepare again"),
+                                        "(result_status.py): never a stop, in either mode (approver 2026-10-28): a "
+                                        "note of project.py --deliver; re-run Phase 0 (it rewrites DEPENDENCIES.json) "
+                                        "or correct the index cell; what remains you judge from the records and the "
+                                        "Lean, and SUMMARY and REPORT say the status you find"),
     "tool-fault": ("presentation", "a crash or persistent failure of a script whose job is non-blocking "
                                    "(SCRIPT_RELEASE): recorded with stops.py disclose, release mode only"),
 }
@@ -469,6 +472,10 @@ DELIVERY_CODES = ("deliver", "unverified", "deliver-stale")
 # and verify, render_record.py, never a stop); it stays here for an older run's records (review 2): stops.py
 # open refuses these codes in both modes, and a stop whose left_out holds one keeps its meaning
 NEVER_STOP = frozenset(DELIVERY_CODES) | {"pdf"}
+# approver (2026-10-28): after the mathematics is verified, the delivered documents are the main agent's, written from
+# the records and judged by it on reviewers' advice: a reader finding, a document check and a status no route covers
+# never open a stop either, in release or dev (run/stage5-delivery.md)
+NEVER_STOP = NEVER_STOP | {"reader", "reader-check", "decisions", "status-unmapped"}
 RELEASE = {
     **{c: (_I, "restore") for c in (
         "no-pin", "tooling", "pyc", "agent", "codex-roles", "config", "pin", "ownership", "waiver",
@@ -499,6 +506,7 @@ RELEASE = {
         "reissued", "superseded", "pyc-cache", "config-grew", "before-pin", "repinned", "acknowledged",
         "acknowledged-fault",
         "reverted", "uncommitted-file", "not-approved", "reapproval", "unproved", "docstring", "run-log",
+        "escalation-cite",
         "render", "record-format", "pdf", "reader", "label", "selftest", "tool-fault", "status-unmapped")},
 }
 KINDS = ("rerun", "restore", "redo", "reprove", "patch", "human", "disclose", "precondition")
@@ -570,8 +578,8 @@ CURES = {
     "human": ("a human stop: show the human the raw output and wait; close it with --human \"<their answer, "
               "verbatim>\""),
     "disclose": "not a stop in release mode: it is disclosed (stops.py disclose)",
-    "precondition": ("not a stop, in either mode: a precondition of project.py --deliver; clear it as the code "
-                     "says (prepare and the readers, a full round, or a diff round), then deliver"),
+    "precondition": ("not a stop, in either mode: deliver-stale refuses project.py --deliver (a diff round); the "
+                     "others are notes it prints for you to judge, or document checks you fix (approver 2026-10-28)"),
 }
 
 
@@ -634,12 +642,14 @@ def closer_table():
     """RUN.md's release closer table (doclint checks RUN.md carries it verbatim): one row per kind."""
     rows = ["| kind | codes | cure (`project.CURES`) | closes with |", "|---|---|---|---|"]
     for k in KINDS:
-        cs = sorted(c for c in RELEASE if release_kind(c) == k)
+        # review 2026-10-28: a code that never opens a stop (NEVER_STOP) and is not disclosed is listed as no stop
+        cs = sorted(c for c in RELEASE if ("precondition" if c in NEVER_STOP and release_kind(c) != "disclose"
+                                           else release_kind(c)) == k)
         how = {"human": "`close --human`", "disclose": "no stop: `stops.py disclose`",
                "patch": "`close --cured`, re-running the `--check` recorded at open (a stop with none: `close --cured "
                         "\"tool-patch TP<k>\"`, re-running the patch's regression test)",
-               "precondition": "no stop: `project.py --deliver` refuses until `make_report.py --check --delivery` "
-                               "passes"}.get(k)
+               "precondition": "no stop: `project.py --deliver` refuses on `deliver-stale` only; the others are "
+                               "notes"}.get(k)
         if how is None:
             forms = sorted({CLOSER.get(c, "@check") for c in cs})
             how = "`close --cured`, re-running " + ", ".join(
@@ -649,8 +659,9 @@ def closer_table():
 
 
 def disclosed(cfg, code):
-    """True when a finding of this code is disclosed instead of failing: release mode and class N."""
-    return mode(cfg) == "release" and release_class(code) == "N"
+    """True when a finding of this code is disclosed instead of failing: release mode and class N; and
+    escalation-cite in every mode (approver, 2026-10-27: a flag, never a stop)."""
+    return code == "escalation-cite" or (mode(cfg) == "release" and release_class(code) == "N")
 
 
 class Finding(str):
@@ -1915,13 +1926,31 @@ def readme_ac(cfg):
     return "\n".join(lines) + "\n"
 
 
+FACTS_DIR = "facts"           # approver (2026-10-28): the generator's draft of SUMMARY, REPORT and RUN_RECORD
+AGENT_DOCS = ("SUMMARY.md", "REPORT.md", RUN_RECORD)   # written by the main agent in the rounds directory
+
+
+def write_draft(rounds_dir, name, text):
+    """Write the generator's draft of `name` (SUMMARY.md, REPORT.md, RUN_RECORD.md) to <rounds>/facts/ (review
+    2026-10-28). The rounds-directory copy is the main agent's: it is seeded from the draft when missing, and refreshed
+    only while it is still byte-identical to the previous draft (untouched by the agent); otherwise never written."""
+    fd = os.path.join(rounds_dir, FACTS_DIR)
+    os.makedirs(fd, exist_ok=True)
+    fp_, p_ = os.path.join(fd, name), os.path.join(rounds_dir, name)
+    old = open(fp_, encoding="utf-8").read() if os.path.isfile(fp_) else None
+    seeded = not os.path.exists(p_) or (old is not None and open(p_, encoding="utf-8").read() == old)
+    open(fp_, "w", encoding="utf-8").write(text)
+    if seeded and not os.path.islink(p_):
+        open(p_, "w", encoding="utf-8").write(text)
+    return seeded
+
+
 def _prepared_docs(cfg):
-    """{name: path} of the documents prepare records (README A-C, SUMMARY, REPORT, DECISIONS, RUN_RECORD, the
-    sheet)."""
+    """{name: path} of the documents prepare records (README A-C, the facts drafts of SUMMARY, REPORT and RUN_RECORD,
+    DECISIONS, the sheet)."""
     rd = os.path.join(REPO, cfg["rounds_dir"])
-    docs = {README_AC: os.path.join(rd, README_AC), "SUMMARY.md": os.path.join(rd, "SUMMARY.md"),
-            "REPORT.md": os.path.join(rd, "REPORT.md"), "DECISIONS.md": os.path.join(rd, "DECISIONS.md"),
-            RUN_RECORD: os.path.join(rd, RUN_RECORD)}
+    docs = {README_AC: os.path.join(rd, README_AC), "DECISIONS.md": os.path.join(rd, "DECISIONS.md")}
+    docs.update({n: os.path.join(rd, FACTS_DIR, n) for n in AGENT_DOCS})
     ar = approved_round(cfg)
     if ar:
         docs[f"{ar}/SIGNOFF.md"] = os.path.join(rd, ar, "SIGNOFF.md")
@@ -1972,16 +2001,22 @@ RUN_RECORD_TEXT = _run_record_text          # the selftest's stand-in
 
 
 def prepare_delivery(cfg, commit=True):
-    """project.py --prepare-delivery (U2 §6.2): regenerate every delivered document from the records, record
-    their generator-content hashes in DELIVERY.json, commit them as "prepare delivery". Returns (rc, [line]).
-    Writes even while a stop is open (listed as open at preparation). Never a stop itself: a document that
-    fails to build is named, and --deliver refuses it until a new prepare succeeds."""
-    import decisions, stops, readers
+    """project.py --prepare-delivery (approver, 2026-10-28): the FACTS draft -- data for the main agent, never the
+    deliverable. The generator's SUMMARY, REPORT and RUN_RECORD (statuses, goal results, defects, assumptions,
+    decisions, trust lines) go to <rounds dir>/facts/; the main agent's own SUMMARY.md, REPORT.md and RUN_RECORD.md in
+    the rounds directory are never overwritten (a missing one is seeded from the draft). Also the DECISIONS box (the
+    operator's text kept), the approved sheet re-rendered when it still says "will be approved", README sections A-C,
+    the drafts' hashes in DELIVERY.json, all committed as "prepare delivery". Returns (rc, [line]); never a stop: a
+    draft that fails to build is named, and the agent writes from the records."""
+    import decisions, stops
     rd = os.path.join(REPO, cfg["rounds_dir"])
+    fd = os.path.join(rd, FACTS_DIR)
+    os.makedirs(fd, exist_ok=True)
     out = []
-    live0 = readers.live_hand_edits(cfg)      # DOC-FIX: the hand edits this prepare will erase (named below)
+    before = {n: (open(os.path.join(rd, n), encoding="utf-8").read() if os.path.isfile(os.path.join(rd, n)) else None)
+              for n in AGENT_DOCS}
     # the approved sheet must say it was approved (mini5 audit): one rendered before the approval says it
-    # "will be" (signoff.APPROVAL_STAMPS) and is rendered again; its reader pass is kept (the stamp is not hashed)
+    # "will be" (signoff.APPROVAL_STAMPS) and is rendered again
     ar = approved_round(cfg)
     smd = os.path.join(rd, ar, "SIGNOFF.md") if ar else None
     if smd and os.path.exists(smd):
@@ -1994,22 +2029,29 @@ def prepare_delivery(cfg, commit=True):
     if added:
         out.append(f"prepare: DECISIONS.md's box gained {len(added)} entr{'y' if len(added) == 1 else 'ies'} (a stop or "
                    f"disclosure recorded since it was written)")
-    rc, tail = REGENERATE_REPORT(cfg)
-    out.append(f"prepare: REPORT and SUMMARY regenerated (make_report.py exit {rc}"
+    rc, tail = REGENERATE_REPORT(cfg)       # make_report writes its drafts to facts/ (write_draft)
+    out.append(f"prepare: the facts draft of REPORT and SUMMARY written to {FACTS_DIR}/ (make_report.py exit {rc}"
                f"{': ' + tail[0] if rc and tail and tail[0] else ''})")
     if rc:
         out += report_fault_lines(tail[1:])
     open(os.path.join(rd, README_AC), "w", encoding="utf-8").write(readme_ac(cfg))
     try:
-        import run_record
-        open(os.path.join(rd, RUN_RECORD), "w", encoding="utf-8").write(RUN_RECORD_TEXT(cfg))
-        out.append(f"prepare: {RUN_RECORD} written (the run record: markdown only, no reader)")
-    except Exception as e:      # noqa: BLE001 -- named; --deliver refuses while it is missing
-        p_ = os.path.join(rd, RUN_RECORD)
+        write_draft(rd, RUN_RECORD, RUN_RECORD_TEXT(cfg))
+        out.append(f"prepare: the facts draft of {RUN_RECORD} written to {FACTS_DIR}/")
+    except Exception as e:      # noqa: BLE001 -- named; the agent writes the run record from the records
+        p_ = os.path.join(fd, RUN_RECORD)
         if os.path.exists(p_):
             os.remove(p_)
-        out.append(f"prepare: {RUN_RECORD} could not be generated ({type(e).__name__}: {e}): --deliver refuses until "
-                   f"it is")
+        out.append(f"prepare: NOTE the facts draft of {RUN_RECORD} could not be generated ({type(e).__name__}: {e})")
+    after = {n: (open(os.path.join(rd, n), encoding="utf-8").read() if os.path.isfile(os.path.join(rd, n)) else None)
+             for n in AGENT_DOCS}
+    seeded = [n for n in AGENT_DOCS if after[n] is not None and after[n] != before[n]]
+    kept = [n for n in AGENT_DOCS if before[n] is not None and n not in seeded]
+    if seeded:
+        out.append(f"prepare: {', '.join(seeded)} (missing, or untouched since the last draft) seeded from the facts "
+                   f"draft: rewrite them")
+    if kept:
+        out.append(f"prepare: your {', '.join(kept)} kept as they were (the facts draft never overwrites them)")
     docs = _prepared_docs(cfg)
     rec = {"lean_commit": delivered_commit(cfg, short=False),
            "involvement": involvement(cfg), "mode": mode(cfg), "approved_round": ar,
@@ -2018,32 +2060,25 @@ def prepare_delivery(cfg, commit=True):
     missing = [n for n, h in rec["hashes"].items() if h is None]
     json.dump(rec, open(os.path.join(rd, DELIVERY_RECORD), "w", encoding="utf-8"), indent=1, sort_keys=True)
     if rec["open_at_preparation"]:
-        out.append(f"prepare: written while stop(s) {', '.join(rec['open_at_preparation'])} are open: they read OPEN AT "
-                   f"PREPARATION; close them, then prepare again before delivering")
+        out.append(f"prepare: written while stop(s) {', '.join(rec['open_at_preparation'])} are open")
     if missing:
-        out.append(f"prepare: MISSING {', '.join(missing)} (written by its own step: DECISIONS.md by decisions.py "
-                   f"--write and the operator; the sheet by signoff.py render): --deliver refuses until it exists")
+        out.append(f"prepare: NOTE missing {', '.join(missing)} (DECISIONS.md is written by decisions.py --write and "
+                   f"you; the sheet by signoff.py render)")
     if commit:
-        paths = [os.path.join(rd, DELIVERY_RECORD)] + [p for p in docs.values() if os.path.exists(p)]
+        paths = [os.path.join(rd, DELIVERY_RECORD)] + [p for p in docs.values() if os.path.exists(p)] \
+            + [os.path.join(rd, n) for n in seeded]
         try:
             h = commit_only(paths, "prepare delivery", repo=AUDITS)
             out.append(f"prepare: committed \"prepare delivery\"{' ' + h[:11] if h else ''}")
         except (ValueError, OSError) as e:
             out.append(f"prepare: commit failed: {e}")
             return 1, out
-    live1 = {r_["he"] for r_ in readers.live_hand_edits(cfg)}
-    for r_ in live0:
-        if r_["he"] not in live1:
-            # DOC-FIX: never silent -- the regenerated document lacks the edit; its `fixed` answer now refuses the gate
-            out.append(f"prepare: NOTE hand edit {r_['he']} of {r_.get('doc')} is erased by this prepare (the document "
-                       f"is regenerated): if its fault is still there, re-apply {cfg['rounds_dir']}/{readers.HE_DIR}/"
-                       f"{r_['he']}.diff (git apply) and record it again (readers.py --hand-edit), or answer the finding "
-                       f"anew ({r_.get('finding', '')[:100]})")
-    out.append("prepare: now run the fresh readers (summary, report, decisions; RUN.md Stage 5); then render the "
-               "PDFs whose markdown changed, SUMMARY and REPORT in parallel (python3 audits/render_record.py next --doc "
-               "SUMMARY|REPORT" + (f"; the approved sheet: --doc SIGNOFF --round {ar}" if ar else "")
-               + "; run/render-pdf.md); then python3 audits/project.py --deliver")
-    return (1 if rc or missing else 0), out
+    out.append(f"prepare: now write SUMMARY.md and REPORT.md yourself from the records and the Lean ({FACTS_DIR}/ is "
+               f"data, not the deliverable), correct RUN_RECORD.md and DECISIONS.md where the draft is wrong, run the "
+               f"four delivery reviewers, judge their findings (JUDGEMENT.md), render the PDFs "
+               f"(python3 audits/render_record.py next --doc SUMMARY|REPORT" + (f"; --doc SIGNOFF --round {ar}" if ar else "")
+               + "), then python3 audits/project.py --deliver (run/stage5-delivery.md)")
+    return (1 if rc else 0), out        # 1: the facts draft is incomplete (named above); never a stop
 
 
 def _reader_outcome(cfg, doc, round_name):
@@ -2065,8 +2100,8 @@ RENDER_CHECK = _render_check            # the selftest's stand-in
 def readme_d(cfg, files, kept, dropped):
     """README section D (ADDENDUM N6: only in the delivery copy): the stamp, the pointer to RUN_RECORD.md (the
     known-fault notices, the delivery-phase records and the superseded notices are folded into it: approver
-    2026-10-24), each document's reader outcome, how each PDF was made, and the fingerprints of the delivered PDFs
-    and of RUN_RECORD.md. `kept` and `dropped` are unused here (run_record.delivery_section reads them)."""
+    2026-10-24), who wrote and reviewed SUMMARY and REPORT (approver 2026-10-28), the sheet's reader outcome, how each
+    PDF was made, and the fingerprints of the delivered PDFs and of RUN_RECORD.md. `kept` and `dropped` are unused here (run_record.delivery_section reads them)."""
     import fingerprint, stops
     try:
         lean = fingerprint.head(REPO)[:11]
@@ -2075,20 +2110,35 @@ def readme_d(cfg, files, kept, dropped):
     aud = subprocess.run(["git", "-C", AUDITS, "rev-parse", "--short=11", "HEAD"], capture_output=True, text=True).stdout.strip()
     lines = ["", "## D. Delivery notes", "",
              f"Delivered from Lean HEAD `{lean}` and audit record HEAD `{aud or '(unknown)'}`.", "",
-             f"Known faults (presentation faults, fresh-reader findings answered as unfixable, faults disclosed instead "
-             f"of a stop, and anything that arose after the documents were prepared): `{RUN_RECORD}`, with the rest of "
-             f"the run record. No separate KNOWN_FAULTS file is delivered."]
-    seen = []
-    for f in files:
-        b = os.path.basename(f)
-        how = (("summary", None) if b.startswith("SUMMARY") else ("report", None) if b.startswith("REPORT")
-               else ("decisions", None) if b == "DECISIONS.md" else ("signoff", "approved")
-               if b.startswith("SIGNOFF") and involvement(cfg) != "hands-off" else None)
-        if how and how not in seen:
-            seen.append(how)
-            if len(seen) == 1:
-                lines += ["", "Fresh-reader checks (a fresh subagent reads each document; `readers.py`):"]
-            lines.append(f"- `{b}`: {READER_OUTCOME(cfg, *how)}.")
+             f"How the run went, including any fault disclosed instead of a stop and anything that arose after the "
+             f"documents were written: `{RUN_RECORD}`, the run record. No separate KNOWN_FAULTS file is delivered."]
+    # approver (2026-10-28): SUMMARY and REPORT are the main agent's; review 2026-10-28: said only from what is on record
+    rd_ = os.path.join(REPO, cfg["rounds_dir"])
+    same = draft_copies(cfg)
+    if same:
+        lines += ["", f"{' and '.join(same)} {'is' if len(same) == 1 else 'are'} the generator's draft, unchanged: the "
+                  f"formalizing agent did not rewrite {'it' if len(same) == 1 else 'them'}."]
+    else:
+        lines += ["", "`SUMMARY` and `REPORT` were written by the formalizing agent from the run's records and the Lean, "
+                  "for a mathematician who knows neither Lean nor this tool."]
+    have = [p_ for p_ in REVIEW_PERSPECTIVES if os.path.isfile(os.path.join(rd_, REVIEW_DIR, p_ + ".md"))]
+    gone = [p_ for p_ in REVIEW_PERSPECTIVES if p_ not in have]
+    judged = os.path.isfile(os.path.join(rd_, JUDGEMENT_MD))
+    if have:
+        lines.append(f"Fresh agents reviewed them ({', '.join(p_.lower() for p_ in have)}; `{REVIEW_DIR}/`)"
+                     + (f"; no review is on record for {', '.join(p_.lower() for p_ in gone)}" if gone else "")
+                     + (f". The formalizing agent's judgement of each finding is in `{JUDGEMENT_MD}`." if judged else
+                        ". No judgement of their findings is on record."))
+    else:
+        lines.append("No delivery review is on record (no `delivery-review/` file)"
+                     + (f"; `{JUDGEMENT_MD}` is delivered as written." if judged else "."))
+    if involvement(cfg) != "hands-off":
+        for f in files:
+            b = os.path.basename(f)
+            if b.startswith("SIGNOFF"):
+                lines += ["", "Fresh-reader check of the sheet (`readers.py`):",
+                          f"- `{b}`: {READER_OUTCOME(cfg, 'signoff', 'approved')}."]
+                break
     # the advisory citation notes (run/stage5-delivery.md step 5a), when the review produced them: listed, never read
     if os.path.isfile(os.path.join(REPO, cfg["rounds_dir"], "CITATIONS.md")):
         lines += ["", "`CITATIONS.md`: advisory notes on the paper's citations and bibliography, for the authors to "
@@ -2101,26 +2151,12 @@ def readme_d(cfg, files, kept, dropped):
     lines += ["", "How each PDF was made and checked (a fresh agent rendered the markdown, another verified the PDF "
               "against it, and two independent checkers were to judge whether it says mathematically the same thing, a "
               "difference sending it back to the renderer; at most 6 rounds; `render_record.py`). Each line says what "
-              "actually ran: a checker that did not run is never a pass. The markdown beside each PDF is the audited "
-              "text:"]
+              "actually ran: a checker that did not run is never a pass. The markdown beside each PDF is the "
+              "authoritative text:"]
     for d_, r_ in [("SUMMARY", None), ("REPORT", None)] + ([("SIGNOFF", ar)] if ar else []):
         lines += render_record.readme_lines(cfg, d_, r_)
     # review MED 3: each delivered PDF's sha256, which --check-delivered compares with the file in deliverables/
     # and with the render record (a PDF swapped after --deliver is caught)
-    # DOC-FIX (approver 2026-10-25): each hand edit of a generated document, and the sha256 of each hand-edited
-    # markdown as delivered (the PDF beside it was rendered from exactly that text: the render guard)
-    import readers
-    hes = readers.live_hand_edits(cfg)
-    if hes:
-        lines += ["", "Hand edits of generated documents (the operator's edits after the final preparation, each fixing a "
-                  "fault an agent found, each its own commit; a fresh reader read the edited version and the status "
-                  "check judged each edit; the diffs are in `RUN_RECORD.md`):"]
-        lines += [f"- {r_['he']}: `{r_.get('doc')}` — for {r_.get('finding', '')[:160]}" for r_ in hes]
-        lines += ["", "Delivered hand-edited markdown fingerprints (`python3 audits/project.py --check-delivered` compares "
-                  "them with the files):"]
-        for d_ in dict.fromkeys(r_.get("doc") for r_ in hes):
-            p_ = os.path.join(REPO, "deliverables", d_)
-            lines.append(f"- `{d_}`: sha256 `{render_record.sha_file(p_) if os.path.isfile(p_) else '(missing)'}`")
     pdfs = [f for f in files if f.endswith(".pdf")]
     lines += ["", "Delivered PDF fingerprints (sha256 of each PDF in this directory as delivered; `python3 audits/"
               "project.py --check-delivered` compares them with the files and with each render record):"
@@ -2134,7 +2170,6 @@ def readme_d(cfg, files, kept, dropped):
 
 
 DELIVERED_FP = re.compile(r"^- `([^`/]+\.pdf)`: sha256 `([0-9a-f]{64})`$")
-DELIVERED_MD = re.compile(r"^- `((?:SUMMARY|REPORT)\.md)`: sha256 `([0-9a-f]{64})`$")     # DOC-FIX: hand-edited md
 DELIVERED_RR = re.compile(r"^- `RUN_RECORD\.md`: sha256 `([0-9a-f]{64})`$")
 
 
@@ -2147,7 +2182,7 @@ def check_delivered(cfg):
     readme = os.path.join(out, "README.md")
     if os.path.islink(out) or not os.path.isfile(readme) or os.path.islink(readme):
         return [f"{os.path.relpath(readme, REPO)} is missing: nothing was delivered (python3 audits/project.py --deliver)"]
-    fps, rr_fp, md_fp = {}, [], {}
+    fps, rr_fp = {}, []
     for line in open(readme, encoding="utf-8").read().splitlines():
         m = DELIVERED_FP.match(line.strip())
         if m:
@@ -2155,9 +2190,6 @@ def check_delivered(cfg):
         m = DELIVERED_RR.match(line.strip())
         if m:
             rr_fp.append(m.group(1))
-        m = DELIVERED_MD.match(line.strip())
-        if m:
-            md_fp[m.group(1)] = m.group(2)
     ar = approved_round(cfg)
     docs = {"SUMMARY.pdf": ("SUMMARY", None), "REPORT.pdf": ("REPORT", None)}
     if ar:
@@ -2174,17 +2206,6 @@ def check_delivered(cfg):
         if _rr.sha_file(rr_p) != rr_fp[0]:
             probs.append(f"deliverables/{RUN_RECORD} is not the run record delivered (sha256 now "
                          f"{_rr.sha_file(rr_p)[:12]}…, README D {rr_fp[0][:12]}…)")
-    import readers
-    for d_ in dict.fromkeys(r_.get("doc") for r_ in readers.live_hand_edits(cfg)):
-        # DOC-FIX: a hand-edited markdown is delivered exactly as edited (README D's sha256, the md on record)
-        p_ = os.path.join(out, d_)
-        want = md_fp.get(d_)
-        if want is None:
-            probs.append(f"README D does not fingerprint the hand-edited {d_}: --deliver did not deliver it")
-        elif os.path.islink(p_) or not os.path.isfile(p_) or render_record.sha_file(p_) != want:
-            probs.append(f"deliverables/{d_} is not the hand-edited markdown delivered (README D {want[:12]}…)")
-        elif render_record.sha_file(os.path.join(REPO, cfg["rounds_dir"], d_)) != want:
-            probs.append(f"deliverables/{d_} is not the {d_} on record (its last hand edit): deliver again")
     for f in sorted(os.listdir(out)):
         if f.startswith("KNOWN_FAULTS-") and f.endswith(".md"):
             probs.append(f"deliverables/{f}: no KNOWN_FAULTS file is delivered any more (folded into {RUN_RECORD})")
@@ -2283,95 +2304,174 @@ def deliver(cfg):
     return rc
 
 
+REVIEW_DIR = "delivery-review"     # each delivery reviewer's returned text, <PERSPECTIVE>.md (run/stage5-delivery.md)
+REVIEW_PERSPECTIVES = ("CLAIMS", "READABILITY", "DECISIONS", "TRUST")
+
+
+def draft_copies(cfg):
+    """[SUMMARY.md / REPORT.md that are byte-identical to their facts draft]: not rewritten by the agent."""
+    rd = os.path.join(REPO, cfg["rounds_dir"])
+    out = []
+    for n in ("SUMMARY.md", "REPORT.md"):
+        a_, b_ = os.path.join(rd, n), os.path.join(rd, FACTS_DIR, n)
+        if os.path.isfile(a_) and os.path.isfile(b_) and open(a_, "rb").read() == open(b_, "rb").read():
+            out.append(n)
+    return out
+
+
+JUDGEMENT_MD = "JUDGEMENT.md"     # the main agent's judgement of the delivery reviewers' findings (run/stage5-delivery.md)
+NOTES_HEADING = "notes for the main agent (not blocking):"
+
+
+def human_stop(cfg, s):
+    """Does open stop `s` wait for the human: any stop in dev; in release one with a cause of RELEASE_STOP_CODES or of
+    release kind `human` (an unreadable record counts as one: fail closed)."""
+    if mode(cfg) != "release":
+        return True
+    import stops
+    try:
+        doc = json.load(open(os.path.join(stops.stop_dir(cfg, s), "STOP.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+    codes = [str(c.get("code")) for c in doc.get("causes") or []]
+    # a stop classified `interference` once its cure budget was spent is stop 3, the human's (stops.py classify)
+    cls = stops.classifications(cfg, s)
+    if cls and cls[-1].get("as") == "interference":
+        return True
+    return any(c in RELEASE_STOP_CODES or release_kind(c) == "human" for c in codes)
+
+
 def _deliver(cfg):
-    """project.py --deliver (U2 §6.4): checks only, in both modes, then the delivery copy in
-    <project>/deliverables/ (git-excluded): SUMMARY, REPORT and the latest approval's sheet, each as its PDF (when
-    render_record.py shipped one) with its markdown beside it, DECISIONS.md, RUN_RECORD.md (as prepared, then its
-    delivery-phase notes: the notices of the delivered documents (keep_notices) folded in, the delivery-phase
-    records, the superseded notices by name; no KNOWN_FAULTS file is delivered), CITATIONS.md when the advisory
-    citation review produced it (copied, never checked) and README.md (README A-C as prepared, then the stamp and
-    section D). It regenerates nothing."""
+    """project.py --deliver (approver, 2026-10-28, binding: after the mathematics is verified, delivery never stops and
+    is never refused except by the math gate). THE MATH GATE, the only refusals: Phase 0 read-only GREEN (the build, no
+    `sorry` beyond a logged leave line, standard axioms only), the freeze (fingerprint.py --check; no re-approval
+    open), the integrity of the proof-validity core (stops.math_gate) and no Lean commit after the last audited round
+    (`deliver-stale`, within the delivery round cap). Everything else -- the prepared documents' staleness, the
+    reader gates, hand-edit records, the status check, result_status disagreements, pending adjudication,
+    `unverified`, ownership of document and reader files, the PDF render guard, an open stop or Checkpoint C, the
+    run record's listing, the tool-patch delivery check -- is printed under NOTES_HEADING for the main agent, who
+    judges it (run/stage5-delivery.md); none refuses and none is a stop. Then the delivery copy in
+    <project>/deliverables/ (git-excluded): SUMMARY and REPORT (the main agent's), each with its PDF when
+    render_record.py shipped one, the latest approval's sheet, DECISIONS.md, RUN_RECORD.md (as in the rounds
+    directory, then its delivery-phase notes), JUDGEMENT.md and CITATIONS.md when present, and README.md (README A-C,
+    then section D)."""
     import shutil
     import decisions, make_report, stops
     rd = os.path.join(REPO, cfg["rounds_dir"])
-    # U2 §6.4 item 2, first (B2: while the human's question is open nothing else is printed): no stop or QUESTION
-    # open, checked only here (H2); PENDING, never a failure line, so it opens no stop
-    q = decisions.question_refusal(cfg)
-    if q:
-        print("PENDING[question] not delivered: " + q)
+    block, notes = [], []
+
+    def note(what, f, *a):
+        try:
+            r_ = f(*a)
+        except Exception as e:      # noqa: BLE001 -- a note, never a refusal
+            notes.append(f"{what} could not be checked ({type(e).__name__}: {e})")
+            return None
+        return r_
+    # the freeze, first (B2: while the human's question is open nothing else is printed): an open re-approval is a
+    # statement that is not approved yet; PENDING, never a failure line, so it opens no stop
+    if note("the re-approval state", decisions.reapproval_question, cfg):
+        print("PENDING[question] not delivered (the freeze, part of the math gate): "
+              + (decisions.question_refusal(cfg) or "a re-approval is open: finish it (run/reapproval.md)"))
         return 1
-    busy = stops.open_name(cfg)
+    # the designed human waits (a wait, never a stop; review 2026-10-28): Checkpoint C under involved, and a stop that
+    # waits for the human -- a release human stop (RELEASE_STOPS, or a cause of kind `human`), any open stop in dev.
+    # Another open stop (e.g. a release tool-bug stop about a deliverable) is a note
+    c_ = note("Checkpoint C", decisions.checkpoint_c_refusal, cfg)
+    if c_:
+        print("PENDING[question] not delivered: " + c_)
+        return 1
+    busy = note("the open stop", stops.open_name, cfg)
     if busy:
-        print(f"PENDING[stop] not delivered: stop {busy} is open; close it, then prepare again (its closing changes "
-              f"the summary) and deliver")
-        return 1
-    # item 1. make_report.py --check --delivery: the prepared documents are current, read, covered; the verdicts
-    # are current and nothing is stale or pending. RED preconditions, never a stop (ADDENDUM N1)
+        if human_stop(cfg, busy):
+            print(f"PENDING[stop] not delivered: stop {busy} is open and waits for the human; once it is closed, "
+                  f"prepare again and deliver")
+            return 1
+        notes.append(f"stop {busy} is open (not a human stop)")
+    # make_report.py --check --delivery: deliver-stale is the gate's; every other code a note
     try:
         pre = make_report.delivery_problems(cfg)
-    except Exception as e:      # noqa: BLE001 -- fail closed, the reason shown
-        pre = [("deliver", f"the delivery check could not run: {e!r}")]
-    if pre:
-        for code, t in pre:
-            print(f"RED[{code}] not deliverable: " + " ".join(str(t).split()))
-        print("  these are preconditions of --deliver, never a stop: prepare (python3 audits/project.py "
-              "--prepare-delivery) and the readers, a full round (unverified), or a diff round (deliver-stale); "
-              "then deliver again")
-        if any(c == "ownership" for c, _t in pre):
-            print("  except RED[ownership]: a record changed by a commit that does not own it is what python3 audits/"
-                  "integrity.py --check prints as FAIL[ownership]; handle it as the RUN.md failure table says (tamper)")
-        return 1
-    # 3 and 5. deliver_blocking in both modes (H4: integrity, the freeze, Phase 0 read-only, every self-cured
-    # stop's check); in release also every disclosing check's faults recorded and named
-    gate = stops.deliver_gate(cfg)
-    if gate:
-        print(f"RED[deliver] not deliverable ({mode(cfg)} mode)\n" + "\n".join("  " + g for g in gate))
-        return 1
-    # OPERATOR-PATCH: the run's FIRST pin verifies that RUN_RECORD.md lists every applied tool patch and that the
-    # floor holds on the delivered tooling; a full round a patch forced must have run (tool_patch.delivery_problems)
+    except Exception as e:      # noqa: BLE001 -- the stale check alone, then
+        notes.append(f"the delivery checks could not run ({type(e).__name__}: {e})")
+        try:
+            pre = [("deliver-stale", t) for t in make_report.stale_problems(cfg)]
+        except Exception as e2:     # noqa: BLE001 -- fail closed: the gate cannot tell
+            pre = [("deliver-stale", f"whether a Lean commit came after the last audited round could not be checked: "
+                                     f"{e2!r}")]
+    block += [(c, t) for c, t in pre if c == "deliver-stale"]
+    notes += [f"[{c}] {' '.join(str(t).split())}" for c, t in pre if c != "deliver-stale"]
+    try:
+        gb, gn = stops.math_gate(cfg)
+    except Exception as e:      # noqa: BLE001 -- fail closed: the gate could not run
+        gb, gn = [f"the math gate could not run: {e!r}"], []
+    block += [("deliver", g) for g in gb]
+    notes += gn
+    # OPERATOR-PATCH: the first pin's tool-patch verifier and every forced full round, as notes (approver 2026-10-28)
     import tool_patch
-    tpd = tool_patch.delivery_problems(cfg)
-    if [x for x in tpd if not x.startswith("note:")]:
-        print("RED[deliver] not deliverable (tool patches)\n" + "\n".join("  " + x for x in tpd))
+    try:
+        tpd = tool_patch.delivery_problems(cfg)
+    except Exception as e:      # noqa: BLE001 -- a note, never a refusal
+        tpd = [f"the tool-patch delivery check could not run ({type(e).__name__}: {e})"]
+    carry = {}
+    for x in tpd:
+        m = re.match(r'^((?:SUMMARY|REPORT)\.md) does not carry "(.+?): this status was decided by a corrected', str(x))
+        if m:
+            carry.setdefault(m.group(1), []).append(m.group(2))
+        else:
+            notes.append(f"[tool patches] {x}")
+    for d_, names_ in carry.items():
+        notes.append(f"[tool patches] {d_} does not say, for {len(names_)} result(s), that its status was decided by "
+                     f"the corrected checking software (the first pin's tools would say otherwise): "
+                     f"{'; '.join(names_)}. Say it in plain words where it holds; the claims reviewer checks it")
+
+    def say_notes():
+        if notes:
+            print(NOTES_HEADING)
+            for n_ in dict.fromkeys(notes):
+                print("  note: " + " ".join(str(n_).split()))
+    if block:
+        for code, t in block:
+            print(f"RED[{code}] not deliverable (the math gate): " + " ".join(str(t).split()))
+        say_notes()
         return 1
     out = os.path.join(REPO, "deliverables")
     if os.path.islink(out):
-        print(f"RED[deliver] {out} is a symbolic link"); return 1
+        print(f"RED[deliver] {out} is a symbolic link: nothing is written through it"); return 1
     ar = approved_round(cfg)
     if not ar:
-        print("note: no approval record (APPROVED_FINGERPRINTS.json): no sign-off sheet delivered")
-    # 4. the render guard (PDF-AGENTS; replaces the render recompute): each PDF is the one render_record.py shipped
-    # for its markdown as it is now -- a fingerprint, never a reading of the PDF. Never a stop: render again
+        notes.append("no approval record (APPROVED_FINGERPRINTS.json): no sign-off sheet delivered")
+    # PDF-AGENTS: each PDF the one render_record.py shipped for its markdown as it is now -- a note when not
     import render_record
     docs_ = [("SUMMARY", None), ("REPORT", None)] + ([("SIGNOFF", ar)] if ar else [])
-    unchecked = [u for d_, r_ in docs_ for u in RENDER_CHECK(cfg, d_, r_)]
-    if unchecked:
-        for u in unchecked:
-            print("RED[deliver] " + " ".join(str(u).split()))
-        print("  render again (python3 audits/render_record.py next --doc SUMMARY|REPORT|SIGNOFF [--round "
-              "approved]; run/render-pdf.md), then deliver again: never a stop")
-        return 1
+    for n_ in (note("the drafts", draft_copies, cfg) or []):
+        notes.append(f"{n_} is byte-identical to its facts draft ({FACTS_DIR}/{n_}): write it yourself from the records "
+                     f"and the Lean (run/stage5-delivery.md step 5)")
+    stale_pdf = set()
+    for d_, r_ in docs_:
+        u_ = note(f"the {d_} PDF", RENDER_CHECK, cfg, d_, r_) or []
+        if u_:      # a PDF that is not the one rendered from the md as it is now never ships beside it
+            stale_pdf.add(d_)
+            notes += [f"[pdf] {u} -- delivered as markdown only until rendered again" for u in u_]
     files = []
     for d_, r_ in docs_:
-        oc_, pdf_ = render_record.delivered(cfg, d_, r_)
+        oc_, pdf_ = note(f"the {d_} render record", render_record.delivered, cfg, d_, r_) or (None, None)
+        pdf_ = None if d_ in stale_pdf else pdf_
         files += ([pdf_] if pdf_ else []) + [render_record.md_path(cfg, d_, r_)]   # the md beside, always (review 12)
         if d_ == "REPORT":
             files.append(os.path.join(rd, "DECISIONS.md"))
-    missing = [f for f in files + [os.path.join(rd, RUN_RECORD)] if not os.path.exists(f)]
+    missing = [f for f in files if not os.path.exists(f)]
     if missing:
-        print(f"RED[deliver] {len(missing)} deliverable(s) missing: " + ", ".join(os.path.relpath(m, REPO) for m in missing)
-              + ": prepare again, or render again")
-        return 1
+        notes.append(f"{len(missing)} deliverable(s) missing, not delivered: "
+                     + ", ".join(os.path.relpath(m, REPO) for m in missing))
+    files = [f for f in files if f not in missing]
     os.makedirs(out, exist_ok=True)
     _exclude("deliverables/")
-    kept, dropped = keep_notices(cfg, sorted(glob.glob(os.path.join(rd, "KNOWN_FAULTS-*.md"))), ar)
+    kept, dropped = note("the known-fault notices", keep_notices, cfg,
+                         sorted(glob.glob(os.path.join(rd, "KNOWN_FAULTS-*.md"))), ar) or ([], [])
     for f in ("SUMMARY.pdf", "REPORT.pdf", "SIGNOFF.pdf"):
         # a PDF of an earlier delivery never stands beside a document now delivered as markdown only (no-pdf)
         if os.path.join(out, f) not in [os.path.join(out, os.path.basename(x)) for x in files] \
                 and os.path.isfile(os.path.join(out, f)) and not os.path.islink(os.path.join(out, f)):
             os.remove(os.path.join(out, f))
-    # approver (2026-10-24): no KNOWN_FAULTS-* file is delivered (an earlier delivery's copies go): their content is
-    # folded into RUN_RECORD.md, and so are the superseded notices (named) and the delivery-phase records
     for f in os.listdir(out):
         fp_ = os.path.join(out, f)
         if f.startswith("KNOWN_FAULTS-") and f.endswith(".md") and os.path.isfile(fp_) and not os.path.islink(fp_):
@@ -2379,43 +2479,46 @@ def _deliver(cfg):
     if not os.path.islink(os.path.join(out, "superseded")):
         shutil.rmtree(os.path.join(out, "superseded"), ignore_errors=True)
     for f in files:
-        if os.path.exists(f):
-            shutil.copy2(f, os.path.join(out, os.path.basename(f)))
+        shutil.copy2(f, os.path.join(out, os.path.basename(f)))
     delivered = list(files)
     import run_record
     rr_out = os.path.join(out, RUN_RECORD)
     if os.path.islink(rr_out):
-        print(f"RED[deliver] {rr_out} is a symbolic link"); return 1
-    open(rr_out, "w", encoding="utf-8").write(open(os.path.join(rd, RUN_RECORD), encoding="utf-8").read()
-                                              + run_record.delivery_section(cfg, kept, dropped))
+        print(f"RED[deliver] {rr_out} is a symbolic link: nothing is written through it"); return 1
+    rr_in = os.path.join(rd, RUN_RECORD)
+    if not os.path.isfile(rr_in):
+        notes.append(f"{RUN_RECORD} is missing from the rounds directory: the delivered one has its delivery notes only")
+    open(rr_out, "w", encoding="utf-8").write(
+        (open(rr_in, encoding="utf-8").read() if os.path.isfile(rr_in) else "# Run record\n")
+        + (note("the run record's delivery section", run_record.delivery_section, cfg, kept, dropped) or ""))
     delivered.append(rr_out)
-    # approver (2026-10-24): the delivered process record lists every applied tool patch, every stop the operator
-    # closed and every set-aside (integrity.py, from the raw records; mechanical provenance only)
+    # approver (2026-10-24): the process record lists every applied tool patch, operator-closed stop and set-aside
+    # (integrity.py, from the raw records); a note for the agent, who corrects RUN_RECORD.md (approver 2026-10-28)
     import integrity
-    rr_bad = integrity.run_record_problems(AUDITS, rd, open(rr_out, encoding="utf-8").read())
-    if rr_bad:
-        os.remove(rr_out)
-        for m in rr_bad:
-            print("RED[deliver] " + m)
-        print("  prepare again (python3 audits/project.py --prepare-delivery writes RUN_RECORD.md), then deliver again")
-        return 1
-    # the advisory citation notes (run/stage5-delivery.md step 5a): copied when present, never checked; an earlier
-    # delivery's copy never stands beside a delivery without them
-    cit, cit_out = os.path.join(rd, "CITATIONS.md"), os.path.join(out, "CITATIONS.md")
-    if os.path.isfile(cit_out) and not os.path.islink(cit_out):
-        os.remove(cit_out)
-    if os.path.isfile(cit) and not os.path.islink(cit):
-        shutil.copy2(cit, cit_out)
-        delivered.append(cit_out)
-    # README.md = README A-C exactly as prepared (its hash was checked in step 1), then section D (N6)
-    cover = open(os.path.join(rd, README_AC), encoding="utf-8").read() + readme_d(cfg, files, kept, dropped)
+    notes += [f"[run record] {m}" for m in (note("the run record's listing", integrity.run_record_problems, AUDITS, rd,
+                                                 open(rr_out, encoding="utf-8").read()) or [])]
+    # the advisory citation notes and the main agent's judgement of the delivery reviews: copied when present,
+    # never checked; an earlier delivery's copy never stands beside a delivery without them
+    for name_ in ("CITATIONS.md", JUDGEMENT_MD):
+        src_, dst_ = os.path.join(rd, name_), os.path.join(out, name_)
+        if os.path.isfile(dst_) and not os.path.islink(dst_):
+            os.remove(dst_)
+        if os.path.isfile(src_) and not os.path.islink(src_):
+            shutil.copy2(src_, dst_)
+            delivered.append(dst_)
+        elif name_ == JUDGEMENT_MD:
+            notes.append(f"no {JUDGEMENT_MD} in the rounds directory: the delivery reviewers' findings were not judged "
+                         f"on record (run/stage5-delivery.md)")
+    # README.md = README A-C as prepared (generated now when there is none), then section D (N6)
+    ac_ = os.path.join(rd, README_AC)
+    cover = (open(ac_, encoding="utf-8").read() if os.path.isfile(ac_) else (note("README A-C", readme_ac, cfg) or "")) \
+        + (note("README section D", readme_d, cfg, files, kept, dropped) or "\n## D. Delivery notes\n\n(could not be "
+                                                                            "written: see the notes)\n")
     open(os.path.join(out, "README.md"), "w", encoding="utf-8").write(cover)
     delivered.append(os.path.join(out, "README.md"))
-    bad = check_delivered(cfg)      # review MED 3: the fingerprints just written hold
-    if bad:
-        print("RED[deliver] " + "; ".join(bad))
-        return 1
+    notes += [f"[delivered check] {b}" for b in (note("the delivered check", check_delivered, cfg) or [])]
     print(f"delivered {len(delivered)} file(s) to {out}")
+    say_notes()
     return 0
 
 
@@ -2940,60 +3043,101 @@ def selftest():
             "## 4. Set-asides and clearances\n\nNone.\n")
         import decisions as _dc
         import stops as _st
-        # the release delivery gate is stops.py's selftest; here it never runs real checks (a mutant
-        # that makes these configs release would otherwise crash instead of failing a check)
-        _gate0, _st.deliver_gate = _st.deliver_gate, lambda c_: []
+        # approver (2026-10-28): the math gate is stops.math_gate (stops.py's selftest holds its content); here a
+        # stand-in, so these configs never run real checks
+        _gate0, _st.math_gate = _st.math_gate, lambda c_: ([], [])
+        # B12: this fixture (involved by default) has Checkpoint C answered; C itself is decisions' selftest
+        _ckc_d, _dc.checkpoint_c_refusal = _dc.checkpoint_c_refusal, (lambda c_: None)
         import make_report as _mrp
-        # B10: step 1 of --deliver is make_report.py --check --delivery (its own selftest and
-        # _delivery_scenario hold its content); here it is a stand-in
+        # make_report.py --check --delivery is a stand-in here (its own selftest and _delivery_scenario hold it)
         _dpr0 = _mrp.delivery_problems
-        _mrp.delivery_problems = lambda c_, inp=None: [("adj-record", "pending the next adjudication: SKIPPED.md row 3: "
-                                                         "4 cells under a 5-column header"),
+        _mrp.delivery_problems = lambda c_, inp=None: [("deliver-stale", "1 Lean commit(s) after the last audited round "
+                                                                         "R (abc1234): STALEQZ"),
                                                         ("deliver", "SUMMARY.md is stale: its inputs changed since prepare")]
         with contextlib.redirect_stdout(io.StringIO()) as _o:
             rc_af = deliver({"rounds_dir": "audits/x"})
         _mrp.delivery_problems = lambda c_, inp=None: []
-        checks.append(("sweep D1-D3 / B10: --deliver refuses while make_report.py --check --delivery names a precondition "
-                       "(an adjudicator-owned record fault, a stale document), one coded RED line each, saying it is "
-                       "never a stop, and copies nothing",
-                       rc_af == 1 and "RED[adj-record] not deliverable: pending the next adjudication: SKIPPED.md row 3"
-                       in _o.getvalue() and "RED[deliver] not deliverable: SUMMARY.md is stale" in _o.getvalue()
-                       and "never a stop" in _o.getvalue()
-                       and not os.path.exists(os.path.join(REPO, "deliverables"))))
-        _keep_on, _keep_q = _st.open_name, _dc.question_refusal
+        _st.math_gate = lambda c_: (["`python3 audits/phase0.py --readonly` fails (exit 1): HARD[sorry] SORRYQZ"],
+                                    ["integrity (not the proof-validity core): FAIL[ownership] readers/x.md NOTEQZ"])
+        with contextlib.redirect_stdout(io.StringIO()) as _og:
+            rc_mg = deliver({"rounds_dir": "audits/x"})
+        _st.math_gate = lambda c_: ([], [])
+        _rq0, _dc.reapproval_question = _dc.reapproval_question, (lambda c_: {"decls": ["N.x"], "date": "2026-01-01",
+                                                                             "reason": "r", "why": "w"})
         try:
-            _st.open_name = lambda c_: "S7"
-            with contextlib.redirect_stdout(io.StringIO()) as _o:
-                rc_p = deliver({"rounds_dir": "audits/x"})
-            _st.open_name, _dc.question_refusal = _keep_on, (lambda c_: "the re-approval of N.x waits for the human")
             with contextlib.redirect_stdout(io.StringIO()) as _oq:
                 rc_q = deliver({"rounds_dir": "audits/x"})
         finally:
-            _st.open_name, _dc.question_refusal = _keep_on, _keep_q
-        checks.append(("B10 (U2 §6.4 item 2, H2): only --deliver refuses while a stop or a QUESTION is open, PENDING "
-                       "(never a failure line, so it opens no stop), and copies nothing",
-                       rc_p == 1 and "PENDING[stop]" in _o.getvalue() and "S7" in _o.getvalue()
-                       and rc_q == 1 and "PENDING[question]" in _oq.getvalue()
-                       and not _st.FAIL_LINE.search(_o.getvalue() + _oq.getvalue())
+            _dc.reapproval_question = _rq0
+        checks.append(("approver 2026-10-28, the math gate: --deliver refuses only on it -- a Lean commit after the last "
+                       "audited round (RED[deliver-stale]), a failing Phase 0 / freeze / core-integrity check (RED[deliver]), "
+                       "an open re-approval (PENDING[question], never a failure line) -- printing the rest as notes, and copies nothing",
+                       rc_af == 1 and "RED[deliver-stale] not deliverable (the math gate): 1 Lean commit(s)" in _o.getvalue()
+                       and "STALEQZ" in _o.getvalue() and NOTES_HEADING in _o.getvalue()
+                       and "note: [deliver] SUMMARY.md is stale" in _o.getvalue()
+                       and rc_mg == 1 and "RED[deliver] not deliverable (the math gate)" in _og.getvalue()
+                       and "SORRYQZ" in _og.getvalue() and "note: integrity (not the proof-validity core)" in _og.getvalue()
+                       and rc_q == 1 and _oq.getvalue().startswith("PENDING[question] not delivered (the freeze")
+                       and "N.x" in _oq.getvalue() and not _st.FAIL_LINE.search(_oq.getvalue())
                        and not os.path.exists(os.path.join(REPO, "deliverables"))))
-        # PDF-AGENTS: --deliver refuses unless each PDF is the one render_record.py shipped for its md as it is now
-        # (the fingerprint guard; render_record.py --selftest holds it): RED[deliver], render again, never a stop
+        # PDF-AGENTS / B10 / B12 / sweep D1-D3, now notes (approver 2026-10-28): an open stop, an unanswered
+        # Checkpoint C, a PDF not the one shipped for its md, a pending adjudication, a stale document, `unverified`
         _rck0 = globals()["RENDER_CHECK"]
         import project as _pmd      # render_record reads the imported module's REPO (this one is __main__)
         _pmd_repo, _pmd.REPO = _pmd.REPO, REPO
-        # B12: this fixture (involved by default) has Checkpoint C answered; C itself is decisions' selftest
-        _ckc_d, _dc.checkpoint_c_refusal = _dc.checkpoint_c_refusal, (lambda c_: None)
-        globals()["RENDER_CHECK"] = lambda c_, d_, r_: [f"{d_}.md changed since its PDF was rendered: render it again"]
-        with contextlib.redirect_stdout(io.StringIO()) as _o:
-            rc_u = deliver({"rounds_dir": "audits/x"})
-        checks.append(("PDF-AGENTS: --deliver refuses unless every PDF is the one render_record.py shipped for its "
-                       "markdown now (SUMMARY, REPORT and the approved sheet), RED[deliver], render again, never a stop; "
-                       "copies nothing",
-                       rc_u == 1 and all(f"RED[deliver] {d_}.md changed" in _o.getvalue()
-                                         for d_ in ("SUMMARY", "REPORT", "SIGNOFF"))
-                       and "never a stop" in _o.getvalue() and "render_record.py next" in _o.getvalue()
+        _dc.checkpoint_c_refusal = lambda c_: "item CKCQZ awaits the human"
+        _keep_on = _st.open_name
+        # the designed human waits stay (review 2026-10-28): Checkpoint C, a human stop (any open stop in dev)
+        with contextlib.redirect_stdout(io.StringIO()) as _ow1:
+            rc_w1 = deliver({"rounds_dir": "audits/x", "mode": "dev"})
+        _dc.checkpoint_c_refusal = lambda c_: None
+        _st.open_name = lambda c_: "S7"
+        with contextlib.redirect_stdout(io.StringIO()) as _ow2:
+            rc_w2 = deliver({"rounds_dir": "audits/x", "mode": "dev"})
+        _s8 = os.path.join(REPO, "audits", "x", "stops", "S8")
+        os.makedirs(_s8, exist_ok=True)
+        json.dump({"stop": "S8", "causes": [{"code": "ambiguity"}]}, open(os.path.join(_s8, "STOP.json"), "w"))
+        _st.open_name = lambda c_: "S8"
+        with contextlib.redirect_stdout(io.StringIO()) as _ow3:
+            rc_w3 = deliver({"rounds_dir": "audits/x", "mode": "release"})
+        json.dump({"stop": "S8", "causes": [{"code": "tool-bug"}]}, open(os.path.join(_s8, "STOP.json"), "w"))
+        checks.append(("review 2026-10-28: the designed human waits refuse --deliver (PENDING, never a failure line, so "
+                       "never a stop): Checkpoint C under involved, any open stop in dev, a release human stop "
+                       "(ambiguity); nothing is copied",
+                       rc_w1 == 1 and _ow1.getvalue().startswith("PENDING[question]") and "CKCQZ" in _ow1.getvalue()
+                       and rc_w2 == 1 and _ow2.getvalue().startswith("PENDING[stop]") and "S7" in _ow2.getvalue()
+                       and rc_w3 == 1 and _ow3.getvalue().startswith("PENDING[stop]")
+                       and not _st.FAIL_LINE.search(_ow1.getvalue() + _ow2.getvalue() + _ow3.getvalue())
                        and not os.path.exists(os.path.join(REPO, "deliverables"))))
-        globals()["RENDER_CHECK"] = lambda c_, d_, r_: []
+        globals()["RENDER_CHECK"] = lambda c_, d_, r_: [f"{d_}.md changed since its PDF was rendered: render it again"]
+        _mrp.delivery_problems = lambda c_, inp=None: [
+            ("adj-record", "pending the next adjudication: SKIPPED.md row 3: 4 cells under a 5-column header"),
+            ("deliver", "SUMMARY.md is stale: its inputs changed since prepare"),
+            ("unverified", "no full-scope round since the approval"), ("ownership", "DEVIATIONS.md OWNQZ"),
+            ("status-unmapped", "Lemma 1: not established UNMAPQZ")]
+        os.makedirs(os.path.join(REPO, "deliverables"), exist_ok=True)
+        open(os.path.join(REPO, "deliverables", "SIGNOFF.pdf"), "w").write("an earlier delivery's sheet")
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as _on:
+                rc_d = deliver({"rounds_dir": "audits/x", "mode": "release"})
+        finally:
+            shutil.rmtree(os.path.join(REPO, "audits", "x", "stops"), ignore_errors=True)
+            _st.open_name = _keep_on
+            _dc.checkpoint_c_refusal = lambda c_: None
+            globals()["RENDER_CHECK"] = lambda c_, d_, r_: []
+            _mrp.delivery_problems = lambda c_, inp=None: []
+        _on = _on.getvalue()
+        checks.append(("approver 2026-10-28: an open release stop that is no human stop (tool-bug), a PDF not the one "
+                       "shipped for its markdown, a pending adjudication, a stale document, unverified, an ownership fault and an "
+                       "unmapped status are notes for the main agent after the delivery, never a refusal, never a "
+                       "failure line (so never a stop)",
+                       rc_d == 0 and _on.index("delivered ") < _on.index(NOTES_HEADING)
+                       and all(x in _on for x in ("stop S8 is open (not a human stop)", "[pdf] SUMMARY.md changed",
+                                                  "[pdf] SIGNOFF.md changed", "[adj-record] pending",
+                                                  "[deliver] SUMMARY.md is stale", "[unverified]", "OWNQZ", "UNMAPQZ"))
+                       and not _st.FAIL_LINE.search(_on) and not re.search(r"^\s*(?:RED|PENDING)\[", _on, re.M)
+                       and "delivered as markdown only until rendered again" in _on
+                       and not any(f_.endswith(".pdf") for f_ in os.listdir(os.path.join(REPO, "deliverables")))))
         os.makedirs(os.path.join(REPO, "deliverables"), exist_ok=True)
         open(os.path.join(REPO, "deliverables", "SIGNOFF.pdf"), "w").write("an earlier delivery's sheet")
         with contextlib.redirect_stdout(io.StringIO()):
@@ -3177,8 +3321,10 @@ def selftest():
         with contextlib.redirect_stdout(io.StringIO()) as _om:
             _rc_m = deliver({"rounds_dir": "audits/x"})
         open(_dmd, "w").write(_dkp)
-        checks.append(("a deliverable that is missing (here DECISIONS.md) refuses --deliver, RED[deliver], named",
-                       _rc_m == 1 and "deliverable(s) missing: audits/x/DECISIONS.md" in _om.getvalue()))
+        checks.append(("approver 2026-10-28: a deliverable that is missing (here DECISIONS.md) is a note, named; the rest "
+                       "is delivered",
+                       _rc_m == 0 and "note: 1 deliverable(s) missing, not delivered: audits/x/DECISIONS.md" in _om.getvalue()
+                       and "RED[" not in _om.getvalue()))
         _rrd = open(os.path.join(REPO, "deliverables", RUN_RECORD)).read() if RUN_RECORD in got else ""
         _rrp = os.path.join(REPO, "deliverables", RUN_RECORD)
         _rr_keep = open(_rrp).read() if os.path.exists(_rrp) else ""
@@ -3189,18 +3335,18 @@ def selftest():
         checks.append(("approver 2026-10-24: --check-delivered passes on the delivered RUN_RECORD.md and catches one "
                        "changed after delivery (README D's sha256)",
                        _rr_keep != "" and _cd0 == [] and any("is not the run record delivered" in p_ for p_ in _cd1)))
-        # approver 2026-10-24: a stop the operator closed that RUN_RECORD.md does not list refuses --deliver
-        # (integrity.run_record_problems, from the raw CLOSED.json), and no partial run record is left delivered
+        # approver 2026-10-24: a stop the operator closed that RUN_RECORD.md does not list (integrity.run_record_problems,
+        # from the raw CLOSED.json) -- approver 2026-10-28: a note for the main agent, who corrects RUN_RECORD.md
         _s9 = os.path.join(REPO, "audits", "x", "stops", "S9")
         os.makedirs(_s9, exist_ok=True)
         json.dump({"by": "cure"}, open(os.path.join(_s9, "CLOSED.json"), "w"))
         with contextlib.redirect_stdout(io.StringIO()) as _o9:
             _rc_9 = deliver({"rounds_dir": "audits/x"})
         shutil.rmtree(os.path.join(REPO, "audits", "x", "stops"))
-        checks.append(("approver 2026-10-24: --deliver refuses a RUN_RECORD.md that omits a stop the operator closed "
-                       "(RED[deliver], from the raw stop record) and removes that delivered copy",
-                       _rc_9 == 1 and "RED[deliver] RUN_RECORD.md does not list stop S9" in _o9.getvalue()
-                       and not os.path.exists(os.path.join(REPO, "deliverables", RUN_RECORD))))
+        checks.append(("approver 2026-10-24/28: a RUN_RECORD.md that omits a stop the operator closed is named in a note "
+                       "(from the raw stop record); the delivery proceeds",
+                       _rc_9 == 0 and "note: [run record] RUN_RECORD.md does not list stop S9" in _o9.getvalue()
+                       and os.path.exists(os.path.join(REPO, "deliverables", RUN_RECORD))))
         checks.append(("mini2-3 / approver 2026-10-24: --deliver ships no KNOWN_FAULTS file; the delivered RUN_RECORD.md "
                        "is the prepared one, then the notices of the delivered documents folded in (the newest report's; "
                        "the approved sheet's is the prepared part's), never a superseded report's or sheet's text",
@@ -3229,6 +3375,8 @@ def selftest():
                             [os.path.join(REPO, "audits", "x", "REPORT.pdf"),
                              os.path.join(REPO, "audits", "x", "DECISIONS.md"),
                              os.path.join(REPO, "audits", "x", "2026-01-01-abc1234", "SIGNOFF.pdf")], [], [])
+            _cv8 = readme_d({"rounds_dir": "audits/x", "involvement": "involved"},
+                            [os.path.join(REPO, "audits", "x", "2026-01-01-abc1234", "SIGNOFF.pdf")], [], [])
             json.dump({"doc": "REPORT", "outcome": "least-bad", "shipped_round": 2, "budget": 6, "rounds": [
                            {"k": 1, "checkers": {
                                "1": {"status": "saved", "verdict": "DIFFERENT", "blocking": 1, "findings": ["p.3: CHKQZ"]},
@@ -3245,19 +3393,32 @@ def selftest():
             _cv7 = readme_d({"rounds_dir": "audits/x", "involvement": "hands-off"},
                             [os.path.join(REPO, "audits", "x", "REPORT.pdf"),
                              os.path.join(REPO, "audits", "x", "DECISIONS.md")], [], [])
+            open(os.path.join(REPO, "audits", "x", JUDGEMENT_MD), "w").write("claims-1 · adopted.\n")
+            os.makedirs(os.path.join(REPO, "audits", "x", REVIEW_DIR), exist_ok=True)
+            for p_ in ("CLAIMS", "TRUST"):
+                open(os.path.join(REPO, "audits", "x", REVIEW_DIR, p_ + ".md"), "w").write("1. minor: x\n")
+            _cv9 = readme_d({"rounds_dir": "audits/x", "involvement": "hands-off"}, [], [], [])
+            os.makedirs(os.path.join(REPO, "audits", "x", FACTS_DIR), exist_ok=True)
+            shutil.copy(os.path.join(REPO, "audits", "x", "SUMMARY.md"), os.path.join(REPO, "audits", "x", FACTS_DIR))
+            _cv10 = readme_d({"rounds_dir": "audits/x", "involvement": "hands-off"}, [], [], [])
+            _dc10 = draft_copies({"rounds_dir": "audits/x"})
+            shutil.rmtree(os.path.join(REPO, "audits", "x", FACTS_DIR))
+            shutil.rmtree(os.path.join(REPO, "audits", "x", REVIEW_DIR))
+            os.remove(os.path.join(REPO, "audits", "x", JUDGEMENT_MD))
         finally:
             globals()["READER_OUTCOME"] = _ro0
             _pm5.REPO = _pm5_repo
-        checks.append(("mini4 audit: README D says per document what its fresh-reader gate shows: NOT passed when "
-                       "it ended with blocking findings answered unfixable, never a blanket 'passed'; under hands-off "
-                       "the sheet has no reader (U2 §6.3), so none is claimed",
-                       "- `REPORT.pdf`: NOT passed: it ended with 2 blocking finding(s)" in _cv5
-                       and "- `DECISIONS.md`: passed (every blocking finding" in _cv5 and "`SIGNOFF.pdf`: passed" not in _cv5))
-        checks.append(("conf1: README D does not contradict itself: no KNOWN_FAULTS file is delivered, and each "
-                       "document's unfixable findings are quoted in RUN_RECORD.md",
-                       "No separate KNOWN_FAULTS file is delivered" in _cv7 and "delivered with the document" not in _cv7
-                       and "- `REPORT.pdf`: NOT passed: it ended with 2 blocking finding(s) answered unfixable (2 at the "
-                           "fix budget), quoted in RUN_RECORD.md (from the notice KNOWN_FAULTS-report-r.md" in _cv7))
+        checks.append(("approver 2026-10-28: README D says SUMMARY and REPORT were written by the agent and reviewed by "
+                       "four fresh agents, names JUDGEMENT.md only when it exists, claims no reader for them, and keeps "
+                       "the sheet's reader outcome (none claimed under hands-off)",
+                       "written by the formalizing agent" in _cv5 and "No delivery review is on record" in _cv5
+                       and "`JUDGEMENT.md`" in _cv9 and "reviewed them (claims, trust" in _cv9
+                       and "no review is on record for readability, decisions" in _cv9
+                       and _dc10 == ["SUMMARY.md"] and "SUMMARY.md is the generator's draft, unchanged" in _cv10
+                       and "written by the formalizing agent" not in _cv10 and "passed (every blocking finding" not in _cv5
+                       and "`SIGNOFF.pdf`: passed" not in _cv5 and "- `SIGNOFF.pdf`: passed (every blocking finding" in _cv8))
+        checks.append(("conf1: README D does not contradict itself: no KNOWN_FAULTS file is delivered",
+                       "No separate KNOWN_FAULTS file is delivered" in _cv7 and "delivered with the document" not in _cv7))
         checks.append(("PDF-AGENTS: README D says how each PDF was made and checked: least bad with every remaining "
                        "objection quoted and the md authoritative, a round a checker sent back and a checker that did "
                        "not run disclosed; a sheet rendered to no PDF says the md is delivered alone",
@@ -3303,8 +3464,8 @@ def selftest():
         import project as _pm      # stops and decisions read the imported module's REPO (this one is __main__)
         _pm_repo, _pm.REPO = _pm.REPO, REPO
         _rr0 = globals()["REGENERATE_REPORT"]
-        globals()["REGENERATE_REPORT"] = lambda c_: (_regen.append(1), open(_xr, "a").write("| S1 | 2026-01-02 |\n"),
-                                                     (0, ["ok"]))[2]
+        globals()["REGENERATE_REPORT"] = lambda c_: (_regen.append(1), write_draft(
+            os.path.dirname(_xr), "REPORT.md", "# R\n| S0 | x |\n| S1 | 2026-01-02 |\n"), (0, ["ok"]))[2]
         # B12: this fixture (involved by default) has Checkpoint C answered; C itself is decisions' selftest
         _ckc0, _dec.checkpoint_c_refusal = _dec.checkpoint_c_refusal, (lambda c_: None)
         try:
@@ -3318,16 +3479,21 @@ def selftest():
         _box_again = _dec.refresh_box({"rounds_dir": "audits/x"})
         _pm.REPO = _pm_repo
         _kf = os.path.join(REPO, "deliverables", RUN_RECORD)
-        checks.append(("mini4/mini5 S1: a stop closed after REPORT and DECISIONS were written is put in them by "
-                       "--prepare-delivery (the report regenerated, the box entry added, the writer's text kept, the "
-                       "hashes recorded in DELIVERY.json, RUN_RECORD.md among them), and in the delivered RUN_RECORD.md "
-                       "(no KNOWN_FAULTS-run.md any more)",
+        _fx = os.path.join(REPO, "audits", "x", FACTS_DIR)
+        checks.append(("mini4/mini5 S1, approver 2026-10-28: a stop closed after REPORT and DECISIONS were written is put "
+                       "by --prepare-delivery into the facts draft (facts/REPORT.md regenerated, facts/RUN_RECORD.md "
+                       "written, their hashes in DELIVERY.json) and into the DECISIONS box (the writer's text kept); the "
+                       "main agent's REPORT.md and RUN_RECORD.md are never overwritten, and the delivered RUN_RECORD.md "
+                       "is the agent's (no KNOWN_FAULTS-run.md)",
                        _rc_s1 == 0 and _regen == [1] and "> - stop S1 (M; answered by the human)" in _dx
                        and _man_s1["hashes"]["DECISIONS.md"] == file_hash("DECISIONS.md", _xd)
                        and _man_s1["open_at_preparation"] == [] and README_AC in _man_s1["hashes"]
                        and _dx.index("> - stop S1") < _dx.index("prose") and "> - defect 1: x" in _dx
-                       and os.path.exists(_kf) and "| S1 | 2026-01-02 |" in open(_kf).read()
-                       and "3. copy by hand" in open(_kf).read() and RUN_RECORD in _man_s1["hashes"]
+                       and "| S1 | 2026-01-02 |" in open(os.path.join(_fx, "REPORT.md")).read()
+                       and open(_xr).read() == "# R\n| S0 | x |\n"
+                       and "3. copy by hand" in open(os.path.join(_fx, RUN_RECORD)).read()
+                       and _man_s1["hashes"][RUN_RECORD] == file_hash(RUN_RECORD, os.path.join(_fx, RUN_RECORD))
+                       and os.path.exists(_kf) and open(_kf).read().startswith("# Run record\n\nRUNREC-QZ\n")
                        and not os.path.exists(os.path.join(REPO, "deliverables", "KNOWN_FAULTS-run.md"))
                        and _box_again == []))
         shutil.rmtree(os.path.join(REPO, "audits", "x", "stops"))
@@ -3335,39 +3501,48 @@ def selftest():
         open(_rmd, "w").write("x")
         open(os.path.join(REPO, "audits", "x", "REPORT.pdf"), "w").write("x")
         open(os.path.join(REPO, "audits", "x", "2026-01-01-abc1234", "SIGNOFF.md"), "w").write("x")
-        _keep_g = _st.deliver_gate
-        # the release gate itself, with its checks run by a stand-in (stops.RUNNER): a synced test copy,
+        # the math gate itself (stops.math_gate), with its checks run by a stand-in (stops.RUNNER): a synced test copy,
         # whose apparatus differs from its pin, can test the --deliver path (re-check M4)
         _keep_r, _keep_p0, ran_ = _st.RUNNER, _st.PHASE0_LINES, []
+        _st.math_gate = _gate0
+        _integ = lambda txt: (lambda argv: (ran_.append(" ".join(argv)), (1, txt) if "integrity.py" in " ".join(argv)
+                                            else (0, "ok\n"))[1])
         try:
-            _st.deliver_gate, _st.PHASE0_LINES = _gate0, (lambda c_: [])
+            _st.PHASE0_LINES = lambda c_: []
             _st.RUNNER = lambda argv: (ran_.append(" ".join(argv)), (0, "ok\n"))[1]
             with contextlib.redirect_stdout(io.StringIO()) as _o:
                 rc_r = deliver({"rounds_dir": "audits/x", "mode": "release"})
-            ran_d = []
-            _st.RUNNER = lambda argv: (ran_d.append(" ".join(argv)), (1, "FAIL[ownership] x\n")
-                                       if "integrity.py" in " ".join(argv) else (0, "ok\n"))[1]
+            _st.RUNNER = _integ("FAIL[ownership] readers/summary-1.md was committed by \"x\" (abc1234); only a reader\n"
+                                "FAIL[tooling] tooling changed since the pin: make_report.py\n")
             with contextlib.redirect_stdout(io.StringIO()) as _od:
                 rc_d = deliver({"rounds_dir": "audits/x", "mode": "dev"})
-            _st.deliver_gate, _st.RUNNER, _st.PHASE0_LINES = _keep_g, _keep_r, _keep_p0
-            _st.deliver_gate = lambda c_: ["1 disclosed fault(s) with no record -- x"]
+            _st.RUNNER = _integ("FAIL[tooling] tooling changed since the pin: phase0.py\n")
+            with contextlib.redirect_stdout(io.StringIO()) as _oc:
+                rc_c = deliver({"rounds_dir": "audits/x", "mode": "dev"})
+            _st.RUNNER = _integ("FAIL[ownership] 2026-01-01-abc1234/correspondence.json was committed by \"x\" (abc1234)\n")
+            with contextlib.redirect_stdout(io.StringIO()) as _ov:
+                rc_v = deliver({"rounds_dir": "audits/x", "mode": "release"})
+            _st.RUNNER = lambda argv: (ran_.append(" ".join(argv)), (1, "HARD[sorry] sorry: A.lean:3: sorry\nPHASE 0: RED\n")
+                                       if "phase0.py" in " ".join(argv) else (0, "ok\n"))[1]
             with contextlib.redirect_stdout(io.StringIO()) as _o3:
                 rc_g = deliver({"rounds_dir": "audits/x", "mode": "release"})
         finally:
-            _st.deliver_gate, _st.RUNNER, _st.PHASE0_LINES = _keep_g, _keep_r, _keep_p0
-        checks.append(("--deliver, release, runs the release gate's blocking checks (integrity, Phase 0) and "
-                       "delivers when they pass (re-check M4)",
+            _st.RUNNER, _st.PHASE0_LINES = _keep_r, _keep_p0
+        checks.append(("--deliver runs the math gate's checks (integrity, Phase 0 read-only) in both modes and "
+                       "delivers when they pass; no disclosing check (make_report, readers, selftests) runs",
                        rc_r == 0 and any("integrity.py --check" in x for x in ran_)
-                       and any("phase0.py --readonly" in x for x in ran_)))
-        checks.append(("--deliver, dev, runs deliver_blocking too (U2 §6.4, H4): a failing integrity check "
-                       "refuses; no disclosing check runs",
-                       rc_d == 1 and "not deliverable (dev mode)" in _od.getvalue()
-                       and "integrity.py --check` fails" in _od.getvalue()
-                       and any("phase0.py --readonly" in x for x in ran_d)
-                       and not any("make_report.py" in x or "readers.py" in x for x in ran_d)))
-        checks.append(("--deliver refuses while the release gate names a fault (review H3)",
-                       rc_g == 1 and "not deliverable" in _o3.getvalue() and "no record" in _o3.getvalue()))
-        _st.deliver_gate = _gate0
+                       and any("phase0.py --readonly" in x for x in ran_)
+                       and not any("make_report.py" in x or "readers.py" in x or "selftest_all" in x for x in ran_)))
+        checks.append(("approver 2026-10-28: an integrity FAIL on a reader record or a non-core tool is a note and the "
+                       "delivery proceeds; one on a proof-validity core file or a round's lane file refuses (RED[deliver])",
+                       rc_d == 0 and "note: integrity (not the proof-validity core): FAIL[ownership] readers/summary-1.md"
+                       in _od.getvalue() and "FAIL[tooling] tooling changed since the pin: make_report.py" in _od.getvalue()
+                       and rc_c == 1 and "RED[deliver] not deliverable (the math gate)" in _oc.getvalue()
+                       and "phase0.py" in _oc.getvalue() and rc_v == 1 and "correspondence.json" in _ov.getvalue()))
+        checks.append(("the math gate: a failing Phase 0 (an undisclosed sorry) refuses --deliver",
+                       rc_g == 1 and "RED[deliver] not deliverable (the math gate)" in _o3.getvalue()
+                       and "HARD[sorry]" in _o3.getvalue()))
+        _st.math_gate = _gate0
         _mrp.delivery_problems = _dpr0
         globals()["RENDER_CHECK"] = _rck0
         _pmd.REPO, _dc.checkpoint_c_refusal = _pmd_repo, _ckc_d

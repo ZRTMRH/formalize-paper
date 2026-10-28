@@ -94,7 +94,7 @@ def delegation_problems(cfg):
     # review 1 (U2 §7f): every "escalation E<n>" the log cites exists and was accepted; under involved, a
     # re-ask of a NEEDS-HUMAN stays the human's question
     import lanecheck
-    out += [project.Finding("! RUN_LOG.md " + t, "decisions") for t in lanecheck.escalation_citations(cfg, log)]
+    out += [project.Finding("! RUN_LOG.md " + t, "escalation-cite") for t in lanecheck.escalation_citations(cfg, log)]
     ap_ = os.path.join(REPO, cfg["rounds_dir"], "APPROVED_FINGERPRINTS.json")
     if lvl == "statements-only" and os.path.exists(ap_):
         by_ = project.approval_file_by(ap_)[0]
@@ -3689,7 +3689,7 @@ def build_summary(cfg, quiet=False):
     if REFERENCE is not None:
         REFERENCE.append({"doc": "SUMMARY", "md": md})
         return []
-    open(os.path.join(rd, SUMMARY_MD), "w", encoding="utf-8").write(md)
+    project.write_draft(rd, SUMMARY_MD, md)     # facts/; the agent's SUMMARY.md never overwritten (review 2026-10-28)
     return []
 
 
@@ -3707,7 +3707,7 @@ def report_md(cfg):
     import contextlib, io
     try:
         m = re.search(r"\*\*Generated (\d{4}-\d{2}-\d{2}) by",
-                      open(os.path.join(REPO, cfg["rounds_dir"], "REPORT.md"), encoding="utf-8").read())
+                      open(os.path.join(REPO, cfg["rounds_dir"], project.FACTS_DIR, "REPORT.md"), encoding="utf-8").read())
     except OSError:
         m = None
     REFERENCE, REFERENCE_STAMP = [], (m.group(1) if m else None)
@@ -3772,8 +3772,8 @@ def stale_problems(cfg):
 
 
 def delivery_problems(cfg, inp=None):
-    """[(code, text)]: why --deliver refuses (U2 §6.4 item 1; never because a stop or question is open -- only
-    --deliver checks that). The prepared documents: DELIVERY.json exists; the generator writes now exactly what
+    """[(code, text)]: what --deliver reports (approver 2026-10-28: `deliver-stale` is the math gate's and refuses;
+    every other code is a NOTE for the main agent, never a refusal and never a stop). The prepared documents: DELIVERY.json exists; the generator writes now exactly what
     prepare recorded and what is on disk (SUMMARY, REPORT and README A-C recomputed in memory; DECISIONS and the
     sheet by their recorded hash). The PDFs are not checked here: --deliver's render guard does (render_record.py,
     a fingerprint). Their readers: every gated
@@ -3786,7 +3786,8 @@ def delivery_problems(cfg, inp=None):
     out = []
     man = project.manifest(cfg)
     if man is None:
-        return [("deliver", f"no {project.DELIVERY_RECORD}: run python3 audits/project.py --prepare-delivery")]
+        return ([("deliver", f"no {project.DELIVERY_RECORD}: run python3 audits/project.py --prepare-delivery")]
+                + [("deliver-stale", t) for t in stale_problems(cfg)])
     docs = project._prepared_docs(cfg)
     rec = man.get("hashes") or {}
     now = {}
@@ -3807,38 +3808,28 @@ def delivery_problems(cfg, inp=None):
         now[project.RUN_RECORD] = project.doc_text_hash(project.RUN_RECORD, run_record.text(cfg))
     except Exception as e:      # noqa: BLE001 -- fail closed, the reason shown
         out.append(("deliver", f"the run record could not be generated: {e!r}"))
-    edited = set()
     for name, path in docs.items():
+        # approver (2026-10-28): SUMMARY, REPORT and RUN_RECORD are the main agent's; prepare recorded the generator's
+        # facts draft of each (project.FACTS_DIR), which is what is compared here: a stale draft is a note
         disk = project.file_hash(name, path)
-        # DOC-FIX (approver 2026-10-25): a generated document may differ from what prepare recorded only by the
-        # recorded hand edits made since (readers.hand_edit_problems: each its own commit, chained to the file)
-        live = readers.live_hand_edits(cfg, name) if name in readers.HAND_EDIT_DOCS.values() else []
+        draft = "the facts draft of " if name in project.AGENT_DOCS else ""
         if disk is None:
-            out.append(("deliver", f"{name} is missing: run python3 audits/project.py --prepare-delivery"))
+            out.append(("deliver", f"{draft}{name} is missing: run python3 audits/project.py --prepare-delivery"))
         elif name not in rec:
-            out.append(("deliver", f"{name} was not recorded by the last prepare: run it again"))
-        elif live:
-            edited.add(name)
-            out += [("deliver", f"{name}: {p_}") for p_ in readers.hand_edit_problems(cfg, name)]
-            if name in now and now[name] != rec[name]:
-                out.append(("deliver", f"{name} is stale: its inputs changed since prepare (a record, a stop, an answer "
-                                       f"or a Lean commit): run python3 audits/project.py --prepare-delivery (it erases "
-                                       f"the hand edits {', '.join(r_['he'] for r_ in live)}: redo what still holds), "
-                                       f"then its readers"))
+            out.append(("deliver", f"{draft}{name} was not recorded by the last prepare: run it again"))
         elif disk != rec[name]:
-            out.append(("deliver", f"{name} changed after prepare, by no recorded hand edit (a generated document is "
-                                   f"changed only by its generator, or after the final prepare by readers.py "
-                                   f"--hand-edit): restore it, or run python3 audits/project.py --prepare-delivery, then "
-                                   f"its readers"))
+            out.append(("deliver", f"{draft}{name} changed after prepare"))
         elif name in now and now[name] != disk:
-            out.append(("deliver", f"{name} is stale: its inputs changed since prepare (a record, a stop, an answer or "
-                                   f"a Lean commit): run python3 audits/project.py --prepare-delivery, then its readers"))
+            out.append(("deliver", f"{draft}{name} is stale: its inputs changed since prepare (a record, a stop, an "
+                                   f"answer or a Lean commit): prepare again"
+                                   + (" and check that your document still says what the records say" if draft else "")))
     if man.get("lean_commit") and man["lean_commit"] != delivered_commit(cfg, short=False):
         out.append(("deliver", f"the Lean changed since prepare ({str(man['lean_commit'])[:11]} then, "
                                f"{delivered_commit(cfg)} now): prepare again"))
     ar = project.approved_round(cfg)
-    # the readers (U2 §6.3); a stale or missing pass is a delivery precondition here, in both modes
-    gates = [("summary", None), ("report", None), ("decisions", None)]
+    # the readers (U2 §6.3): approver (2026-10-28), SUMMARY, REPORT and DECISIONS have the delivery reviewers instead
+    # (run/stage5-delivery.md); the approved sheet keeps its reader
+    gates = []
     if ar and project.involvement(cfg) != "hands-off":
         gates.append(("signoff", "approved"))
     for doc, rnd in gates:
@@ -3847,12 +3838,20 @@ def delivery_problems(cfg, inp=None):
         except Exception as e:      # noqa: BLE001 -- fail closed
             ps = [f"the reader records could not be read: {e!r}"]
         out += [("deliver", f"reader gate {doc}: {' '.join(str(p_).split())}") for p_ in ps]
-    out += [("deliver", str(p_)) for p_ in summary_problems(cfg, inp=inp, hand_edited=SUMMARY_MD in edited)]
-    # trial #10 audit: every Lean name a delivered document cites exists (a wrong Mathlib name shipped)
+    # approver (2026-10-28): the coverage check reads the generator's layout; on the main agent's own SUMMARY it is
+    # one note listing what it cannot see, for the agent to check in its own words
+    sp_ = [" ".join(str(p_).split()) for p_ in summary_problems(cfg, inp=inp, hand_edited=True)]
+    if sp_:
+        out.append(("deliver", f"the summary coverage check (it reads the generator's layout; your wording may differ) "
+                               f"cannot see {len(sp_)} item(s) in SUMMARY.md as it expects -- check that each is covered: "
+                               + "; ".join(sp_)))
+    # trial #10 audit: every Lean name a delivered document cites exists (a wrong Mathlib name shipped); the main
+    # agent's SUMMARY and REPORT as delivered (approver 2026-10-28)
     try:
-        named = {"SUMMARY.md": summary_md(cfg, inp) if inp else None, "REPORT.md": rep_md}
-        for name_ in edited:        # a hand-edited document is checked as delivered
-            named[name_] = open(docs[name_], encoding="utf-8").read()
+        named = {}
+        for name_ in ("SUMMARY.md", "REPORT.md"):
+            p_ = os.path.join(rd, name_)
+            named[name_] = open(p_, encoding="utf-8").read() if os.path.isfile(p_) else None
         for name_, path_ in (("DECISIONS.md", os.path.join(rd, "DECISIONS.md")),
                              ("SIGNOFF.md", os.path.join(rd, ar, "SIGNOFF.md") if ar else "")):
             if path_ and os.path.exists(path_):
@@ -3878,19 +3877,9 @@ def delivery_problems(cfg, inp=None):
         for r in _rs.routes(cfg, inp):
             if r.code == _rs.UNMAPPED_CODE and unmapped_line(r) not in accepted:
                 out.append((_rs.UNMAPPED_CODE, f"{r.result}: {r.reason}"))
-    # DOC-FIX G5: the status check, a fresh agent, judged every live hand edit (agents guard code on meaning)
-    try:
-        out += [("deliver", t) for t in readers.judgement_problems(cfg)]
-        out += [("deliver", t) for t in readers.trust_problems(cfg)]       # approver 2026-10-26: agents guard the lines
-    except Exception as e:      # noqa: BLE001 -- fail closed, the reason shown
-        out.append(("deliver", f"the hand edits' judgement could not be read: {e!r}"))
+    # approver (2026-10-28): no hand edits, status check or trust-line judgement any more -- the main agent writes the
+    # documents and the delivery reviewers advise (run/stage5-delivery.md)
     out += [("deliver-stale", t) for t in stale_problems(cfg)]
-    # C1 audit: the advisory status check read the prepared SUMMARY.md (re-run after a later prepare, up to its cap)
-    try:
-        import run_record
-        out += [("deliver", t) for t in run_record.status_check_problems(cfg)]
-    except Exception as e:      # noqa: BLE001 -- fail closed, the reason shown
-        out.append(("deliver", f"the status check's runs could not be read: {e!r}"))
     out += pending_adjudication(cfg, inp)
     return out
 
@@ -4989,17 +4978,19 @@ Project `{cfg['name']}`, branch `{cfg['branch']}`, namespace `{cfg['namespace']}
             # report_md: what the generator writes NOW, in memory; nothing written
             REFERENCE.append({"doc": "REPORT", "md": out})
             return 0
-        open(os.path.join(rounds_dir, "REPORT.md"), "w", encoding="utf-8").write(out)
-        print(f"  REPORT.md written ({cfg['rounds_dir']}/REPORT.md); its PDF is rendered by agents at delivery "
+        project.write_draft(rounds_dir, "REPORT.md", out)    # facts/; the agent's REPORT.md never overwritten
+        print(f"  REPORT.md draft written ({cfg['rounds_dir']}/{project.FACTS_DIR}/REPORT.md; the rounds directory's "
+              f"copy is the main agent's, seeded from it when missing); its PDF is rendered by agents at delivery "
               f"(render_record.py)")
         # B10: the one-page summary, written with the report (Phase 0 and project.py --prepare-delivery)
         try:
             problems += [p_ if isinstance(p_, project.Finding) else "! " + str(p_) for p_ in build_summary(cfg)]
-        except Exception as e:      # noqa: BLE001 -- D3 fail closed: no SUMMARY.md, --deliver refuses
-            sp_ = os.path.join(rounds_dir, SUMMARY_MD)
+        except Exception as e:      # noqa: BLE001 -- D3: no draft; the agent's SUMMARY.md is never deleted
+            sp_ = os.path.join(rounds_dir, project.FACTS_DIR, SUMMARY_MD)
             if os.path.exists(sp_):
                 os.remove(sp_)
-            problems.append(f"! the summary could not be generated ({type(e).__name__}: {e}): no SUMMARY.md")
+            problems.append(f"! the summary could not be generated ({type(e).__name__}: {e}): no draft "
+                            f"{project.FACTS_DIR}/SUMMARY.md")
         problems, late = project.split(cfg, problems)
         disclosed += late
 

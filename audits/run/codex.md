@@ -27,7 +27,7 @@ under Codex is in `spawn-and-seal.md` ("Under Codex"), since spawns happen in St
   | PDF renderer A, verifier B, cover, cover verifier, both checkers | `formalize_renderer` | `prompt.py --prompt render-a\|render-b\|render-cover\|render-cover-check\|render-check ... --write` (`render-pdf.md`); each saves with `render_record.py save`, a child that ends without saving is `render_record.py fail`, never a stop |
   | citation agents 1 and 2 | `formalize_citations` | `prompt.py --prompt citations-draft\|citations-review --write` (Stage 5 step 5a), two different children |
   | author-side helpers (statements, proofs) | `formalize_helper` | the brief `prompt.py --prompt formalizer` prints, then the assignment (Stages 2, 3) |
-  | status check (delivery, advisory; the judge of hand edits) | `formalize_status_check` | `prompt.py --prompt status-check --write` (`stage5-delivery.md`, "Status check") |
+  | delivery reviewers (CLAIMS, READABILITY, DECISIONS, TRUST; advisory) | `formalize_reader` | the "Delivery reviewer prompt" of `stage5-delivery.md`, filled in (step 5, "Review"); four different children; each returns its findings as its final message |
   | tool-patch reviewer, core-fault reviewer, acknowledgment reviewer (release mode) | `formalize_tool_patch_reviewer` | `tool_patch.py review --tp TP<k>`, `stops.py core-fault --stop S<n> ...`, `integrity.py --ack-request ...` (RUN.md "Tool patches"); sealed with `lane_auth.py seal` |
 
   The roles carry no network, sandbox or tool setting of their own: each child inherits the
@@ -39,13 +39,11 @@ under Codex is in `spawn-and-seal.md` ("Under Codex"), since spawns happen in St
   yet". So a child that has not returned after a long wait is checked once with `list_agents`; one
   whose turn was aborted or that the person reports declined is a failed child (a mechanical failure,
   never a stop): handle it as its stage says for a child that ends without its file.
-- **The status check** (advisory, at delivery; `stage5-delivery.md`, "Status check") runs as the generated
-  role `formalize_status_check` (`fork_turns` "none"), spawned with the line `prompt.py --prompt status-check
-  --write` prints. It writes `status-check/FINDINGS.md` (or returns its text between `BEGIN RETURNED FILE <path>
-  <delimiter>` and `END RETURNED FILE`, saved verbatim as in `stage5-delivery.md`); a child that fails is noted in
-  `ACTIONS.md`, never a stop, and re-run only when the check must judge a hand edit or a trust line. Such a run is
-  sealed with `run_record.py --seal-status-check` and the child's thread id as `--agent-id`, and a failed one is
-  run again with the same command (`stage5-delivery.md`).
+- **The delivery reviewers** (advisory, at delivery; `stage5-delivery.md` step 5) run as `formalize_reader`
+  (`fork_turns` "none"), one child per perspective, each given the "Delivery reviewer prompt" filled in. Save
+  each child's final message verbatim as `delivery-review/<PERSPECTIVE>.md`; no seal. A child that fails is
+  replaced once by a fresh one, then noted in `JUDGEMENT.md`; never a stop. (The status check role
+  `formalize_status_check` is no longer used at delivery: approver, 2026-10-28.)
 - **A tool patch's reviewer** (release mode; RUN.md "Tool patches") runs as the generated role
   `formalize_tool_patch_reviewer` (`fork_turns` "none"), spawned with the line `tool_patch.py review
   --tp TP<k>` prints (the same role reviews a history-fault acknowledgment, `integrity.py --ack-request`); seal its verdict with `lane_auth.py seal` and the child's thread id as

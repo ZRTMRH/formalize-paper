@@ -9,8 +9,8 @@ Each round, in order:
 
 1. **Phase 0.** Commit, then run `python3 audits/phase0.py`. It must be GREEN; it also saves the
    tree baseline. A `PENDING[adjudication]` line (a fault of an adjudicator-owned record) does not
-   make it RED: this round's adjudicator clears it (its prompt lists it), and its commit and
-   `project.py --deliver` refuse until it is cleared.
+   make it RED: this round's adjudicator clears it (its prompt lists it); its commit refuses until it
+   is cleared, and `project.py --deliver` names it in a note.
 2. **Scope and lanes.** Run `python3 audits/prompt.py 3` and do exactly what its block says: scope,
    commit `scope <R>`, spawn the lanes it prints.
    - If `scope.py` exits 3 with `NEXT[stage5]` -- nothing changed, or only comments and docstrings

@@ -2364,9 +2364,10 @@ def check(text, required, round_name=None, box_lines=(), names=None, level="invo
             prev = by_e.get(e["reask_of"]) if e["reask_of"] else None
             if prev and not (re.search(rf"\bescalation {prev['name']}\b", flat_b, re.I)
                              and " ".join((prev["answer"] or "").split()) in flat_b):
-                probs.append(f"section {h.strip()!r} cites escalation {n_}, a re-ask of escalation {prev['name']} "
-                             f"({(prev['answer'] or 'no accepted answer')[:60]!r}), without showing escalation "
-                             f"{prev['name']} and its answer")
+                probs.append(project.Finding(
+                    f"section {h.strip()!r} cites escalation {n_}, a re-ask of escalation {prev['name']} "
+                    f"({(prev['answer'] or 'no accepted answer')[:60]!r}), without showing escalation "
+                    f"{prev['name']} and its answer", "escalation-cite"))
     for a, k in placed.items():
         h, b = secs[k]
         need = (names or {}).get(a)
@@ -2418,7 +2419,7 @@ def record_problems(cfg):
                            f"quote it if it is a quotation; start the answer with it if it is a proxy decision")
     out += tag_problems(log, project.involvement(cfg) if project.delegates(cfg) else None)
     import lanecheck     # review 1: a cited escalation exists and was accepted; involved: no re-ask of a NEEDS-HUMAN
-    out += ["RUN_LOG.md " + t for t in lanecheck.escalation_citations(cfg, log)]
+    out += [project.Finding("RUN_LOG.md " + t, "escalation-cite") for t in lanecheck.escalation_citations(cfg, log)]
     pend = pending_refusal(cfg)
     if pend:
         out.append(pend)
@@ -2518,7 +2519,8 @@ def main(argv=None):
                   skeleton.human_decided, stops=delegated_stops(cfg), escalations=esc,
                   decided=skeleton.decided) + record_problems(cfg)
     # review 1: what DECISIONS.md cites is checked like the log (exists, accepted; involved: no re-ask)
-    probs += ["DECISIONS.md " + t for t in lanecheck.escalation_citations(cfg, open(target, encoding="utf-8").read(), esc)]
+    probs += [project.Finding("DECISIONS.md " + t, "escalation-cite")
+              for t in lanecheck.escalation_citations(cfg, open(target, encoding="utf-8").read(), esc)]
     probs, disc = project.split(cfg, probs)
     for p in probs:
         print(project.problem_line(p, "decisions"))

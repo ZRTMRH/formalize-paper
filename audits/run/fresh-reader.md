@@ -1,12 +1,16 @@
 # Fresh-reader check
 
 Read this before the first fresh-reader check of the run (Stage 2 step 7). It is one procedure for
-every document a human reads.
+the documents a human reads before the mathematics is verified.
+
+**Not at delivery** (approver, 2026-10-28): `SUMMARY.md`, `REPORT.md` and `DECISIONS.md` have no fresh
+reader. You write them, four delivery reviewers advise and you judge (`run/stage5-delivery.md` step 5):
+no reader pass, reader-fix round, hand edit or status check is run for them, and nothing about them is a
+stop. What follows on the summary, the report and the decisions document concerns an older run's records only.
 
 Run this before any of these documents reaches the human:
 - the sign-off sheet (Stage 2 step 7; not under `hands-off`), and the list of QUESTION rows for
   Checkpoint B (step 8);
-- at Stage 5, after `project.py --prepare-delivery`: `SUMMARY.md`, `REPORT.md` and `DECISIONS.md`;
 - any other summary you write for them, with `--doc other:<absolute path>`.
 
 The reader reads the markdown, the audited content. The PDFs are made afterwards from exactly that

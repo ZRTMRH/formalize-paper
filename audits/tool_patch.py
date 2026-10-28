@@ -610,8 +610,9 @@ def _outcome(rc, out, roots=()):
 def blast_checks(cfg, stop_check=None):
     """[[script, args]] of every read-only check of every round (and the run-wide ones), and the stop's own check
     (`stop_check`, the command its stop re-runs), which is always run (FORMALIZE_TP_NO_LEAN leaves out only the
-    other Lean-backed scope checks)."""
-    out = [["integrity.py", ["--check"]], ["make_report.py", ["--check"]], ["make_report.py", ["--check", "--delivery"]],
+    other Lean-backed scope checks). Not integrity.py --check: its exit depended on the attempt's own uncommitted
+    files, so prepare and review always differed; it still runs on the project itself."""
+    out = [["make_report.py", ["--check"]], ["make_report.py", ["--check", "--delivery"]],
            ["decisions.py", ["--check"]], ["result_status.py", ["--check"]]]
     for p in project.rounds(cfg):
         r = os.path.basename(p)
@@ -1201,7 +1202,7 @@ def begin(cfg, stop):
 
 def facts_text(cfg, tp, n):
     """(FACTS.json's text for attempt n, exactly as prepare writes it, [refusal]): `tool_patch.py facts`, the reviewer's
-    re-derivation, compared with FACTS.json where any difference but timings rejects (safety review LOW 4: it once
+    re-derivation, compared with FACTS.json where any difference but timings is a finding (safety review LOW 4: it once
     added a `refused` key no FACTS.json has; the refusals go to stderr and the exit code instead)."""
     ad = os.path.join(tp_dir(rounds_dir(cfg), tp), f"A{n}")
     f, refuse = compute_facts(cfg, tp, n, open(os.path.join(ad, "DIAGNOSIS.md"), encoding="utf-8").read(),

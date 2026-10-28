@@ -2160,11 +2160,18 @@ def _selftest_escalation(d):
             and "NOT ACCEPTED" in el and "Finset.sum_le_sum" in el)
         import decisions as _dc
         open(os.path.join(au, "P", "RUN_LOG.md"), "w").write(
-            f"# Run log\n## Open questions\n- dropped the hypothesis per escalation {n6}\n")
+            f"# Run log\n## Open questions\n- dropped the hypothesis per escalation {n6}\n"
+            f"- left hX unproved per escalation {n5}\n")
         dp = [x for x in _mr.delegation_problems(cfg) if "escalation" in x]
         rp_ = [x for x in _dc.record_problems(cfg) if "escalation" in x]
-        say("b7 review 1: the report check and decisions --check refuse a log citing a re-ask under involved "
-            "(report: code decisions)", len(dp) == 1 and getattr(dp[0], "code", None) == "decisions" and len(rp_) == 1)
+        # approver 2026-10-27: a flag, never a stop -- disclosed (DISCLOSED[escalation-cite]) in every mode, so the
+        # report and decisions checks pass and --deliver is not refused on it; release records it (stops.py disclose)
+        split_ok = all(project.split({"mode": m_}, dp + rp_) == ([], dp + rp_) for m_ in ("dev", "release"))
+        say("b7 review 1 / approver 2026-10-27: the report check and decisions --check flag a log citing a re-ask "
+            "under involved and an unaccepted escalation (code escalation-cite), disclosed in dev and release, never "
+            "blocking", len(dp) == 2 and len(rp_) == 2 and split_ok and project.release_kind("escalation-cite") == "disclose"
+            and {getattr(x, "code", None) for x in dp + rp_} == {"escalation-cite"}
+            and all(project.disclosed_line(x).startswith("DISCLOSED[escalation-cite] ") for x in dp + rp_))
         note = _dc.escalation_note(cfg, f"per escalation {n6}")
         say("b7 review 1: DECISIONS.md's skeleton shows a cited re-ask with the earlier NEEDS-HUMAN and both answers",
             f"escalation {n4}:" in note and f"escalation {n6}:" in note and note.index(f"escalation {n4}:")
@@ -2182,7 +2189,7 @@ def _selftest_escalation(d):
         half = [x for x in _dc.check(sec.format(note=part), ["x"], escalations=recs_l) if "escalation" in x]
         say("b7 review 1: a DECISIONS.md section citing an escalation must show its answer, and for a re-ask the "
             "earlier NEEDS-HUMAN with its answer", len(cut) >= 2 and full == [] and f"escalation {n4}:" not in part
-            and len(half) == 1 and "re-ask" in half[0])
+            and len(half) == 1 and "re-ask" in half[0] and getattr(half[0], "code", None) == "escalation-cite")
         rec_p = [x for x in _dc.check(sec.format(note=note), ["x"], level="hands-off", escalations=recs_l)
                  if "Recommendation cites its source" in x]
         rec_p2 = [x for x in _dc.check(sec.format(note=note).replace("per escalation " + n7 + "\n\n", "per escalation "

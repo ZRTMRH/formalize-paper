@@ -70,7 +70,7 @@ How to undo every change: INSTALL.md, "Uninstall".
 | `formalize_escalation` | Same common rules; the escalation-check prompt plus the question |
 | `formalize_renderer` | Same common rules; the generated PDF prompts (renderer, verifier, cover, checkers; `run/render-pdf.md`) |
 | `formalize_tool_patch_reviewer` | Same common rules; the generated tool-patch reviewer prompt (release mode: `tool_patch.py review`, RUN.md "Tool patches") |
-| `formalize_status_check` | Same common rules; the generated status-check prompt (advisory, at delivery: `prompt.py --prompt status-check --write`, run/stage5-delivery.md "Status check") |
+| `formalize_status_check` | Same common rules; the generated status-check prompt (no longer used at delivery since 2026-10-28: the delivery reviewers run as `formalize_reader`, run/stage5-delivery.md step 5) |
 | `formalize_citations` | Same common rules; the citation prompts (agents 1 and 2, Stage 5 step 5a), each with intake 1c's network rule |
 | `formalize_helper` | Same common rules; the author-side helper brief (`--prompt formalizer`) plus its assignment |
 
