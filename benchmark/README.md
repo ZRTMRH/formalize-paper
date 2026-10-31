@@ -94,9 +94,9 @@ All runs below used formalize-paper in hands-off mode, where the agent takes the
 | bench3 | 0.3.0 | 5 FOUND, 2 NOTED (B3-2, B3-7) | `scores/bench3-10-scoring-combined.md` (X. Tang); also `scores/bench3-5-SCORE-0.3.0.md` |
 | bench3 | **0.3.0 public release (9f2c1d3)** | 7 caught; strict 4 / 3 / 0 | `scores/bench3-SCORE-b3v.md` |
 | bench4 | 0.3.0 | 4 FOUND, 2 NOTED (B4-2, B4-6); the run did not deliver | `scores/bench3-10-scoring-combined.md`; also `scores/bench3-5-SCORE-0.3.0.md` |
-| bench4 | 0.3.0 public release (9f2c1d3) | in progress | — |
+| bench4 | **0.3.0 public release (9f2c1d3)** | 6 caught; strict 5 / 1 / 0 | `scores/bench4-SCORE-b4v.md` |
 | bench5 | 0.3.0 | 3 FOUND, 3 NOTED (B5-1, B5-4, B5-6) | `scores/bench3-10-scoring-combined.md`; also `scores/bench3-5-SCORE-0.3.0.md` |
-| bench5 | 0.3.0 public release (9f2c1d3) | in progress | — |
+| bench5 | **0.3.0 public release (9f2c1d3)** | 6 caught; strict 4 / 2 / 0 | `scores/bench5-SCORE-b5v.md` |
 | bench6 | main branch (c0670f3) | 5 FOUND, 1 NOTED (BN-1) | `scores/bench3-10-scoring-combined.md` |
 | bench7 | main branch (c0670f3) | 4 FOUND, 1 NOTED (B7-5), 1 MISSED (B7-1, proof slip) | `scores/bench3-10-scoring-combined.md` |
 | bench8 | main branch (c0670f3) | 3 FOUND, 2 NOTED (BN-4, BN-6), 1 MISSED (BN-2, proof slip) | `scores/bench3-10-scoring-combined.md` |
@@ -104,6 +104,8 @@ All runs below used formalize-paper in hands-off mode, where the agent takes the
 | bench10 | main branch (c0670f3) | 5 FOUND, 1 NOTED (B10-2) | `scores/bench3-10-scoring-combined.md` |
 
 "Strict a / b / c" means a CAUGHT, b PARTIAL, c MISSED under the strict variant. Bold rows are runs on the current public release.
+
+**bench1–5 on the current public release (formalize-paper 0.3.0, commit 9f2c1d3)**, five runs on the same version (31 defects, 5 decoys): 29 caught, 0 partial, 2 missed (B1-5, B2-2); strict 23 / 6 / 2. 0 false alarms on the decoys, 0 false positives, all five goals proved, all five runs delivered, and the Lean of all five passed a kernel replay. Summary: `scores/RERUN-0.3.0-public-9f2c1d3-SUMMARY.md`.
 
 **X. Tang's scoring of bench3–10** (eight runs, 49 planted defects): 34 FOUND, 13 NOTED, 0 LATE, 2 MISSED, 0 FALSE ALARM; 8/8 decoys passed. That is 34/49 strict and 47/49 documented (FOUND + NOTED). Under the key-check rule (the 8 unneeded-hypothesis items left out) it is 34/41 FOUND and 39/41 documented. Both misses are slips inside the proof of a true lemma that the Lean proof established by a different route.
 
