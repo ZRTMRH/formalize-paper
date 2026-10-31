@@ -32,7 +32,7 @@ produces a report for the paper's authors:
   reviewer who sees only the Lean, with every difference spelled out;
 - defects proved in Lean and classified by kind (typo, missing hypothesis, false as printed), and proof gaps it
   notices;
-- a citation check (with Claude Code; not yet under Codex), where the cited work is openly available (e.g. on
+- a citation check (with Claude Code; Codex support is planned soon), where the cited work is openly available (e.g. on
   arXiv): whether it states the cited result in the form used, and whether bibliography entries are correct and up
   to date (e.g. preprints since published). With Claude Code it reached 71% of cited results across eight real papers.
 
