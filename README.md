@@ -119,9 +119,13 @@ git add -A && git commit -m "new project"
 
 # install and a quick check (seconds)
 git clone https://github.com/ZRTMRH/formalize-paper ~/formalize-paper
-~/formalize-paper/install.sh ~/my-formalization
+~/formalize-paper/install.sh ~/my-formalization            # Codex: add --codex before the path
 python3 -B audits/project.py --selftest && python3 -B audits/lanecheck.py --selftest   # each ends: selftest: ok
-claude                                             # then type /formalize-paper
+
+# start a run
+claude                                                     # then type /formalize-paper
+# or, with Codex:
+codex --sandbox workspace-write --add-dir ~/my-formalization/.git   # then type $formalize-paper
 ```
 
 **By hand (macOS):** the same, cloning the `macos` branch, after three one-time extras listed in the macOS
