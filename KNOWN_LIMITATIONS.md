@@ -258,8 +258,8 @@ maintainers' table in `TRADEOFFS.md`, which says why each was accepted and how i
   after the last audit round" and the matching decisions item.
 - **T2 Cited results are only partly checked.** Every run ends with an advisory citation review: where
   the cited work is openly available, agents check that it states the cited result in the form used
-  and that the bibliography entries are right (`CITATIONS.md`; it reached 71% of cited results across
-  eight real papers). It never stops a run, it is not proved in Lean, a citation whose source is not
+  and that the bibliography entries are right (`CITATIONS.md`; it reached 74% of cited results across
+  seven real papers). It never stops a run, it is not proved in Lean, a citation whose source is not
   openly available is not checked, and it does not yet run under Codex. The prior-art reviewer runs
   only when the intake asks for a library contribution. *For you:* a wrong citation may go
   unremarked when its source is not openly available, and always under Codex. *In the report:* yes,

@@ -6,6 +6,8 @@ a terminal on Debian or Ubuntu, or Ubuntu under WSL2, with `sudo` for the packag
 **System**: Debian or Ubuntu, or Ubuntu under WSL2 on Windows. On a Mac, use the separate `macos`
 branch of this repository.
 
+**Easiest:** clone this repository, open Claude Code (or Codex) in it and ask it to set up formalize-paper by following this file; it asks before each command and tells you if something needs your password. The steps below are the reference.
+
 ## 1. Requirements (once)
 
 On Debian or Ubuntu (including Ubuntu under WSL2):
@@ -37,6 +39,7 @@ sudo apt install -y git python3 curl \
   when several papers run at once.
 - **Git identity**, if it is not set: `git config --global user.name "Your Name"` and
   `git config --global user.email "you@example.com"`.
+- **git identity.** If `git config user.name` is empty, set your name and email once (`git config --global user.name "…"`, `git config --global user.email "…"`). An agent doing the setup should ask you for both.
 - **Python** must be 3.10 or newer (`python3 --version`); 3.11 or newer (or 3.10 with `tomli`) for
   `install.sh --codex`.
 
@@ -201,16 +204,18 @@ Never run a formalization with `--dangerously-skip-permissions` or
 command run unasked. The installer warns if the project's settings already say
 `bypassPermissions`, and never sets it. Your own rules in the file are kept.
 
-## 4. Check the installation (about 5 minutes)
+## 4. Check the installation (a few seconds)
 
 ```bash
 cd ~/my-formalization
-python3 -B audits/selftest_all.py --fast
+python3 -B audits/project.py --selftest && python3 -B audits/lanecheck.py --selftest
 ```
 
-The last line must be `ALL SELFTESTS: ok`. Every checking script tests itself against
-fixtures, including cases that must fail. (Without `--fast`, the Lean-backed self-tests are
-reported as skipped until a project exists: they need a built project, which the run sets up.)
+Each prints `selftest: ok`. This checks that Python, the installed files and (on macOS) the bash and
+temporary-directory setup are right. Every run starts by running the full self-test set itself (every checking
+script tested against fixtures, including cases that must fail) before it begins, so you do not need to run it
+now; if you want to: `python3 -B audits/selftest_all.py --fast` (about 10 minutes on a typical computer; last
+line `ALL SELFTESTS: ok`).
 
 ## 5. A first run
 
