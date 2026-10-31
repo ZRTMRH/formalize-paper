@@ -2,11 +2,12 @@
 
 Codex support is experimental. Under Codex CLI 0.163.0 two hands-off runs have delivered on the
 current version, on Linux: the example note and a real 5-page paper (about 4 h, the same outcome as
-under Claude Code). The citation check does not yet run under Codex (planned). Codex on macOS is untested.
+under Claude Code). The citation check does not yet run under Codex (planned). Codex on macOS: one run (the example note) delivered on the `macos` branch.
 
 > **What "experimental" means in practice (tested with Codex CLI 0.163.0)**
-> - It has been run end to end twice: on the one-page example note (`examples/sparse-note`, 0.2.0)
->   and on a small synthetic paper (a pre-release of 0.3.0). For a real paper, use Claude Code.
+> - Earlier versions ran end to end on the one-page example note (0.2.0) and a small synthetic paper
+>   (a pre-release of 0.3.0). On the current version it has delivered on the example note and on a real
+>   5-page paper (Linux, about 4 h, the same outcome as under Claude Code), and on the example note on macOS.
 > - A run can stall: a "Selected model is at capacity" error stops the session until someone
 >   types "resume". The optional watchdog only notifies you; it never resumes.
 > - Without `--add-dir <project>/.git` every git commit of the agent waits for your approval.

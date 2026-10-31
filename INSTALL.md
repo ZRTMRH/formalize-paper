@@ -390,7 +390,8 @@ flags are passed to `install.sh`, which cannot add them to an existing installat
 ## Codex CLI (experimental)
 
 Use this **instead of section 3**. Codex support is experimental (see the box at the top of
-[`codex/README.md`](codex/README.md)); for a real paper, use Claude Code.
+[`codex/README.md`](codex/README.md)): two runs delivered on Linux (the example note and a real paper) and one
+on macOS (the example note, on the `macos` branch).
 
 1. **Install and log in to the Codex CLI.** Tested with version 0.163.0:
 
