@@ -60,10 +60,16 @@ and a TeX engine (for example MacTeX) as on Linux, then:
   reviewer-process check needs. Build GNU bash 5.2 from ftp.gnu.org
   (`./configure --prefix=$HOME/.local/opt/bash --without-bash-malloc && make && make install`, about 2 minutes) and
   link `~/.local/opt/bash/bin/bash` as `~/.local/bin/bash`. Homebrew's bash also works where Homebrew has a bottle.
-- **The temporary directory.** Add `export TMPDIR="$(cd "$TMPDIR" && pwd -P)/"` to `~/.zshrc` (macOS's `/var`
-  is a symlink, and the checks compare resolved paths).
-- **If Claude Code does the setup:** its safety check asks before building bash and before adding the `TMPDIR`
-  line to `~/.zshrc`. These are the steps listed here, so answer yes (or "retry").
+- **Two lines for your shell.** Add both lines to **both** `~/.zprofile` and `~/.zshrc` (Codex runs its commands in a
+  login shell, which reads `~/.zprofile`; Terminal windows read `~/.zshrc`):
+  ```bash
+  export PATH="$HOME/.local/bin:$PATH"                 # the newer Python and bash 5 come first
+  export TMPDIR="$(cd "$TMPDIR" && pwd -P)/"           # macOS's /var is a symlink; the checks compare resolved paths
+  ```
+  Then open a new terminal.
+- **If an agent does the setup:** Claude Code's safety check asks before building bash and before editing
+  `~/.zprofile` / `~/.zshrc`, and Codex may ask to add the PATH line to `~/.zprofile` itself. These are the steps
+  listed here, so answer yes (or "retry").
 - **poppler** (`pdftoppm`, `pdftotext`) is optional: without it the PDF agents cannot look at rendered pages, but
   the run still delivers the PDFs and the markdown.
 - **Keep the Mac awake** for the whole run: `caffeinate -dimsu` in another terminal; stop it when the run ends.

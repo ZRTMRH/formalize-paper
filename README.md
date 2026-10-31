@@ -132,7 +132,7 @@ codex --sandbox workspace-write --add-dir ~/my-formalization/.git   # then type 
 ```
 
 **By hand (macOS):** the same, cloning the `macos` branch, after three one-time extras listed in the macOS
-section of `INSTALL.md` on that branch (Python 3.10 or newer, bash 5, and one line in `~/.zshrc`).
+section of `INSTALL.md` on that branch (Python 3.10 or newer, bash 5, and two lines in `~/.zprofile` and `~/.zshrc`).
 
 [`examples/`](examples/) has a one-page example project to try.
 
