@@ -1385,10 +1385,143 @@ def stray_files(repo, audits_dir):
     return out
 
 
+# Process facts come from /proc; where there is none (macOS) from ps, lsof and sysctl instead.
+# Every function below keeps its /proc branch as it was, so Linux behaves exactly as before.
+PROC = os.path.isdir("/proc")
+
+
+def _procargs(pid):
+    """(argv, environment) of a process, without /proc (sysctl KERN_PROCARGS2, macOS). The
+    environment comes back empty when the system withholds it (with SIP on, for protected
+    binaries such as /bin/bash)."""
+    import ctypes, ctypes.util
+    libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+    mib, size = (ctypes.c_int * 3)(1, 49, pid), ctypes.c_size_t(0)    # CTL_KERN, KERN_PROCARGS2
+    if libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0:
+        raise OSError(ctypes.get_errno(), f"sysctl KERN_PROCARGS2 {pid}")
+    buf = ctypes.create_string_buffer(size.value)
+    if libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0:
+        raise OSError(ctypes.get_errno(), f"sysctl KERN_PROCARGS2 {pid}")
+    raw = buf.raw[:size.value]
+    argc, parts = int.from_bytes(raw[:4], sys.byteorder), raw[4:].split(b"\0")
+    i = 1                                 # past the executable path and its NUL padding
+    while i < len(parts) and parts[i] == b"":
+        i += 1
+    return parts[i:i + argc], [p for p in parts[i + argc:] if p]
+
+
+# macOS: the process table from libproc. Codex's macOS sandbox refuses to run ps and pgrep (and
+# sysctl KERN_PROC_ALL), but allows libproc for this user's processes and KERN_PROCARGS2.
+DARWIN = sys.platform == "darwin"
+
+
+class NoProcessFacts(OSError):
+    """The process table could not be read: never read as "no process found"."""
+
+
+def _libproc():
+    import ctypes
+    try:
+        lib = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+    except OSError as e:
+        raise NoProcessFacts(f"libproc: {e}")
+    lib.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+    return lib
+
+
+def _bsdinfo(lib, pid):
+    """(ppid, uid, start epoch seconds, comm) from PROC_PIDTBSDINFO, or None when the pid cannot be
+    read: exited, a zombie, or another user's."""
+    import ctypes
+    buf = ctypes.create_string_buffer(136)              # sizeof(struct proc_bsdinfo)
+    if lib.proc_pidinfo(pid, 3, 0, buf, 136) != 136:    # PROC_PIDTBSDINFO
+        return None
+    b = buf.raw
+    return (int.from_bytes(b[16:20], sys.byteorder), int.from_bytes(b[20:24], sys.byteorder),
+            int.from_bytes(b[120:128], sys.byteorder), b[48:64].split(b"\0")[0].decode("utf-8", "replace"))
+
+
+def _darwin_table():
+    """[(pid, ppid, age seconds, comm, args)] of this user's live processes (macOS, libproc)."""
+    import ctypes
+    lib, me, now = _libproc(), os.getuid(), time.time()
+    n = lib.proc_listallpids(None, 0)
+    for extra in (256, 4096, 65536):
+        size = max(n, 0) + extra
+        buf = (ctypes.c_int * size)()
+        n = lib.proc_listallpids(buf, ctypes.sizeof(buf))
+        if n <= 0:
+            raise NoProcessFacts(f"libproc proc_listallpids returned {n} (errno {ctypes.get_errno()})")
+        if n < size:
+            break                         # a full buffer may have cut the list short
+    else:
+        raise NoProcessFacts(f"libproc proc_listallpids filled every buffer ({n} pids)")
+    rows = []
+    for pid in (buf[i] for i in range(n)):
+        info = _bsdinfo(lib, pid) if pid > 0 else None
+        if info is None or info[1] != me:
+            continue                      # gone, a zombie, or not this user's
+        try:
+            argv = _procargs(pid)[0]
+        except OSError:
+            if _bsdinfo(lib, pid) is None:
+                continue                  # exited meanwhile
+            raise NoProcessFacts(f"cannot read the arguments of live pid {pid}")
+        rows.append((pid, info[0], max(0, int(now - info[2])), info[3],
+                     " ".join(a.decode("utf-8", "replace") for a in argv)))
+    _darwin_selfcheck(lib, rows)
+    return rows
+
+
+def _darwin_selfcheck(lib, rows):
+    """This process must be in the table and read right (a wrong struct size or layout would
+    otherwise give an empty table, read as "no process found")."""
+    import ctypes
+    me, full, short = os.getpid(), ctypes.create_string_buffer(136), ctypes.create_string_buffer(64)
+    got_full = lib.proc_pidinfo(me, 3, 0, full, 136)     # PROC_PIDTBSDINFO
+    got_short = lib.proc_pidinfo(me, 13, 0, short, 64)   # PROC_PIDT_SHORTBSDINFO
+    if (got_full, got_short) != (136, 64):
+        raise NoProcessFacts(f"libproc self-check: read {got_full}/136 and {got_short}/64 bytes for own pid")
+    field = lambda b, at: int.from_bytes(b.raw[at:at + 4], sys.byteorder)
+    ids = (me, os.getppid(), os.getuid())
+    if (field(full, 12), field(full, 16), field(full, 20)) != ids or \
+            (field(short, 0), field(short, 4), field(short, 36)) != ids:
+        raise NoProcessFacts("libproc self-check: own pid, ppid or uid read wrong")
+    if not any(pid == me and ppid == ids[1] for pid, ppid, *_ in rows):
+        raise NoProcessFacts(f"libproc self-check: own pid {me} missing from the process table")
+
+
+def _darwin_rows():
+    """The table stray_loops reads (its selftest narrows this one to its own fixtures)."""
+    return _darwin_table()
+
+
+def _cwd(pid):
+    if PROC:
+        return os.readlink(f"/proc/{pid}/cwd")
+    r = subprocess.run(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"], capture_output=True, text=True)
+    for l in r.stdout.splitlines():
+        if l.startswith("n"):
+            return l[1:]
+    raise OSError(f"no cwd for pid {pid}")
+
+
+def _etime_seconds(s):
+    """BSD ps has no etimes; its etime is [[dd-]hh:]mm:ss."""
+    days, _, hms = s.rpartition("-")
+    secs = 0
+    for f in hms.split(":"):
+        secs = secs * 60 + int(f)
+    return secs + 86400 * int(days or 0)
+
+
 def _ancestors():
     pids, pid = set(), os.getpid()
     while pid > 1:
         pids.add(pid)
+        if not PROC:
+            pid = _parent(pid)
+            continue
         try:
             pid = int(open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[1])
         except (OSError, ValueError, IndexError):
@@ -1401,12 +1534,20 @@ OPERATOR_TAG = b"FORMALIZE_PAPER_OPERATOR=1"
 
 def _environ_has(pid, tag):
     try:
+        if not PROC:
+            return tag in _procargs(pid)[1]
         return tag in open(f"/proc/{pid}/environ", "rb").read().split(b"\0")
     except OSError:
         return False
 
 
 def _parent(pid):
+    if not PROC and DARWIN:
+        info = _bsdinfo(_libproc(), pid)
+        return info[0] if info else 0
+    if not PROC:
+        r = subprocess.run(["ps", "-o", "ppid=", "-p", str(pid)], capture_output=True, text=True)
+        return int(r.stdout.strip()) if r.stdout.strip().isdigit() else 0
     try:
         return int(open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[1])
     except (OSError, ValueError, IndexError):
@@ -1419,6 +1560,12 @@ def _lane_pids(prompt_dir):
     Codex) are not processes of their own and cannot be traced this way."""
     if not prompt_dir:
         return set()
+    if not PROC and DARWIN:               # a lane process runs as this user
+        return {pid for pid, _, _, _, args in _darwin_table() if prompt_dir in args}
+    if not PROC:
+        r = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,args="], capture_output=True, text=True)
+        rows = (l.strip().split(None, 1) for l in r.stdout.splitlines())
+        return {int(p[0]) for p in rows if len(p) == 2 and p[0].isdigit() and prompt_dir in p[1]}
     out = set()
     for d in os.listdir("/proc"):
         if d.isdigit():
@@ -1437,14 +1584,24 @@ def stray_loops(kill=False, since=None, repo=None, prompt_dir=None):
     FORMALIZE_PAPER_OPERATOR=1 in its environment (a monitor the operator started on purpose,
     RUN.md rule 9). A loop counts when its cwd is inside the repository, or when its parent chain
     reaches a lane process of this round (whatever its cwd). Listed always; ended only with --kill."""
-    r = subprocess.run(["ps", "-u", str(os.getuid()), "-o", "pid=,etimes=,args="], capture_output=True, text=True)
+    if PROC:
+        r = subprocess.run(["ps", "-u", str(os.getuid()), "-o", "pid=,etimes=,args="], capture_output=True, text=True)
+    elif DARWIN:
+        r = None                          # libproc: Codex's macOS sandbox refuses ps
+    else:
+        r = subprocess.run(["ps", "-u", str(os.getuid()), "-ww", "-o", "pid=,etime=,args="], capture_output=True, text=True)
     mine, now, out = _ancestors(), time.time(), []
     lanes = _lane_pids(prompt_dir)
-    for l in r.stdout.splitlines():
-        parts = l.strip().split(None, 2)
-        if len(parts) < 3 or not parts[0].isdigit():
-            continue
-        pid, age, args = int(parts[0]), int(parts[1]), parts[2]
+    if r is None:
+        table = [(pid, age, args) for pid, _, age, _, args in _darwin_rows()]
+    else:
+        table = []
+        for l in r.stdout.splitlines():
+            parts = l.strip().split(None, 2)
+            if len(parts) < 3 or not parts[0].isdigit():
+                continue
+            table.append((int(parts[0]), int(parts[1]) if PROC else _etime_seconds(parts[1]), parts[2]))
+    for pid, age, args in table:
         if pid in mine or not LOOP_RE.search(args):
             continue
         if since is not None and now - age < since - 60:
@@ -1459,7 +1616,7 @@ def stray_loops(kill=False, since=None, repo=None, prompt_dir=None):
             # A same-user process in another project is not this round's to inspect or kill.
             # cwd gives actual process ownership evidence; a word in a shell wrapper does not.
             try:
-                cwd = os.path.realpath(os.readlink(f"/proc/{pid}/cwd"))
+                cwd = os.path.realpath(_cwd(pid))
                 root = os.path.realpath(repo)
                 if os.path.commonpath([cwd, root]) != root:
                     continue
@@ -1724,18 +1881,28 @@ def selftest():
         lane_proc = subprocess.Popen(["bash", "-c", f"until false; do sleep 1; done & wait # {lane_prompts}correspondence.txt"],
                                      cwd=unrelated_dir)
         time.sleep(0.3)
-        lane_child = [int(c) for c in open(f"/proc/{lane_proc.pid}/task/{lane_proc.pid}/children").read().split()]
-        real_run = subprocess.run
+        if PROC:
+            lane_child = [int(c) for c in open(f"/proc/{lane_proc.pid}/task/{lane_proc.pid}/children").read().split()]
+        elif DARWIN:
+            lane_child = [pid for pid, ppid, _, _, _ in _darwin_table() if ppid == lane_proc.pid]
+        else:
+            lane_child = [int(c) for c in subprocess.run(["pgrep", "-P", str(lane_proc.pid)],
+                                                         capture_output=True, text=True).stdout.split()]
+        real_run, real_rows = subprocess.run, _darwin_rows
+        allowed_pids = {loop.pid, unrelated.pid, operator.pid} | set(lane_child)
         def fixture_processes(cmd, *args, **kwargs):
             result = real_run(cmd, *args, **kwargs)
             if isinstance(cmd, list) and cmd[:2] == ["ps", "-u"]:
-                allowed = {str(loop.pid), str(unrelated.pid), str(operator.pid)} | {str(c) for c in lane_child}
+                allowed = {str(p) for p in allowed_pids}
                 result.stdout = "\n".join(line for line in result.stdout.splitlines()
                                           if line.strip().split(None, 1)[0] in allowed)
             return result
+        def fixture_rows():
+            return [r for r in real_rows() if r[0] in allowed_pids]
         # Even a mutant removing process ownership must never kill other real projects.
         # Keep real processes/cwds/kill calls, but expose only this selftest's two fixtures.
         subprocess.run = fixture_processes
+        globals()["_darwin_rows"] = fixture_rows
         try:
             say("a loop older than the round is not touched",
                 not any(str(loop.pid) in p for p in stray_loops(kill=False, since=time.time() + 3600, repo=d)))
@@ -1753,6 +1920,7 @@ def selftest():
                 bool(lane_child) and any(str(c) in p for c in lane_child for p in found))
         finally:
             subprocess.run = real_run
+            globals()["_darwin_rows"] = real_rows
             if loop.poll() is None:
                 loop.kill()
             unrelated.terminate(); unrelated.wait(timeout=5)

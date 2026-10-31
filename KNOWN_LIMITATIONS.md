@@ -16,8 +16,11 @@ maintainers; the numbered items T1–T35 say what each limitation means for you 
 
 - **Linux only.** The checks read Linux's `/proc` (the scan for reviewer processes in
   `lanecheck.py` and `stops.py`), and the install steps use `apt`. Supported: Debian or Ubuntu, or
-  Ubuntu under WSL2 on Windows. On a Mac, use the separate `macos` branch, which reads the same
-  facts without `/proc`.
+  Ubuntu under WSL2 on Windows. On macOS (this branch) the same facts come from `libproc`, without
+  `/proc`; macOS is less tested (two runs on one Intel Mac). Two cases there are skipped rather than
+  refused: one of your own processes that cannot be read at that moment, and a process whose parent cannot
+  be read. The worst outcome is a leftover agent loop that goes unreported; proofs are unaffected (they are
+  checked by Lean's kernel).
 - **Codex capacity failures stop the parent turn, and only a person can resume it.** Automatic
   resume is deferred: keystroke injection into a live TUI cannot be made safe (an adversarial
   test found 22 failing scenarios: approval overlays, drafts, re-wrapped screens, misread logs).

@@ -2403,7 +2403,37 @@ def repair_lock(cfg, which, reason):
     if time.time() - os.path.getmtime(lock) < 60:
         raise Refused("the lock is less than a minute old: a git command may still hold it; wait and retry")
     me, root = os.getuid(), os.path.realpath(repo)
-    for d in os.listdir("/proc"):
+    if not os.path.isdir("/proc") and sys.platform == "darwin":
+        # macOS: the same facts from libproc and lsof (Codex's macOS sandbox refuses ps)
+        import lanecheck
+        try:
+            table = lanecheck._darwin_table()
+        except OSError as e:
+            raise Refused(f"cannot read the process table ({e}): a git process may hold the lock")
+        for d, _, _, comm, args in table:
+            if comm != "git" and os.path.basename(args.split(" ", 1)[0]) != "git":
+                continue
+            try:
+                cwd = os.path.realpath(lanecheck._cwd(d))
+            except OSError:
+                raise Refused(f"cannot read the working directory of git process {d}: the lock may be live")
+            if os.path.commonpath([cwd, root]) == root:
+                raise Refused(f"a git process (pid {d}) is running in {root}: the lock may be live")
+    elif not os.path.isdir("/proc"):
+        # no /proc (macOS): the same facts from ps and lsof
+        import lanecheck
+        r = subprocess.run(["ps", "-u", str(me), "-o", "pid=,comm="], capture_output=True, text=True)
+        for l in r.stdout.splitlines():
+            d, _, comm = l.strip().partition(" ")
+            if not d.isdigit() or os.path.basename(comm.strip()) != "git":
+                continue
+            try:
+                cwd = os.path.realpath(lanecheck._cwd(int(d)))
+            except OSError:
+                continue
+            if os.path.commonpath([cwd, root]) == root:
+                raise Refused(f"a git process (pid {d}) is running in {root}: the lock may be live")
+    for d in (os.listdir("/proc") if os.path.isdir("/proc") else []):
         if d.isdigit():
             try:
                 if os.stat(f"/proc/{d}").st_uid != me or open(f"/proc/{d}/comm").read().strip() != "git":

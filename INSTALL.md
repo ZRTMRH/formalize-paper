@@ -3,8 +3,8 @@
 This takes about 30 minutes the first time, most of it downloading Mathlib. Every command runs in
 a terminal on Debian or Ubuntu, or Ubuntu under WSL2, with `sudo` for the packages.
 
-**System**: Debian or Ubuntu, or Ubuntu under WSL2 on Windows. On a Mac, use the separate `macos`
-branch of this repository.
+**System**: Debian or Ubuntu, or Ubuntu under WSL2 on Windows, or macOS (this `macos` branch; see
+"macOS" below). macOS is less tested than Linux.
 
 ## 1. Requirements (once)
 
@@ -39,6 +39,31 @@ sudo apt install -y git python3 curl \
   `git config --global user.email "you@example.com"`.
 - **Python** must be 3.10 or newer (`python3 --version`); 3.11 or newer (or 3.10 with `tomli`) for
   `install.sh --codex`.
+
+### macOS (this branch; less tested than Linux)
+
+Tested on one Mac: a 2019 MacBook Air (dual-core Intel Core i5, 8 GB), macOS 14. Two runs delivered there, one
+under Claude Code (a real paper, 8 GB, one agent at a time, about 24 h) and one under the Codex CLI 0.166.0 (the
+example note, about 3 h 45 min). The Claude Code run used an earlier form of the macOS process
+code (`ps`-based); the Codex run used this one before two small safety checks were added (both selftests pass
+with them on that Mac). Apple silicon and other macOS versions are untested. Clone this branch
+(`git clone -b macos https://github.com/ZRTMRH/formalize-paper ~/formalize-paper`). Install Lean (elan), git
+and a TeX engine (for example MacTeX) as on Linux, then:
+
+- **Python 3.10 or newer.** The system Python is 3.9. Install [uv](https://docs.astral.sh/uv/) and run
+  `uv python install 3.12 --default`; it puts `python3` in `~/.local/bin`, which must come first in `PATH`.
+- **A bash 5 first in `PATH`.** macOS's own bash hides the environment of its processes, which the
+  reviewer-process check needs. Build GNU bash 5.2 from ftp.gnu.org
+  (`./configure --prefix=$HOME/.local/opt/bash --without-bash-malloc && make && make install`, about 2 minutes) and
+  link `~/.local/opt/bash/bin/bash` as `~/.local/bin/bash`. Homebrew's bash also works where Homebrew has a bottle.
+- **The temporary directory.** Add `export TMPDIR="$(cd "$TMPDIR" && pwd -P)/"` to `~/.zshrc` (macOS's `/var`
+  is a symlink, and the checks compare resolved paths).
+- **Keep the Mac awake** for the whole run: `caffeinate -dimsu` in another terminal; stop it when the run ends.
+- **No `timeout` command** on macOS; a subagent that tries it gets exit 127 and retries without it.
+- **On 8 GB**, answer intake question 7 by asking for one agent at a time. The setup selftests take about 2 hours
+  on a slow Mac.
+- **Codex CLI on macOS:** start it as the installer prints (`--sandbox workspace-write --add-dir <project>/.git`).
+  Inside Codex's sandbox the process checks read the process table through macOS's `libproc`.
 
 ## 2. A Lean project
 

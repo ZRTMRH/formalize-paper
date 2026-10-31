@@ -11,7 +11,10 @@ arXiv:2610.28271) cites version 0.2.0, kept as tag `v0.2.0`; its formalization's
 [`CERTIFICATE.md`](https://github.com/ZRTMRH/le-shi-wei-linf-lean/blob/v1.0/CERTIFICATE.md) shows
 what a delivered run certifies.
 
-It runs on Claude Code under Linux (Debian or Ubuntu, or Ubuntu under WSL2 on Windows). Support for the OpenAI Codex CLI is experimental: under Codex CLI 0.163.0
+**This is the `macos` branch**: the Linux release (branch `main`) plus macOS support, which is less tested
+(two runs on one 8 GB Intel Mac: one under Claude Code, one under Codex; see INSTALL.md, "macOS").
+
+It runs on Claude Code under Linux (Debian or Ubuntu, or Ubuntu under WSL2 on Windows) and macOS. Support for the OpenAI Codex CLI is experimental: under Codex CLI 0.163.0
 two hands-off runs have delivered on the current version, on Linux: the example note and a real 5-page
 paper (about 4 h, the same outcome as under Claude Code). The citation check does not yet run under
 Codex (planned). See [`codex/README.md`](codex/README.md).
@@ -25,7 +28,7 @@ adapted from Wes Pegden's [Trellis](https://github.com/wpegden/trellis) (arXiv:2
 A mathematician with one AI subscription (Claude Code; Codex CLI supported, less tested) and an ordinary
 computer: 16 GB of RAM is enough; 8 GB also works, more slowly, if you ask at intake question 7 for one agent at a time: a real paper delivered
 on a 2019 MacBook Air (dual-core 1.6 GHz Intel Core i5, 8 GB).
-macOS needs the separate `macos` branch.
+This branch adds macOS (less tested).
 It checks whether a paper's statements are faithfully formalized and correct, with no need to read Lean, and
 produces a report for the paper's authors:
 - a sign-off sheet pairing each statement of the paper with a plain-English reading of its Lean, written by a
