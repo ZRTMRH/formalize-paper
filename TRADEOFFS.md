@@ -2,7 +2,7 @@
 
 Every known trade-off and open limitation of the release (as of 2026-10-24), so each
 can be tested and refined later. The user-facing wording (what it means for a report's reader, and
-whether a run discloses it) is in `KNOWN_LIMITATIONS.md`, section "Trade-offs and open items", under
+whether a run discloses it) is in `docs/maintainer-notes.md`, section "Trade-offs and open items", under
 the same numbers. Sources: the maintainers' internal design, build and review notes (not published; references
 such as `B1c`, `U2 §14` or `FOLLOWUPS` below point into them) and the audits of test runs. Priority: H =
 could affect what a reader believes about the mathematics, or blocks real use; M = costs a run
