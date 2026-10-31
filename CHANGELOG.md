@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.1
+
+### In short
+
+- **Delivery redesign.** Once the mathematics is verified, delivery is never refused except by the
+  math gate (Phase 0, the frozen statements, the integrity of the proof-validity core, and no Lean
+  change after the last audited round). The agent writes `SUMMARY.md` and `REPORT.md` from the run's
+  records and the Lean; four fresh reviewers advise, the agent judges each finding in
+  `JUDGEMENT.md`, then renders the PDFs. Problems that used to block delivery are now notes.
+- **Memory setting at intake (question 7).** Say how much RAM the computer has: on 16 GB the run
+  keeps at most 3 agents at a time, each compiling one Lean file at a time; on 8 GB you can ask for
+  one agent at a time.
+- **Licence at setup.** The intake asks which licence to use when the formalization is pushed
+  (default Apache-2.0), and the setup adds it.
+- **Clean push.** A push of the Lean branch can be made as one clean commit, with a guarded
+  one-command push.
+- **Fixes:** the sign-off guard no longer refuses legitimate records.
+- **Documentation:** "Who it is for"; installation by asking Claude Code or Codex to follow
+  `INSTALL.md`, with a quick check (seconds) instead of the full self-tests, which every run
+  performs itself; Codex status (two runs on Linux, including a real paper; one on macOS);
+  macOS support on the separate `macos` branch (less tested).
+
 ## 0.3.0 (release date: the date of the v0.3.0 tag)
 
 ### In short

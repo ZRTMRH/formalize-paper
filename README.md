@@ -5,7 +5,7 @@ reviewers. You get the Lean formalization, a statement sign-off sheet, and a rep
 defect the run found in the paper.**
 
 formalize-paper is a [Claude Code](https://claude.com/claude-code) skill plus a written protocol and
-a set of Python checks. A whole run happens in one Claude Code conversation. Version 0.3.0 is
+a set of Python checks. A whole run happens in one Claude Code conversation. Version 0.3.1 is
 current ([`CHANGELOG.md`](CHANGELOG.md)); the L∞ permutation-removal paper (Le, Shi and Wei,
 arXiv:2610.28271) cites version 0.2.0, kept as tag `v0.2.0`; its formalization's
 [`CERTIFICATE.md`](https://github.com/ZRTMRH/le-shi-wei-linf-lean/blob/v1.0/CERTIFICATE.md) shows
