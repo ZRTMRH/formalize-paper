@@ -53,8 +53,9 @@ with them on that Mac). Apple silicon and other macOS versions are untested. Clo
 (`git clone -b macos https://github.com/ZRTMRH/formalize-paper ~/formalize-paper`). Install Lean (elan), git
 and a TeX engine (for example MacTeX) as on Linux, then:
 
-- **Python 3.10 or newer.** The system Python is 3.9. Install [uv](https://docs.astral.sh/uv/) and run
-  `uv python install 3.12 --default`; it puts `python3` in `~/.local/bin`, which must come first in `PATH`.
+- **Python 3.10 or newer.** Check with `python3 --version`. If it shows 3.9 or lower (as Apple's built-in one did
+  on the Mac we tested), install a newer one, e.g. with [uv](https://docs.astral.sh/uv/): `uv python install 3.12
+  --default`; it puts `python3` in `~/.local/bin`, which must come first in `PATH`.
 - **A bash 5 first in `PATH`.** macOS's own bash hides the environment of its processes, which the
   reviewer-process check needs. Build GNU bash 5.2 from ftp.gnu.org
   (`./configure --prefix=$HOME/.local/opt/bash --without-bash-malloc && make && make install`, about 2 minutes) and
