@@ -37,7 +37,7 @@ produces a report for the paper's authors:
   notices;
 - a citation check (with Claude Code; Codex support is planned soon), where the cited work is openly available (e.g. on
   arXiv): whether it states the cited result in the form used, and whether bibliography entries are correct and up
-  to date (e.g. preprints since published). With Claude Code it reached 71% of cited results across eight real papers.
+  to date (e.g. preprints since published). With Claude Code it reached 74% of cited results across seven real papers.
 
 Not aimed at: textbook-scale formalization; proving every cited result in Lean (by default a result the paper only
 cites becomes an explicit, named hypothesis); other agents; hosted or collaborative use.
@@ -99,9 +99,20 @@ Delivered to `<project>/deliverables/`:
 
 ## Quick install
 
-The full steps are in [`INSTALL.md`](INSTALL.md).
+**Easiest: let Claude Code (or Codex) do it.** Clone the repository, open Claude Code in it, and ask:
 
-**Linux** (Debian or Ubuntu, or Ubuntu under WSL2):
+```bash
+git clone -b macos https://github.com/ZRTMRH/formalize-paper ~/formalize-paper
+cd ~/formalize-paper && claude
+```
+
+then type: "Set up formalize-paper for me: follow INSTALL.md (its macOS section included). Create a Lean project ~/my-formalization if I don't have one, run the quick check it describes, and ask me for anything that needs my password, a click, or my name and email for git."
+
+It follows [`INSTALL.md`](INSTALL.md) and asks before each command. When Claude Code asks whether you trust the folder, choose
+"Yes, I trust this folder". If a system package is missing it gives you one command to run yourself (it cannot
+type your password). Tested on Linux and on a new macOS account: the setup itself took under 30 minutes. On macOS use the `macos` branch, as above.
+
+**By hand (Linux):**
 
 ```bash
 # once: a Lean project that requires Mathlib (skip if you have one)
@@ -109,29 +120,15 @@ cd ~ && lake +leanprover/lean4:v4.35.0 new my-formalization math
 cd ~/my-formalization && lake exe cache get        # prebuilt Mathlib: minutes, not hours
 git add -A && git commit -m "new project"
 
-# install and check (about 5 minutes)
+# install and a quick check (seconds)
 git clone https://github.com/ZRTMRH/formalize-paper ~/formalize-paper
 ~/formalize-paper/install.sh ~/my-formalization
-python3 -B audits/selftest_all.py --fast           # last line: ALL SELFTESTS: ok
+python3 -B audits/project.py --selftest && python3 -B audits/lanecheck.py --selftest   # each ends: selftest: ok
 claude                                             # then type /formalize-paper
 ```
 
-**macOS** (less tested; the `macos` branch). First, once: Python 3.10 or newer first in `PATH` (e.g. `uv python install
-3.12 --default`), a bash 5 first in `PATH`, and `export TMPDIR="$(cd "$TMPDIR" && pwd -P)/"` in `~/.zshrc`; INSTALL.md (macOS
-section, on the `macos` branch) has the details. Then the same steps, cloning the `macos` branch:
-
-```bash
-# once: a Lean project that requires Mathlib (skip if you have one)
-cd ~ && lake +leanprover/lean4:v4.35.0 new my-formalization math
-cd ~/my-formalization && lake exe cache get        # prebuilt Mathlib: minutes, not hours
-git add -A && git commit -m "new project"
-
-# install and check (about 5 minutes; up to 2 hours on a slow Mac)
-git clone -b macos https://github.com/ZRTMRH/formalize-paper ~/formalize-paper
-~/formalize-paper/install.sh ~/my-formalization
-python3 -B audits/selftest_all.py --fast           # last line: ALL SELFTESTS: ok
-claude                                             # then type /formalize-paper
-```
+**By hand (macOS):** the same, cloning the `macos` branch, after three one-time extras listed in the macOS
+section of `INSTALL.md` on that branch (a newer Python, bash 5, and one line in `~/.zshrc`).
 
 [`examples/`](examples/) has a one-page example project to try.
 
