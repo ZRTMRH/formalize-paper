@@ -11,13 +11,33 @@ arXiv:2610.28271) cites version 0.2.0, kept as tag `v0.2.0`; its formalization's
 [`CERTIFICATE.md`](https://github.com/ZRTMRH/le-shi-wei-linf-lean/blob/v1.0/CERTIFICATE.md) shows
 what a delivered run certifies.
 
-It runs on Claude Code under Linux (Debian or Ubuntu, or Ubuntu under WSL2 on Windows). Support for
-macOS and for the OpenAI Codex CLI is experimental and still under testing (see
-[`codex/README.md`](codex/README.md)).
+It runs on Claude Code under Linux (Debian or Ubuntu, or Ubuntu under WSL2 on Windows). Support for the OpenAI Codex CLI is experimental: under Codex CLI 0.163.0
+two hands-off runs have delivered on the current version, on Linux: the example note and a real 5-page
+paper (about 4 h, the same outcome as under Claude Code). The citation check does not yet run under
+Codex (planned). See [`codex/README.md`](codex/README.md).
 
 **Credit.** The one-criterion-per-reviewer design and the wording of three reviewer rubrics are
 adapted from Wes Pegden's [Trellis](https://github.com/wpegden/trellis) (arXiv:2606.09674); see
 "License" below.
+
+## Who it is for
+
+A mathematician with one AI subscription (Claude Code; Codex CLI supported, less tested) and an ordinary
+computer: 16 GB of RAM is enough; 8 GB also works, more slowly, if you ask at intake question 7 for one agent at a time: a real paper delivered
+on a 2019 MacBook Air (dual-core 1.6 GHz Intel Core i5, 8 GB).
+macOS needs the separate `macos` branch.
+It checks whether a paper's statements are faithfully formalized and correct, with no need to read Lean, and
+produces a report for the paper's authors:
+- a sign-off sheet pairing each statement of the paper with a plain-English reading of its Lean, written by a
+  reviewer who sees only the Lean, with every difference spelled out;
+- defects proved in Lean and classified by kind (typo, missing hypothesis, false as printed), and proof gaps it
+  notices;
+- a citation check, where the cited work is openly available (e.g. on arXiv): whether it states the cited result
+  in the form used, and whether bibliography entries are correct and up to date (e.g. preprints since published).
+  It reached 71% of cited results across eight real papers; not yet under Codex (planned).
+
+Not aimed at: textbook-scale formalization; proving every cited result in Lean (by default a result the paper only
+cites becomes an explicit, named hypothesis); other agents; hosted or collaborative use.
 
 ## Highlights
 
@@ -33,8 +53,8 @@ adapted from Wes Pegden's [Trellis](https://github.com/wpegden/trellis) (arXiv:2
   something only you can fix; faults in its own tooling are repaired inside the run through
   reviewed patches.
 - **Nothing to deploy.** Everything runs in one Claude Code conversation on your machine: no
-  server, no sandbox to set up. A 30-page, 67-result paper took about 16 hours of model time on one
-  subscription.
+  server, no sandbox to set up. A 30-page, 67-result paper took about 16 hours of active run time
+  (48.5 hours of wall-clock in all, on an earlier version) on one subscription.
 - **Readable results.** A one-page summary, a full report and a decisions document, each read by a
   fresh AI reader before you see it, with mechanism details kept out of your way.
 
@@ -115,7 +135,8 @@ the report for you to reverse. Otherwise the run stops for you only when:
 
 If Claude pauses on a usage limit or an API error, leave the session open and type `continue` once
 it clears. A run on a short paper takes a few hours; a 30-page paper takes one to two days. A Claude
-Max plan is recommended. More detail: [`INSTALL.md`](INSTALL.md).
+Max plan is recommended. 16 GB of RAM is enough (say so at intake question 7); 8 GB works, more
+slowly, with one agent at a time. More detail: [`INSTALL.md`](INSTALL.md).
 
 ## Track record
 

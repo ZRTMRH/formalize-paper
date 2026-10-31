@@ -151,7 +151,10 @@ rest. This holds only if you keep your hands off, so:
     file or output with `grep`, `tail` or `sed -n`, or give it to a subagent and keep its answer.
 
 **Cost.** Read this file, the current stage file and a procedure file when it applies; nothing
-else in full. Spawn the lanes of a wave in one message and seal each as it returns. Wait with
+else in full. Spawn the lanes of a wave in one message and seal each as it returns. If the human
+said at intake (question 7) that the machine has 16 GB of RAM or less, at most 3 subagents run at
+once, whatever a step says about spawning in parallel or at once: spawn the rest as earlier ones
+return. Wait with
 blocking waits, never short polls (under Codex: one long `wait_agent`, status at most every 10
 minutes). Retries are budgeted by time (`spawn-and-seal.md`). The budget's round cap is kept
 (Stage 4 exit check).
@@ -536,7 +539,8 @@ a tool fault stops the run and a maintainer fixes the tool.
    reviewer prompts that judge patches, core faults and acknowledgments or the code rendering them
    (`tool_patch.GUARDED`; this includes the common rules for subagents, which the reviewer receives),
    the git rules, anything outside `audits/` (the project's Lean), a round record, or what the author
-   signed (`SIGNOFF*`, `APPROVED_FINGERPRINTS*`, `REAPPROVAL*`). It adds the NEW regression test,
+   signed (`SIGNOFF*`, `APPROVED_FINGERPRINTS*`, `REAPPROVAL*` as `.json`/`.md`/`.pdf`/`.tex`; `signoff.py` and
+   `run/reapproval.md` are tooling). It adds the NEW regression test,
    which takes `--apparatus DIR` and fails with the pinned apparatus, passes with the patched one (for
    a text patch: it reads the patched text). It may add other new files, under no Python module's
    name; it deletes and renames none. Prompts issued before the patch stay verified against what was

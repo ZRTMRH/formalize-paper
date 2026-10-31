@@ -16,8 +16,8 @@ maintainers; the numbered items T1–T35 say what each limitation means for you 
 
 - **Linux only.** The checks read Linux's `/proc` (the scan for reviewer processes in
   `lanecheck.py` and `stops.py`), and the install steps use `apt`. Supported: Debian or Ubuntu, or
-  Ubuntu under WSL2 on Windows. macOS support is experimental and still under testing; on a Mac,
-  use an Ubuntu virtual machine (e.g. UTM or Parallels) or a Linux server over SSH for now.
+  Ubuntu under WSL2 on Windows. On a Mac, use the separate `macos` branch, which reads the same
+  facts without `/proc`.
 - **Codex capacity failures stop the parent turn, and only a person can resume it.** Automatic
   resume is deferred: keystroke injection into a live TUI cannot be made safe (an adversarial
   test found 22 failing scenarios: approval overlays, drafts, re-wrapped screens, misread logs).
@@ -256,18 +256,23 @@ maintainers' table in `TRADEOFFS.md`, which says why each was accepted and how i
   round reaches you without any reviewer reading the new text. *For you:* a misleading docstring
   could slip through; statements and proofs are unaffected. *In the report:* yes, REPORT "Changes
   after the last audit round" and the matching decisions item.
-- **T2 Cited results are only partly checked.** The prior-art reviewer runs only when the intake
-  asks for a library contribution; in every test run it did not run, and a result the paper cites
-  (e.g. a classical textbook theorem) was proved or assumed without anyone checking the citation. *For you:* a
-  wrong citation in the paper may go unremarked. *In the report:* yes, trust row "AI reviewer:
-  prior-art: NOT RUN (the paper's citations unchecked)".
+- **T2 Cited results are only partly checked.** Every run ends with an advisory citation review: where
+  the cited work is openly available, agents check that it states the cited result in the form used
+  and that the bibliography entries are right (`CITATIONS.md`; it reached 71% of cited results across
+  eight real papers). It never stops a run, it is not proved in Lean, a citation whose source is not
+  openly available is not checked, and it does not yet run under Codex. The prior-art reviewer runs
+  only when the intake asks for a library contribution. *For you:* a wrong citation may go
+  unremarked when its source is not openly available, and always under Codex. *In the report:* yes,
+  `CITATIONS.md` gives each cited result's finding (as stated, a stronger form, not reachable); trust row "AI reviewer: prior-art: NOT RUN" when
+  that reviewer did not run.
 - **T3 Encoded hypotheses can escape the hypothesis walk.** The walk is syntactic: a hypothesis
   passed as a `Bool` or as data is not recognised as an assumption. *For you:* an extra assumption
   could be missing from the assumptions list; the faithfulness reviewers remain the backstop. *In
   the report:* yes, REPORT section 2 says the walk is syntactic.
-- **T4 The reviewers' detection rate is unknown.** No planted-fault benchmark has run yet. *For
-  you:* "no Fail" is not a measured guarantee. *In the report:* in general terms ("the lanes are
-  judgments, not checks").
+- **T4 The reviewers' detection rate is measured on one benchmark only.** The planted-fault benchmark
+  has been run: 10 agent-made papers with planted errors; the scores are in the accompanying report. It says
+  nothing about faults of other kinds or in real papers. *For you:* "no Fail" is not a guarantee.
+  *In the report:* in general terms ("the lanes are judgments, not checks").
 - **T5 Slips in the paper's proofs have no owner.** No reviewer is assigned to read the paper's
   cross-references; slips are recorded only when someone notices (in one test run a slip was
   found only because an adjudicator happened to check). *For you:* the absence of a listed slip says little. *In the report:* yes,

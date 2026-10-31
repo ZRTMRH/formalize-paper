@@ -478,7 +478,8 @@ These checks detect persistent replacements, not a write whose bytes were later 
    Anything outside your criterion goes in `out_of_lane`, unacted on.
 7. Evidence you cite must survive you. Put every probe a verdict relies on (a Lean
    file that compiles, a script and its output) under <PROBE-DIR>/ (create it; name
-   files for what they test) and cite it by that path in `checked`; the adjudicator
+   files for what they test; compile them one at a time, never several at once: each Lean
+   process loads Mathlib) and cite it by that path in `checked`; the adjudicator
    re-runs it and the record keeps it. When your last probe is written, put the
    output of `python3 audits/lane_auth.py manifest --verdict <your verdict path>`
    in your verdict as "probes" (each probe file and its sha256): the seal checks

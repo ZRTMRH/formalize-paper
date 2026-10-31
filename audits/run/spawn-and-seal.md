@@ -31,7 +31,9 @@ one home of these rules; the stage files point here.
   prompt file, re-typed or hand-composed. Spawn every lane of a wave in ONE message, in parallel;
   never serialize the lanes themselves.
 - **A wave is at most 8 lanes**, fewer when the machine has less than 32 GB of RAM or the human
-  asked for smaller waves (more lanes probing Lean at once ran out of memory). Spawn the next wave
+  asked for smaller waves (more lanes probing Lean at once ran out of memory). When the human says
+  at intake (question 7) that the machine has 16 GB of RAM or less, at most 3 subagents of any
+  kind run at once (RUN.md, "Cost"): a wave is then at most 3 lanes. Spawn the next wave
   when the lanes of the previous one have returned and been sealed.
 - **Every other subagent** (adjudicator, informalizer, sign-off writer, fresh reader, escalation
   check) is `general-purpose`. Never `subagent_type: "fork"`: a fork inherits your whole context.

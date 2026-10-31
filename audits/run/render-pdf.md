@@ -49,7 +49,8 @@ the md and the PDF, never A's notes, an earlier verdict or each other's output.
 
 **Parallel.** At Stage 5 render SUMMARY and REPORT (and the sheet, when it needs it) at the same
 time: each document's loop is independent, and their saves take a lock and retry a busy index.
-Spawn both checkers of a round at once.
+Spawn both checkers of a round at once. On a machine of 16 GB or less, at most 3 agents run at once
+(RUN.md, "Cost"): start the next as one returns.
 
 **A usage limit or a capacity error is not a failed round.** Wait it out as `spawn-and-seal.md`
 ("Retry budget") says -- until its reset time, or with its backoff -- and then spawn the agent again

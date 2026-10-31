@@ -53,7 +53,7 @@ SCRIPTS = sorted(project.scripts(agent_run=True))     # the registry (project.SC
 RECORD_FILES = ["RUN_LOG.md", "AUTHOR_NOTES.md", "DEVIATIONS.md", "OUTCOMES.md", "READER_NOTES.md",
                 "DECISIONS.md", "PAPER_DEFECTS.md", "SKIPPED.md", "VACUOUS.md", "KNOWN_FAULTS-*.md",
                 "QUESTIONS-B-*.md", "readers/*.response*.md", "status-check/*.md"]
-EDITS = (["Edit(/**/*.lean)", "Edit(/lakefile.toml)", "Edit(/lakefile.lean)", "Edit(/.formalization-work/**)",
+EDITS = (["Edit(/**/*.lean)", "Edit(/lakefile.toml)", "Edit(/lakefile.lean)", "Edit(/LICENSE)", "Edit(/.formalization-work/**)",
           "Edit(/audits/projects/*.json)"]
          + [f"Edit(/audits/*/{f})" for f in RECORD_FILES]
          + ["Edit(/audits/*/20*/*.json)", "Edit(/audits/*/20*/ADOPTED.md)", "Edit(/audits/*/20*/*.probes/**)",
@@ -77,7 +77,9 @@ ALLOW = (["Bash(lake build:*)", "Bash(lake env lean:*)", "Bash(lake exe cache ge
             "Bash(git -C audits status:*)", "Bash(git -C audits add:*)", "Bash(git -C audits commit:*)",
             # read-only history of the audit record: the adjudicator reads it
             "Bash(git -C audits log:*)", "Bash(git -C audits show:*)",
-            "Bash(git -C audits mv:*)", "Bash(git -C audits checkout -- *)"]
+            "Bash(git -C audits mv:*)", "Bash(git -C audits checkout -- *)",
+            # Stage 1, intake 6c: the default license text shipped with the skill
+            "Bash(cp audits/skills/formalize-paper/LICENSE-Apache-2.0.txt LICENSE)"]
          + RENDER_TOOLS + EDITS)
 # What nobody in a run may edit (RUN.md rule 4: the pinned apparatus), whatever else allows it,
 # and Lake's package checkouts.

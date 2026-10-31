@@ -3,9 +3,8 @@
 This takes about 30 minutes the first time, most of it downloading Mathlib. Every command runs in
 a terminal on Debian or Ubuntu, or Ubuntu under WSL2, with `sudo` for the packages.
 
-**System**: Debian or Ubuntu, or Ubuntu under WSL2 on Windows. macOS support is experimental and
-still under testing; on a Mac, use an Ubuntu virtual machine (e.g. UTM or Parallels) or a Linux
-server over SSH for now.
+**System**: Debian or Ubuntu, or Ubuntu under WSL2 on Windows. On a Mac, use the separate `macos`
+branch of this repository.
 
 ## 1. Requirements (once)
 
@@ -26,7 +25,7 @@ sudo apt install -y git python3 curl \
   with shell escape off (`-no-shell-escape`; pandoc with `--sandbox`).
 - **Disk.** About 7 GB per Lean project, mostly the prebuilt Mathlib, plus about 3 GB for the TeX
   packages.
-- **Memory.** 16 GB at least (then ask the agent for smaller reviewer waves); 32 GB recommended.
+- **Memory.** 16 GB is enough, one paper at a time: say so at intake question 7, and the run keeps at most 3 agents at a time, each compiling its Lean files one at a time. 8 GB works, more slowly: ask at question 7 for one agent at a time. 32 GB is comfortable.
 - **Lean.** If `lean --version` does not work, install elan (it provides `lean` and `lake`), then
   open a new terminal:
   `curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh`
@@ -158,15 +157,15 @@ The rules added:
   prompt, phase0, project, scope, integrity, lanecheck, lane_auth, tree_state, signoff, readers,
   decisions, audit_coverage, axiom_sweep, unused_args, dependencies, stops, selftest_all); `git status`, `git rev-parse`, `git branch --show-current`, `git switch -c`,
   `git add`, `git commit`, `git fetch upstream` (exactly), `git -C audits status|add|commit|mv`,
-  `git -C audits checkout -- …`, and the read-only `git -C audits log|show` (the adjudicator reads the
-  audit record's history). The run's other needs go through these scripts: the
+  `git -C audits checkout -- …`, the read-only `git -C audits log|show` (the adjudicator reads the
+  audit record's history), and Stage 1's copy of the default license text to `LICENSE` (exactly). The run's other needs go through these scripts: the
   environment check (`project.py --env-check`), compiling a `.tex` source with shell escape off
   (`project.py --compile-source`), creating and committing the helpers' work directory
   (`project.py --init-work-dir`, `--work-commit`), a fresh scratch directory for each subagent
   inside the project (`project.py --scratch <name>`), and the delivery copy into `deliverables/`
   (`project.py --prepare-delivery`, then `project.py --deliver`), and the run log (`project.py --log <section>`, `--stage [<text>]`).
   Readers run their scripts by relative path, and git without `-C`.
-- **File edits:** Lean files anywhere in the project (`Edit(/**/*.lean)`), the lakefile, the
+- **File edits:** Lean files anywhere in the project (`Edit(/**/*.lean)`), the lakefile, `LICENSE`, the
   helpers' work directory `.formalization-work/` (inside the project, excluded from its git
   history), the project configuration `audits/projects/*.json`, the main agent's (the *operator's*)
   and the adjudicator's records in `audits/<project>/` (`RUN_LOG.md`, `AUTHOR_NOTES.md`, `DEVIATIONS.md`, `OUTCOMES.md`,

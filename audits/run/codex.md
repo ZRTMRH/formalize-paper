@@ -91,7 +91,8 @@ under Codex is in `spawn-and-seal.md` ("Under Codex"), since spawns happen in St
   intake allowed one (6c, 6d), and Stage 5's copy of the deliverables to a destination outside the
   project (6b). Do not run them (each would ask for an approval, which a delegating level must not
   wait at): the deliverables stay in `deliverables/`, and the completion message (or Checkpoint C)
-  gives the person the exact `cp` and `git push` commands to run themselves. That is not a stop and
+  gives the person the exact `cp` and `git push` commands to run themselves (the push: Stage 5's
+  one-command clean commit, unless 6c asked for the full history). That is not a stop and
   not a question.
 - **Seeing a PDF.** The PDF agents look at pages as `pdftoppm` images (Codex's image viewer,
   `view_image`) or as `pdftotext -layout` text; both are in their prompts. LaTeX runs in the

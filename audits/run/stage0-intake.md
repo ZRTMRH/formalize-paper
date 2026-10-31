@@ -153,12 +153,15 @@ Deliverables
 6b. Where should the report PDF and the sign-off PDF be copied? Default: deliverables/ in the
     project (not committed); a copy anywhere else asks for permission, or you make it.
 6c. May the Lean branch be pushed, and to which remote (for a confidential paper, a private one
-    only)?
+    only)? Under which license may others reuse the Lean code? Default: Apache-2.0, Mathlib's ("none"
+    adds no license file). Push it as one clean commit (default) or with the run's full history?
 6d. May the audit record (audits/, its own git repository) be pushed, and where?
 6e. Will defects be sent to the authors?
 
 Anything else
 7.  Anything else I should know? For example: known errors or doubts, conventions, deadlines.
+    If this computer has 16 GB of RAM or less, please say so here: the run then keeps at most
+    3 agents at a time, and each compiles its Lean files one at a time.
 ```
 
 ## Checkpoint A
@@ -184,7 +187,7 @@ Show the derived setup on one screen:
   stops of the run mode, and the questions the level asks);
 - the run mode, as `prompt.py --show` prints it (set at install; RUN.md, "Run mode");
 - the report destination;
-- push yes or no;
+- push yes or no, as one clean commit or with the full history, and the license;
 - any other library in the lakefile that the run leaves alone (for example the template library of
   `lake new … math`).
 

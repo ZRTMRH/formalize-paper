@@ -1,6 +1,8 @@
 # Codex CLI support (experimental)
 
-Codex support is experimental and still under testing. For a real paper, use Claude Code.
+Codex support is experimental. Under Codex CLI 0.163.0 two hands-off runs have delivered on the
+current version, on Linux: the example note and a real 5-page paper (about 4 h, the same outcome as
+under Claude Code). The citation check does not yet run under Codex (planned). Codex on macOS is untested.
 
 > **What "experimental" means in practice (tested with Codex CLI 0.163.0)**
 > - It has been run end to end twice: on the one-page example note (`examples/sparse-note`, 0.2.0)

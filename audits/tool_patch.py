@@ -286,7 +286,11 @@ def diff_key(text):
     return sha_bytes(json.dumps(sorted((k, v) for k, v in files.items() if v)).encode("utf-8"))
 
 
-SIGNED_RE = re.compile(r"(^|/)(SIGNOFF[^/]*|APPROVED_FINGERPRINTS[^/]*|REAPPROVAL[^/]*)$", re.I)
+# the signed records are documents (.json/.md/.pdf/.tex); a script or a procedure file whose name merely starts like one
+# (signoff.py, run/reapproval.md) is tooling (a 2026-10-29 run: signoff.py was refused before any review). re.I: on a
+# case-insensitive file system signoff.md IS SIGNOFF.md
+SIGNED_RE = re.compile(r"(^|/)(SIGNOFF[^/]*|APPROVED_FINGERPRINTS[^/]*|REAPPROVAL[^/]*)\.(md|json|pdf|tex)$", re.I)
+SIGNED_NAMED_TOOLING = ("run/reapproval.md",)
 GIT_RULES = (".gitignore", ".gitattributes")
 
 
@@ -294,14 +298,14 @@ def allowed(path):
     """Is `path` (relative to audits/) a file a tool patch may touch (OPERATOR-AUTHORITY, approver 2026-10-26)? Any
     file of the apparatus -- the scripts, tests, Lean tails, and the protocol text: AUDIT_PROTOCOL.md, RUN.md, run/,
     agents/, skills/ -- except the git rules (they decide what git shows, the provenance's ground) and anything a
-    signature covers (SIGNOFF*, APPROVED_FINGERPRINTS*, REAPPROVAL*). Never a path outside audits/ (the project's
+    signature covers (SIGNOFF*, APPROVED_FINGERPRINTS*, REAPPROVAL* as .json/.md/.pdf/.tex). Never a path outside audits/ (the project's
     Lean), never a record (the rounds dir is no tooling path; structure_problems also refuses it by name). The
     proof-validity core is refused by structure_problems (CORE, read from the first pin)."""
     import integrity
     parts = path.split("/")
     if not path or path.startswith("/") or ".." in parts or "" in parts or parts[0] == ".git":
         return False
-    if SIGNED_RE.search(path) or path in GIT_RULES:
+    if (SIGNED_RE.search(path) and path not in SIGNED_NAMED_TOOLING) or path in GIT_RULES:
         return False
     return integrity.is_tooling(path)
 
@@ -462,7 +466,7 @@ def structure_problems(audits, rd, files, reg):
         if not allowed(p) or (rel_rd and rel_rd != "." and (p == rel_rd or p.startswith(rel_rd + "/"))):
             out.append(f"{p} is outside what a tool patch may touch: only the apparatus under audits/ (scripts, tests, "
                        f"the protocol text), never the project's Lean, a round record, a signed document (SIGNOFF*, "
-                       f"APPROVED_FINGERPRINTS*, REAPPROVAL*) or the git rules")
+                       f"APPROVED_FINGERPRINTS*, REAPPROVAL* as .json/.md/.pdf/.tex) or the git rules")
         elif p in core:
             out.append(f"{p} is in the proof-validity core ({', '.join(core)}): immutable to tool patches, no reviewer "
                        f"can approve a change to it (release: withdraw, then a Lean-side workaround, else stops.py close "
@@ -3005,10 +3009,13 @@ def selftest():
         OUT_ = "outside what a tool patch may touch"
         bad_ = {p_: scope_refusal(p_) for p_ in ("../P/Main.lean", "P/APPROVED_FINGERPRINTS.json", "P/R0/SIGNOFF.md",
                                                   "P/R0/correspondence.json", "agents/SIGNOFF.md", "REAPPROVAL.md",
-                                                  ".gitattributes")}
+                                                  ".gitattributes", "agents/SIGNOFF.json", "run/SIGNOFF.json",
+                                                  "tests/APPROVED_FINGERPRINTS.2026-10-22.2.json",
+                                                  "skills/x/signoff.md", "tests/REAPPROVAL.json", "agents/SIGNOFF-R0.pdf")}
         core_ = {p_: scope_refusal(p_) for p_ in CORE}
         ok_ = {p_: scope_refusal(p_) for p_ in ("AUDIT_PROTOCOL.md", "RUN.md", "run/stage4-rounds.md",
-                                                 "agents/auditor.md", "result_status.py")}
+                                                 "agents/auditor.md", "result_status.py", "signoff.py",
+                                                 "run/reapproval.md")}
         new_ok, new_bad = scope_refusal("run/helper_note.md", "new"), scope_refusal("json.py", "new")
         say("OPERATOR-AUTHORITY (approver 2026-10-26): a patch touching the project's Lean, a round record, a signed "
             "document or the git rules is refused, as is every proof-validity core file; the protocol text (RUN.md, "

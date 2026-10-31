@@ -220,7 +220,8 @@ After the mathematics is verified, delivery never stops and is never refused exc
      adjudicator settled), judge from the records and the Lean, write what you find, and note the
      disagreement in `JUDGEMENT.md` (below); it never blocks. Commit your files by name
      (`deliverables: write`).
-   - **Review.** Spawn four fresh general-purpose agents in parallel (Codex: `agent_type`
+   - **Review.** Spawn four fresh general-purpose agents in parallel (at most 3 at once on a
+     machine of 16 GB or less: RUN.md, "Cost"; Codex: `agent_type`
      `formalize_reader`, `fork_turns` "none"), one per perspective -- CLAIMS, READABILITY, DECISIONS,
      TRUST -- each with the prompt under "Delivery reviewer prompt" below, filled in. Their findings come
      back as their final message: subagent file writes are often refused ("Subagents should return
@@ -278,7 +279,16 @@ After the mathematics is verified, delivery never stops and is never refused exc
      `DECISIONS.md`, `OUTCOMES.md`, `READER_NOTES.md`, `SUMMARY.md`, `REPORT.md`, `RUN_RECORD.md`,
      `JUDGEMENT.md`, `delivery-review/`) by name, never `git add -A` (RUN.md rule 5); every other record
      was committed by its script.
-   - Push only if the intake said yes.
+   - Push only if the intake said yes. Unless 6c asked for the full history, push one clean commit
+     with the same files, in ONE command (a shell variable does not survive between calls, and an
+     empty hash would delete the remote branch): `C=$(git commit-tree HEAD^{tree} -p <parent> -m
+     "Formalization of <title> (<source id>). Same tree as commit <HEAD hash>.") && test -n "$C" &&
+     git push <remote> "$C:refs/heads/<branch>" && echo "$C"`. `<parent>` is `<base_commit>` for the
+     first push, else the clean commit pushed last. Log the pushed hash and the HEAD it matches in
+     `RUN_LOG.md`, and give both in the completion message (the report cites the HEAD; anyone can
+     check that `git rev-parse <pushed>^{tree}` equals `git rev-parse <HEAD>^{tree}`). The local branch
+     keeps every commit. Never force a push: if the remote refuses, say so in the completion message
+     with the command to run.
 6. **Checkpoint C, or the completion message.** Under `involved`, Checkpoint C is asked on the
    documents written and reviewed in step 5, before anything is delivered
    (U2 §6.7). Send the human a short message:

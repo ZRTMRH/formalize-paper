@@ -820,7 +820,7 @@ MUTANTS += [
  ("TP14 a dev run's tool-patch commit passes", "tool_patch.py",
   "    if tpc and project.mode((fp or {}).get(\"config\") or {}) != \"release\":", "    if False:", "tool_patch.py", [], "plain"),
  ("TP15 a signed document or the git rules may be patched", "tool_patch.py",
-  "    if SIGNED_RE.search(path) or path in GIT_RULES:\n        return False", "    if False:\n        return False",
+  "    if (SIGNED_RE.search(path) and path not in SIGNED_NAMED_TOOLING) or path in GIT_RULES:\n        return False", "    if False:\n        return False",
   "tool_patch.py", [], "plain"),
  ("TP15b a patch may change the guarded reviewer prompts", "tool_patch.py",
   "    refuse += guard_problems(audits, pin, patch)", "    refuse += []", "tool_patch.py", [], "plain"),
