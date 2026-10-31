@@ -1,0 +1,173 @@
+\documentclass[11pt]{amsart}
+\usepackage{amsmath,amssymb,amsthm}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{conjecture}[theorem]{Conjecture}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+\title{A sum--reciprocal inequality and two applications}
+\author{L. V. Instance}
+\address{School of Notional Analysis, Imaginary University (fictional)}
+\email{l.v.instance@example.org}
+\date{}
+
+\begin{document}
+
+\begin{abstract}
+We give a short derivation of the inequality
+$(x_1+\dots+x_n)(1/x_1+\dots+1/x_n)\ge n^2$ for positive reals from the
+Cauchy--Schwarz inequality, deduce the comparison of the arithmetic and
+harmonic means and Nesbitt's inequality, and record an elementary bound on
+$(1+1/n)^n$ obtained from Bernoulli's inequality.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+
+The inequality in Theorem~\ref{thm:main} below is a standard first
+application of the Cauchy--Schwarz inequality~\cite{Cau}. This note is
+intended as a self-contained reference for it and for a few consequences we
+use elsewhere. Section~\ref{sec:sr} contains the main theorem and its
+corollaries, including Nesbitt's inequality~\cite{Nes}; Section~\ref{sec:bern}
+treats the sequence $(1+1/n)^n$.
+
+\section{The sum--reciprocal inequality}\label{sec:sr}
+
+Throughout this section $n\ge 1$ is an integer and $x=(x_1,\dots,x_n)$ is an
+$n$-tuple of real numbers; all sums run over $i=1,\dots,n$.
+
+\begin{definition}\label{def:means}
+Let $x$ be an $n$-tuple of positive reals. Its \emph{arithmetic mean} and its
+\emph{harmonic mean} are
+\[
+  A(x)=\frac1n\sum x_i,\qquad H(x)=\frac1n\sum\frac{1}{x_i}.
+\]
+\end{definition}
+
+\begin{lemma}\label{lem:2ab}
+For all real $a,b$ we have $a^2+b^2\ge 2ab$.
+\end{lemma}
+
+\begin{proof}
+$a^2+b^2-2ab=(a-b)^2\ge 0$.
+\end{proof}
+
+\begin{lemma}\label{lem:recip}
+For every real $x\ne 0$ we have $x+\frac1x\ge 2$.
+\end{lemma}
+
+\begin{proof}
+Multiplying by $x$, the claim becomes $x^2+1\ge 2x$, which is
+Lemma~\ref{lem:2ab} with $a=x$, $b=1$.
+\end{proof}
+
+\begin{lemma}[Cauchy--Schwarz~\cite{Cau}]\label{lem:CS}
+For real $n$-tuples $a,b$ we have
+$\bigl(\sum a_ib_i\bigr)^2\le\bigl(\sum a_i^2\bigr)\bigl(\sum b_i^2\bigr)$.
+\end{lemma}
+
+\begin{proof}
+If all $a_i=0$ both sides vanish. Otherwise the quadratic polynomial
+$q(t)=\sum(a_it+b_i)^2=t^2\sum a_i^2+2t\sum a_ib_i+\sum b_i^2$ is non-negative
+for all real $t$ and has positive leading coefficient, so its discriminant
+$4(\sum a_ib_i)^2-4\sum a_i^2\sum b_i^2$ is at most $0$.
+\end{proof}
+
+\begin{lemma}\label{lem:qm}
+Let $x_1,\dots,x_n$ be real numbers with $x_i\ge 0$ for all $i$. Then
+$\bigl(\sum x_i\bigr)^2\le n\sum x_i^2$.
+\end{lemma}
+
+\begin{proof}
+Apply Lemma~\ref{lem:CS} with $a_i=x_i$ and $b_i=x_i$ for all $i$, and use
+$\sum 1^2=n$.
+\end{proof}
+
+\begin{theorem}[Main theorem]\label{thm:main}
+Let $n\ge 1$ and let $x_1,\dots,x_n$ be positive real numbers. Then
+\[
+  \Bigl(\sum x_i\Bigr)\Bigl(\sum\frac{1}{x_i}\Bigr)\ge n^2 .
+\]
+\end{theorem}
+
+\begin{proof}
+Apply Lemma~\ref{lem:CS} with $a_i=\sqrt{x_i}$ and $b_i=1/\sqrt{x_i}$. Then
+$a_ib_i=1$, so the left-hand side of Lemma~\ref{lem:CS} is $n^2$, while the
+right-hand side is $\bigl(\sum x_i\bigr)\bigl(\sum 1/x_i\bigr)$.
+\end{proof}
+
+\begin{corollary}[AM--HM]\label{cor:amhm}
+For every $n$-tuple $x$ of positive reals, $A(x)\ge H(x)$.
+\end{corollary}
+
+\begin{proof}
+Dividing Theorem~\ref{thm:main} by $n\sum\frac{1}{x_i}$ gives
+$\frac1n\sum x_i\ge n\big/\sum\frac{1}{x_i}$, which is the claim.
+\end{proof}
+
+\begin{corollary}\label{cor:vac}
+Let $x_1,\dots,x_n$ be positive reals with $\sum x_i=1$ and
+$\sum 1/x_i<n^2$. Then the $x_i$ are not all equal.
+\end{corollary}
+
+\begin{proof}
+If $x_i=1/n$ for all $i$, then $\sum 1/x_i=n^2$, contrary to the hypothesis.
+\end{proof}
+
+\begin{proposition}[Nesbitt~\cite{Nes}]\label{prop:nesbitt}
+For all positive reals $a,b,c$,
+\[
+  \frac{a}{b+c}+\frac{b}{c+a}+\frac{c}{a+b}\ge\frac32 .
+\]
+\end{proposition}
+
+\begin{proof}
+Put $s=a+b+c$ and apply Theorem~\ref{thm:main} with $n=3$ and
+$(x_1,x_2,x_3)=(b+c,\,c+a,\,a+b)$, whose sum is $2s$. This gives
+$\sum\frac{1}{b+c}\ge\frac{9}{2s}$. Since
+$\frac{a}{b+c}=\frac{s}{b+c}-1$, the left-hand side equals
+$s\sum\frac{1}{b+c}-3\ge\frac92-3=\frac32$.
+\end{proof}
+
+\section{Bernoulli's inequality and $(1+1/n)^n$}\label{sec:bern}
+
+We use Bernoulli's inequality in the form found in~\cite{HLP}: \emph{for every
+real $x$ and every $n\in\mathbb{N}$,}
+\[
+  (1+x)^n\ge 1+nx .
+\]
+For $n=0$ both sides equal $1$, and the general case follows by induction on
+$n$.
+
+\begin{proposition}\label{prop:e}
+For every $n\in\mathbb{N}$ we have $\bigl(1+\frac1n\bigr)^n\ge 2$.
+\end{proposition}
+
+\begin{proof}
+Apply Bernoulli's inequality with $x=1/n$:
+$\bigl(1+\frac1n\bigr)^n\ge 1+n\cdot\frac1n=2$.
+\end{proof}
+
+\begin{remark}
+Proposition~\ref{prop:e} together with Lemma~\ref{lem:recip} shows that
+$(1+\frac1n)^n+(1+\frac1n)^{-n}\ge 2$ as well, but this weaker statement
+already follows from Lemma~\ref{lem:recip} alone.
+\end{remark}
+
+\begin{thebibliography}{9}
+\bibitem{Cau} A.-L.~Cauchy, \emph{Cours d'analyse de l'\'Ecole Royale
+Polytechnique}, Paris, 1821.
+\bibitem{HLP} G.~H.~Hardy, J.~E.~Littlewood and G.~P\'olya,
+\emph{Inequalities}, Cambridge University Press, 1934.
+\bibitem{Nes} A.~M.~Nesbitt, Problem 15114, \emph{Educational Times}
+\textbf{3} (1903), 37--38.
+\end{thebibliography}
+
+\end{document}

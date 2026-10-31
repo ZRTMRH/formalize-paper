@@ -1,0 +1,213 @@
+\documentclass[11pt]{amsart}
+\usepackage{amssymb}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+\newcommand{\leg}[2]{\left(\frac{#1}{#2}\right)}
+
+\title{A short self-contained route to the first supplementary law}
+\author{Mirela Kostadinova}
+\address{Department of Mathematics, University of Ruse ``Angel Kanchev'', 8 Studentska Str., 7017 Ruse, Bulgaria}
+\email{mkostadinova@uni-ruse.example}
+\date{}
+
+\begin{document}
+
+\begin{abstract}
+We give a compact, fully elementary account of quadratic residues modulo an odd
+prime, leading to Euler's criterion and to the first supplementary law of
+quadratic reciprocity: $-1$ is a square modulo $p$ if and only if
+$p\equiv 1 \pmod 4$. We close with some classical consequences.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+
+The first supplementary law of quadratic reciprocity states that $-1$ is a
+quadratic residue modulo an odd prime $p$ exactly when $p \equiv 1 \pmod 4$.
+It is usually obtained either from Euler's criterion or from Wilson's theorem; see, e.g., \cite[Ch.~5]{IR}.
+The purpose of this note is to collect, in one place and with complete proofs,
+the short chain of elementary facts leading to it, in a form suitable for a
+first course. Our main result is Theorem~\ref{thm:main}.
+
+Throughout, $p$ denotes an odd prime and congruences are modulo $p$ unless
+stated otherwise. We use freely Fermat's little theorem: $x^{p-1}\equiv 1$
+whenever $p\nmid x$. We write $\mathbb{F}_p=\mathbb{Z}/p\mathbb{Z}$.
+
+\section{Quadratic residues and Euler's criterion}
+
+\begin{definition}\label{def:qr}
+Let $a$ be an integer with $p \nmid a$. We say that $a$ is a
+\emph{quadratic residue} modulo $p$ if the congruence $x^2 \equiv a$ has a
+solution $x\in\mathbb{Z}$, and a \emph{quadratic non-residue} otherwise. For
+an arbitrary integer $a$ the \emph{Legendre symbol} is
+\[
+\leg{a}{p} =
+\begin{cases}
+0 & \text{if } p \mid a,\\
+1 & \text{if } a \text{ is a quadratic residue modulo } p,\\
+-1 & \text{if } a \text{ is a quadratic non-residue modulo } p.
+\end{cases}
+\]
+\end{definition}
+
+\begin{lemma}\label{lem:pm}
+Let $x,y$ be integers with $p\nmid x$. Then $x^2\equiv y^2$ if and only if
+$y\equiv x$ or $y\equiv -x$.
+\end{lemma}
+
+\begin{proof}
+If $y\equiv \pm x$ then clearly $y^2\equiv x^2$. Conversely, if
+$x^2\equiv y^2$ then $p \mid x^2-y^2=(x-y)(x+y)$, and since $p$ is prime,
+$p\mid x-y$ or $p\mid x+y$.
+\end{proof}
+
+\begin{proposition}\label{prop:count}
+The integers $1^2, 2^2, \dots, \bigl(\tfrac{p+1}{2}\bigr)^2$ are pairwise
+incongruent modulo $p$, and every quadratic residue modulo $p$ is congruent
+to one of them. In particular, exactly $\frac{p-1}{2}$ of the integers
+$1,2,\dots,p-1$ are quadratic residues modulo $p$.
+\end{proposition}
+
+\begin{proof}
+Let $a$ be a quadratic residue, say $a\equiv x^2$. Then $p\nmid x$, so we may
+take $1\le x\le p-1$; replacing $x$ by $p-x$ if necessary (which does not
+change $x^2$ modulo $p$) we may assume $x\le \frac{p-1}{2}$. Now suppose that
+$x^2\equiv y^2$ with $1\le x<y\le\frac{p-1}{2}$. By Lemma~\ref{lem:pm},
+$p\mid y-x$ or $p\mid y+x$, which is impossible since $0<y-x<p$ and
+$0<x+y<p$. Hence the squares are pairwise incongruent, and the quadratic
+residues fall into exactly $\frac{p-1}{2}$ classes modulo $p$; each class
+meets $\{1,\dots,p-1\}$ in exactly one element.
+\end{proof}
+
+\begin{corollary}\label{cor:sum}
+The sum of the quadratic residues modulo $p$ lying in $\{1,2,\dots,p-1\}$ is
+divisible by $p$.
+\end{corollary}
+
+\begin{proof}
+By Proposition~\ref{prop:count} this sum is congruent to
+\[
+\sum_{x=1}^{(p-1)/2} x^2 = \frac{1}{6}\cdot\frac{p-1}{2}\cdot\frac{p+1}{2}\cdot p
+ = p\cdot\frac{(p-1)(p+1)}{24}.
+\]
+Now $(p-1)(p+1)$ is a product of two consecutive even numbers, hence
+divisible by $8$; and among the three consecutive integers $p-1,p,p+1$ one is
+divisible by $3$, and it is not $p$. Thus $24\mid (p-1)(p+1)$ and the sum is
+divisible by $p$.
+\end{proof}
+
+\begin{lemma}[Lagrange]\label{lem:lagrange}
+A nonzero polynomial $f\in\mathbb{F}_p[X]$ of degree $d$ has at most $d$
+roots in $\mathbb{F}_p$.
+\end{lemma}
+
+\begin{proof}
+Induction on $d$; the case $d=0$ is clear since $f$ is then a nonzero
+constant. If $d\ge1$ and $f(c)=0$, division by $X-c$ gives
+$f=(X-c)g$ with $g\neq0$ of degree $d-1$. If $c'\ne c$ is another root then
+$(c'-c)g(c')=0$ and, $\mathbb{F}_p$ being a field, $g(c')=0$. So $f$ has at
+most $1+(d-1)=d$ roots.
+\end{proof}
+
+\begin{lemma}\label{lem:sign}
+If $p\nmid a$, then $a^{(p+1)/2}\equiv 1$ or $a^{(p+1)/2}\equiv -1$.
+\end{lemma}
+
+\begin{proof}
+Put $y=a^{(p-1)/2}$. By Fermat's little theorem $y^2=a^{p-1}\equiv 1 = 1^2$,
+so Lemma~\ref{lem:pm} with $x=1$ gives $y\equiv\pm1$.
+\end{proof}
+
+\begin{theorem}[Euler's criterion]\label{thm:euler}
+For every integer $a$,
+\[
+a^{(p-1)/2}\equiv \leg{a}{p} \pmod p.
+\]
+\end{theorem}
+
+\begin{proof}
+If $p\mid a$, both sides are divisible by $p$, because $(p-1)/2\ge1$. Let
+$p\nmid a$. If $a$ is a quadratic residue, $a\equiv x^2$ with $p\nmid x$, and
+$a^{(p-1)/2}\equiv x^{p-1}\equiv 1$. By Proposition~\ref{prop:count} there are
+$\frac{p-1}{2}$ distinct classes of quadratic residues in $\mathbb{F}_p$, and we
+have just seen that each of them is a root of $X^{(p-1)/2}-1$. By
+Lemma~\ref{lem:lagrange} this polynomial has no further roots. Hence if $a$
+is a non-residue then $a^{(p-1)/2}\not\equiv1$, and Lemma~\ref{lem:sign} forces
+$a^{(p-1)/2}\equiv-1$.
+\end{proof}
+
+\begin{theorem}\label{thm:main}
+Let $p$ be an odd prime. Then $-1$ is a quadratic residue modulo $p$ if and
+only if $p\equiv 1\pmod 4$.
+\end{theorem}
+
+\begin{proof}
+Apply Theorem~\ref{thm:euler} with $a=-1$: $(-1)^{(p-1)/2}\equiv\leg{-1}{p}$.
+Both sides lie in $\{1,-1\}$, since $p\nmid -1$, and $1\not\equiv-1$ because
+$p>2$; so $\leg{-1}{p}=(-1)^{(p-1)/2}$ as integers. As $p$ is odd,
+$(p-1)/2$ is even exactly when $p\equiv1\pmod4$, which proves the claim.
+\end{proof}
+
+\section{Consequences}
+
+We recall two classical theorems.
+
+\begin{theorem}[Wilson; see {\cite[Thm.~80]{HW}}]\label{thm:wilson}
+$(p-1)!\equiv -1 \pmod p$.
+\end{theorem}
+
+\begin{proposition}\label{prop:factorial}
+If $p\equiv 1 \pmod 4$ and $x=\bigl(\tfrac{p-1}{2}\bigr)!$, then
+$x^2\equiv -1\pmod p$.
+\end{proposition}
+
+\begin{proof}
+Pair each $k\in\{1,\dots,\frac{p-1}{2}\}$ with $p-k\equiv-k$. By
+Theorem~\ref{thm:wilson},
+\[
+-1\equiv(p-1)! = \prod_{k=1}^{(p-1)/2} k(p-k)\equiv\prod_{k=1}^{(p-1)/2}(-k^2)
+= (-1)^{(p+1)/2}x^2 .
+\]
+Since $p\equiv1\pmod4$, the exponent $(p+1)/2$ is even, and $x^2\equiv-1$.
+\end{proof}
+
+Proposition~\ref{prop:factorial} makes the ``if'' direction of
+Theorem~\ref{thm:main} explicit. The following theorem of Fermat and Euler
+gives yet another witness.
+
+\begin{theorem}[Fermat--Euler; see {\cite[Ch.~XX]{HW}}]\label{thm:twosq}
+Let $n>1$ be an integer all of whose prime factors are congruent to $1$
+modulo $4$. Then there is exactly one pair of integers $(a,b)$ with
+$0<a<b$ and $n=a^2+b^2$.
+\end{theorem}
+
+Indeed, if $p=a^2+b^2$ is prime then $p\nmid b$, and $(ab^{-1})^2\equiv-1$.
+
+\begin{corollary}\label{cor:div}
+Let $p\equiv3\pmod 4$ and let $x,y$ be integers with $p\mid x^2+y^2$. Then
+$p\mid x$ and $p\mid y$.
+\end{corollary}
+
+\begin{proof}
+If $p\nmid y$, let $z$ be an inverse of $y$ modulo $p$. Then
+$(xz)^2\equiv -y^2z^2\equiv-1$, so $-1$ is a quadratic residue, contradicting
+Theorem~\ref{thm:main}. Hence $p\mid y$, then $p\mid x^2$, and so $p\mid x$.
+\end{proof}
+
+\begin{thebibliography}{9}
+\bibitem{HW} G.~H.~Hardy and E.~M.~Wright, \emph{An Introduction to the Theory
+of Numbers}, 6th ed., Oxford University Press, 2008.
+\bibitem{IR} K.~Ireland and M.~Rosen, \emph{A Classical Introduction to Modern
+Number Theory}, 2nd ed., Springer, 1990.
+\end{thebibliography}
+
+\end{document}

@@ -1,0 +1,166 @@
+\documentclass[11pt]{amsart}
+\usepackage{amsmath,amssymb,amsthm}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{conjecture}[theorem]{Conjecture}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+\title{Repeated degrees in finite simple graphs}
+\author{M. K. Sample}
+\address{Institute for Hypothetical Combinatorics (fictional)}
+\email{m.k.sample@example.org}
+\date{}
+
+\begin{document}
+
+\begin{abstract}
+It is a well-known party puzzle that among any two or more people, two have
+the same number of acquaintances present. We give a careful proof of this fact
+for finite simple graphs, based on the observation that a graph cannot contain
+both an isolated and a dominating vertex. We also collect two elementary
+sufficient conditions for connectivity and comment on the characterisation of
+degree sequences due to Erd\H{o}s and Gallai.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+
+The pigeonhole argument showing that no finite simple graph on at least two
+vertices has all degrees distinct appears in many textbooks, e.g.~\cite{Bol}.
+Our goal is to present it (Theorem~\ref{thm:main}) in a form where every
+step is isolated as a separate statement, together with some related facts on
+degrees and connectivity that are frequently used alongside it.
+
+\section{Degrees}
+
+\begin{definition}\label{def:graph}
+A \emph{graph} $G=(V,E)$ consists of a finite set $V$ of \emph{vertices} and a
+set $E$ of $2$-element subsets of $V$, the \emph{edges}. We write $n=|V|$. For
+$v\in V$, the \emph{neighbourhood} of $v$ is $N(v)=\{u\in V:\{u,v\}\in E\}$ and
+the \emph{degree} of $v$ is $\deg v=|N(v)|$. A vertex is \emph{isolated} if its
+degree is $0$ and \emph{dominating} if its degree is $n-1$. The graph is
+\emph{connected} if any two vertices are joined by a path.
+\end{definition}
+
+\begin{lemma}[Handshake lemma]\label{lem:hand}
+For every graph $G$, $\sum_{v\in V}\deg v=2|E|$.
+\end{lemma}
+
+\begin{proof}
+Count the pairs $(v,e)$ with $v\in e\in E$: each edge contains exactly two
+vertices, and each vertex $v$ lies in exactly $\deg v$ edges.
+\end{proof}
+
+\begin{corollary}\label{cor:odd}
+In every graph the number of vertices of odd degree is even.
+\end{corollary}
+
+\begin{proof}
+Reduce Lemma~\ref{lem:hand} modulo $2$: the sum of the odd degrees is congruent
+to the number of vertices of odd degree, and it is even.
+\end{proof}
+
+\begin{lemma}\label{lem:range}
+For every vertex $v$ of a graph on $n$ vertices, $0\le \deg v\le n-1$.
+\end{lemma}
+
+\begin{proof}
+$N(v)\subseteq V\setminus\{v\}$, since edges have two distinct elements.
+\end{proof}
+
+\begin{lemma}\label{lem:notboth}
+No graph has both an isolated vertex and a dominating vertex.
+\end{lemma}
+
+\begin{proof}
+Suppose $u$ is dominating and $w$ is isolated. Then $u\ne w$, because their
+degrees $n-1$ and $0$ differ. As $u$ is adjacent to every other vertex, $w\in
+N(u)$, so $u\in N(w)$ and $\deg w\ge 1$, a contradiction.
+\end{proof}
+
+\begin{theorem}[Main theorem]\label{thm:main}
+Let $G$ be a graph with $n\ge 2$ vertices. Then there are two distinct vertices
+$u\ne w$ with $\deg u=\deg w$.
+\end{theorem}
+
+\begin{proof}
+By Lemma~\ref{lem:range} every degree lies in $\{0,1,\dots,n-1\}$, a set of $n$
+values. By Lemma~\ref{lem:notboth} the values $0$ and $n-1$ do not both occur,
+so the degrees of $G$ take at most $n-2$ distinct values. Since there are $n$
+vertices, the pigeonhole principle gives two distinct vertices with the same
+degree.
+\end{proof}
+
+\begin{proposition}\label{prop:distinct}
+Let $G$ be a graph on $n\ge 2$ vertices whose degrees are pairwise distinct.
+Then $G$ has exactly one isolated vertex and exactly one dominating vertex.
+\end{proposition}
+
+\begin{proof}
+The $n$ distinct degrees lie in the $n$-element set $\{0,\dots,n-1\}$ by
+Lemma~\ref{lem:range}, so each value is taken exactly once; in particular $0$
+and $n-1$ are each taken by exactly one vertex.
+\end{proof}
+
+\section{Connectivity}
+
+\begin{proposition}\label{prop:mindeg}
+Let $G$ be a graph on $n\ge 1$ vertices in which every vertex has degree at
+least $\frac{n-2}{2}$. Then $G$ is connected.
+\end{proposition}
+
+\begin{proof}
+Let $u\ne w$ be non-adjacent vertices. Then $N(u)$ and $N(w)$ are subsets of
+$V\setminus\{u,w\}$, which has $n-2$ elements, while
+$|N(u)|+|N(w)|\ge \frac{n-1}{2}+\frac{n-1}{2}=n-1>n-2$. Hence $u$ and $w$ have a
+common neighbour, so any two vertices are joined by a path of length at most
+$2$.
+\end{proof}
+
+\begin{proposition}\label{prop:edges}
+Let $G$ be a graph on $n\ge 1$ vertices with $|E|\ge\binom{n-1}{2}$. Then $G$
+is connected.
+\end{proposition}
+
+\begin{proof}
+If $G$ is not connected, split $V=A\sqcup B$ with $A,B$ nonempty and no edge
+between $A$ and $B$. With $a=|A|$ we get
+$|E|\le\binom{a}{2}+\binom{n-a}{2}\le\binom{n-1}{2}$, since the middle
+expression is a convex function of $a\in[1,n-1]$, maximised at the endpoints.
+\end{proof}
+
+\section{Degree sequences}
+
+The \emph{degree sequence} of $G$ is the list of its degrees in non-increasing
+order. We recall the classical characterisation of degree sequences.
+
+\begin{theorem}[Erd\H{o}s--Gallai~\cite{EG}]\label{thm:EG}
+A sequence $d_1\ge d_2\ge\dots\ge d_n\ge 0$ of integers is the degree sequence
+of a graph if and only if $\sum_{i=1}^n d_i$ is even and, for every
+$1\le k\le n$,
+\[
+  \sum_{i=1}^{k}d_i\;\le\;k(k-1)+\sum_{i=k+1}^{n}d_i .
+\]
+\end{theorem}
+
+\begin{remark}
+By Theorem~\ref{thm:main}, the sequence $(3,2,1,0)$ is not a degree sequence;
+consistently, it violates the inequality of Theorem~\ref{thm:EG} at $k=2$,
+since $5>2+1$.
+\end{remark}
+
+\begin{thebibliography}{9}
+\bibitem{Bol} B.~Bollob\'as, \emph{Modern Graph Theory}, Graduate Texts in
+Mathematics 184, Springer, 1998.
+\bibitem{EG} P.~Erd\H{o}s and T.~Gallai, \emph{Gr\'afok el\H{o}\'irt fok\'u
+pontokkal}, Mat. Lapok \textbf{11} (1960), 264--274.
+\end{thebibliography}
+
+\end{document}

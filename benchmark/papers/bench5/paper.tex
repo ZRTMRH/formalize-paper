@@ -1,0 +1,141 @@
+\documentclass[11pt]{amsart}
+\usepackage{amsmath,amssymb,amsthm}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{conjecture}[theorem]{Conjecture}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+\title{Divisibility and coprimality in large subsets of $\{1,\dots,2n\}$}
+\author{T. W. Mockup}
+\address{Laboratory of Fictitious Combinatorics (fictional)}
+\email{t.w.mockup@example.org}
+\date{}
+
+\begin{document}
+
+\begin{abstract}
+Two classical pigeonhole facts state that any $n+1$ numbers chosen from
+$\{1,\dots,2n\}$ contain two coprime numbers, and contain two numbers one of
+which divides the other. We give short proofs of both, show that they are
+sharp, and compare the second with the Erd\H{o}s--Szekeres theorem on
+monotone subsequences.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+
+The divisibility statement (Theorem~\ref{thm:main}) is a well-known problem
+of Erd\H{o}s; it is discussed together with several other pigeonhole
+arguments in~\cite{AZ}. We give a self-contained treatment in which the role
+of the odd part of an integer is made explicit, and we record the matching
+extremal examples (Propositions~\ref{prop:sharpdiv} and~\ref{prop:sharpcop}).
+
+\section{Definitions and the two pigeonhole theorems}
+
+\begin{definition}\label{def:basic}
+For an integer $m\ge 0$ we write $[m]=\{1,2,\dots,m\}$. A set $A$ of positive
+integers is a \emph{divisibility antichain} if there are no $a,b\in A$ with
+$a\mid b$, and a \emph{divisibility chain} if for all $a,b\in A$ we have
+$a\mid b$ or $b\mid a$.
+\end{definition}
+
+\begin{lemma}\label{lem:consec}
+For every integer $k\ge 1$ we have $\gcd(k,k+1)=1$.
+\end{lemma}
+
+\begin{proof}
+Any common divisor of $k$ and $k+1$ divides $(k+1)-k=1$.
+\end{proof}
+
+\begin{proposition}\label{prop:coprime}
+Let $n\ge 1$ and let $A\subseteq[2n]$ with $|A|\ge n$. Then $A$ contains two
+distinct elements that are coprime.
+\end{proposition}
+
+\begin{proof}
+Partition $[2n]$ into the $n$ pairs $\{1,2\},\{3,4\},\dots,\{2n-1,2n\}$. Since
+the $n+1$ (or more) elements of $A$ are distributed among $n$ pairs, two of
+them lie in the same pair, i.e.\ they are consecutive integers $k,k+1$, and
+these are coprime by Lemma~\ref{lem:consec}.
+\end{proof}
+
+\begin{lemma}\label{lem:oddpart}
+Every integer $m\ge 1$ can be written uniquely as $m=2^{k}q$ with $k\ge 0$ and
+$q$ odd. We call $q$ the \emph{odd part} of $m$.
+\end{lemma}
+
+\begin{proof}
+Take $k$ to be the exponent of $2$ in the prime factorisation of $m$, and
+$q=m/2^k$. Uniqueness follows from uniqueness of prime factorisation.
+\end{proof}
+
+\begin{theorem}[Main theorem]\label{thm:main}
+Let $n\ge 1$ and let $A\subseteq[2n]$ with $|A|\ge n+1$. Then there are
+distinct $a,b\in A$ with $a\mid b$.
+\end{theorem}
+
+\begin{proof}
+The odd part of an element of $[2n]$ is an odd number in $[2n]$, so it lies
+in $\{1,3,\dots,2n-1\}$, a set of $n$ elements. By the pigeonhole principle
+two distinct elements of $A$ have the same odd part $q$, say $a=2^{i}q$ and
+$b=2^{j}q$ with $i\ne j$; we may assume $i<j$. Then $b\mid a$, since
+$a=2^{i-j}b$.
+\end{proof}
+
+\section{Sharpness}
+
+\begin{proposition}\label{prop:sharpdiv}
+For every $n\ge 1$ the set $\{n+1,n+2,\dots,2n\}\subseteq[2n]$ is a
+divisibility antichain with $n$ elements. Hence the bound $n+1$ in
+Theorem~\ref{thm:main} cannot be lowered.
+\end{proposition}
+
+\begin{proof}
+If $a\ne b$ are in the set and $a\mid b$, then $b\ge 2a\ge 2(n+1)>2n$, which is
+impossible.
+\end{proof}
+
+\begin{proposition}\label{prop:sharpcop}
+For every $n\ge 1$ the set $\{2,4,\dots,2n\}\subseteq[2n]$ has $n$ elements,
+no two of which are coprime.
+\end{proposition}
+
+\begin{proof}
+Any two of its elements have the common divisor $2$.
+\end{proof}
+
+\begin{lemma}\label{lem:nocop}
+Let $n\ge 1$ and let $A\subseteq[2n]$ contain no two distinct coprime
+elements. Then $|A|\le n$, and every element of $A$ is even.
+\end{lemma}
+
+\begin{proof}
+The bound $|A|\le n$ is the contrapositive of Proposition~\ref{prop:coprime}.
+If $a\in A$ were odd, then $a$ would be coprime to both $a-1$ and $a+1$ by
+Lemma~\ref{lem:consec}, and by maximality one of these lies in $A$, a
+contradiction.
+\end{proof}
+
+\begin{remark}
+Theorem~\ref{thm:main} says that $[2n]$ contains no divisibility antichain of
+size $n+1$. It is instructive to compare this with the theorem of
+Erd\H{o}s and Szekeres~\cite{ES}: \emph{every sequence of $n^2$ distinct real
+numbers contains a monotone subsequence of length $n+1$.} Both are
+consequences of the pigeonhole principle applied to a suitable labelling.
+\end{remark}
+
+\begin{thebibliography}{9}
+\bibitem{AZ} M.~Aigner and G.~M.~Ziegler, \emph{Proofs from THE BOOK},
+6th ed., Springer, 2018.
+\bibitem{ES} P.~Erd\H{o}s and G.~Szekeres, \emph{A combinatorial problem in
+geometry}, Compositio Math. \textbf{2} (1935), 463--470.
+\end{thebibliography}
+
+\end{document}

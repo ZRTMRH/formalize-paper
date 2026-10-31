@@ -1,0 +1,201 @@
+\documentclass[11pt]{amsart}
+\usepackage{amsmath,amssymb,amsthm}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\M}{M_n(\R)}
+\DeclareMathOperator{\tr}{tr}
+\DeclareMathOperator{\rank}{rank}
+\DeclareMathOperator{\im}{im}
+
+\title{A short note on nilpotent and idempotent real matrices}
+\author{Helena M. Vortkamp}
+\address{Department of Mathematics, University of Lindenfeld, Lindenfeld, Germany}
+\email{h.vortkamp@math.uni-lindenfeld.de}
+\date{}
+
+\begin{document}
+
+\begin{abstract}
+We give a self-contained account of the kernel chain of a nilpotent real
+matrix and deduce the classical bound on its index of nilpotency. We also
+collect a few facts about idempotents and commutators that are used in
+teaching a second course in linear algebra.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+
+Nilpotent and idempotent matrices are the two basic building blocks in the
+Jordan and Fitting decompositions of a linear operator. Many textbooks prove
+that a nilpotent $n\times n$ matrix $A$ satisfies $A^n=0$ only after
+developing the Jordan normal form or the Cayley--Hamilton theorem. The purpose
+of this note is to record a direct argument based on the chain of kernels
+$\ker A\subseteq\ker A^2\subseteq\cdots$, which uses nothing beyond the
+dimension of a subspace (Theorem~\ref{thm:main}). Along the way we record
+some elementary facts on sums of commuting nilpotent matrices, on idempotents,
+and, in Section~\ref{sec:comm}, an application of a classical lemma of
+Jacobson to commutators.
+
+Throughout, $n\ge 1$ is an integer, $\M$ is the algebra of real $n\times n$
+matrices, $I$ is the identity matrix, and matrices act on column vectors in
+$\R^n$. We write $\ker A$, $\im A$, $\tr A$ and $\rank A$ for the kernel,
+image, trace and rank of $A$, and $A^0=I$.
+
+\section{The kernel chain and the index of nilpotency}
+
+\begin{definition}\label{def:basic}
+A matrix $A\in\M$ is \emph{nilpotent} if $A^k=0$ for some integer $k\ge 1$;
+the least such $k$ is the \emph{index} of $A$ and is denoted $\nu(A)$.
+A matrix $P\in\M$ is \emph{idempotent} if $P^2=P$. For $A\in\M$ and
+$k\ge 0$ we put $d_k=d_k(A)=\dim\ker A^k$.
+\end{definition}
+
+\begin{lemma}\label{lem:chain}
+Let $A\in\M$. Then $\ker A^k\subseteq\ker A^{k+1}$ for every $k\ge 0$. In
+particular $0=d_0\le d_1\le d_2\le\cdots\le n$.
+\end{lemma}
+
+\begin{proof}
+If $A^kx=0$ then $A^{k+1}x=A(A^kx)=0$. The second statement follows since
+$\ker A^0=\ker I=0$ and every $\ker A^k$ is a subspace of $\R^n$.
+\end{proof}
+
+\begin{lemma}\label{lem:stab}
+Let $A\in\M$ and $k\ge 0$. If $\ker A^k=\ker A^{k+1}$, then
+$\ker A^{k+j}=\ker A^k$ for every $j\ge 0$.
+\end{lemma}
+
+\begin{proof}
+By induction on $j$ it suffices to show that $\ker A^{k+1}=\ker A^{k+2}$.
+The inclusion $\subseteq$ is Lemma~\ref{lem:chain}. Conversely, let
+$x\in\ker A^{k+2}$. Then $A^{k+1}(Ax)=0$, so
+$Ax\in\ker A^{k+1}=\ker A^k$, that is, $A^k(Ax)=0$. Hence $A^kx=0$, so
+$x\in\ker A^k=\ker A^{k+1}$, as required.
+\end{proof}
+
+\begin{lemma}\label{lem:strict}
+Let $A\in\M$ be nilpotent. Then $d_k<d_{k+1}$ for every $0\le k\le\nu(A)$.
+\end{lemma}
+
+\begin{proof}
+Write $\nu=\nu(A)$ and suppose that $d_k=d_{k+1}$ for some $k$ in the stated
+range. Since $\ker A^k\subseteq\ker A^{k+1}$ by Lemma~\ref{lem:chain}, equal
+dimensions give $\ker A^k=\ker A^{k+1}$, and Lemma~\ref{lem:stab} yields
+$\ker A^k=\ker A^{k+j}$ for all $j\ge 0$. Taking $j$ with $k+j\ge\nu$ we get
+$\ker A^k=\ker A^{k+j}=\R^n$, i.e.\ $A^k=0$. If $k=0$ this says $I=0$, which
+is impossible as $n\ge 1$; if $k\ge 1$ it contradicts the minimality of $\nu$.
+\end{proof}
+
+\begin{theorem}\label{thm:main}
+Let $A\in\M$ be nilpotent. Then $\nu(A)\le n$. In particular $A^n=0$.
+\end{theorem}
+
+\begin{proof}
+Write $\nu=\nu(A)$. By Lemma~\ref{lem:strict} applied with
+$k=0,1,\dots,\nu-1$ we have $0=d_0<d_1<\cdots<d_\nu$, so $d_\nu\ge\nu$.
+Since $d_\nu\le n$ by Lemma~\ref{lem:chain}, we obtain $\nu\le n$. Finally
+$A^n=A^{n-\nu}A^\nu=0$.
+\end{proof}
+
+\begin{proposition}\label{prop:cyclic}
+Let $N\in\M$ be nilpotent with $\nu=\nu(N)$, and let $x\in\R^n$ satisfy
+$N^{\nu}x\ne 0$. Then the vectors $x,Nx,\dots,N^{\nu-1}x$ are linearly
+independent. Consequently the subspace they span is $N$-invariant of
+dimension $\nu$.
+\end{proposition}
+
+\begin{proof}
+Note first that $N^{\nu-1}x\ne0$, since $N^\nu x=N(N^{\nu-1}x)$. Suppose
+$\sum_{i=0}^{\nu-1}c_iN^ix=0$ with not all $c_i$ zero, and let $j$ be the
+least index with $c_j\ne 0$. Applying $N^{\nu-1-j}$ and using $N^m=0$ for
+$m\ge\nu$ leaves $c_jN^{\nu-1}x=0$, a contradiction. The span is
+$N$-invariant because $N(N^{i}x)=N^{i+1}x$ for $i<\nu-1$ and
+$N(N^{\nu-1}x)=N^\nu x=0$.
+\end{proof}
+
+\begin{lemma}\label{lem:sum}
+Let $A,B\in\M$ be nilpotent with $AB=BA$. Then $A+B$ is nilpotent and
+$\nu(A+B)\le\max\{\nu(A),\nu(B)\}$.
+\end{lemma}
+
+\begin{proof}
+Let $m=\max\{\nu(A),\nu(B)\}$. Since $A$ and $B$ commute, the binomial
+theorem gives $(A+B)^m=\sum_{i=0}^m\binom mi A^iB^{m-i}$. In each term
+either $i\ge\nu(A)$ or $m-i\ge\nu(B)$, so every term vanishes and
+$(A+B)^m=0$.
+\end{proof}
+
+\begin{proposition}\label{prop:trace}
+Let $P\in\M$ be idempotent and symmetric, $P^{\mathsf T}=P$. Then
+$\tr P=\rank P$.
+\end{proposition}
+
+\begin{proof}
+Every $x\in\R^n$ can be written $x=Px+(x-Px)$ with $Px\in\im P$ and
+$P(x-Px)=Px-P^2x=0$; and if $x\in\im P\cap\ker P$, say $x=Py$, then
+$x=Py=P^2y=Px=0$. Hence $\R^n=\im P\oplus\ker P$. Moreover $P$ acts as the
+identity on $\im P$, since $P(Py)=Py$. Choosing a basis of $\R^n$ formed by a
+basis of $\im P$ followed by a basis of $\ker P$, the matrix $P$ becomes
+similar to $\begin{pmatrix} I_r&0\\0&0\end{pmatrix}$ with $r=\rank P$. As the
+trace is invariant under similarity, $\tr P=r$.
+\end{proof}
+
+\begin{lemma}\label{lem:resolvent}
+Let $P\in\M$ be idempotent and let $t\in\R$ with $t\ne-1$. Then $I+tP$ is
+invertible and
+\[
+(I+tP)^{-1}=I-\frac{t}{1+t}\,P.
+\]
+\end{lemma}
+
+\begin{proof}
+Using $P^2=P$,
+$(I+tP)\bigl(I-\tfrac{t}{1+t}P\bigr)
+=I+\bigl(t-\tfrac{t}{1+t}-\tfrac{t^2}{1+t}\bigr)P=I$, and the product in
+the other order is computed in the same way.
+\end{proof}
+
+\section{An application to commutators}\label{sec:comm}
+
+For $A,B\in\M$ we write $[A,B]=AB-BA$. The following classical result is due
+to Jacobson; we state it in the finite-dimensional form over a field of
+characteristic zero, see \cite{Jac}.
+
+\begin{theorem}[Jacobson \cite{Jac}]\label{thm:jacobson}
+Let $A,B\in\M$ and put $C=[A,B]$. If $AC=CA$, then $C$ is nilpotent; in fact
+$C^2=0$.
+\end{theorem}
+
+\begin{corollary}\label{cor:comm}
+Let $A,B\in\M$ and suppose that $[A,B]$ commutes with $A+B$. Then $[A,B]$ is
+nilpotent; in particular $[A,B]^n=0$.
+\end{corollary}
+
+\begin{proof}
+Put $X=A+B$. Then $[X,B]=[A,B]+[B,B]=[A,B]$, so the hypothesis says that
+$[X,B]$ commutes with $X$. By Theorem~\ref{thm:jacobson} applied to the pair
+$(X,B)$, the matrix $[X,B]=[A,B]$ is nilpotent, and
+Theorem~\ref{thm:main} gives $[A,B]^n=0$.
+\end{proof}
+
+\begin{remark}
+Corollary~\ref{cor:comm} is symmetric in $A$ and $B$, as it should be:
+$[A,B]$ commutes with $A+B$ if and only if $[B,A]=-[A,B]$ does.
+\end{remark}
+
+\begin{thebibliography}{9}
+\bibitem{Jac} N.~Jacobson, \emph{Rational methods in the theory of Lie
+algebras}, Ann.\ of Math.\ (2) \textbf{36} (1935), 875--881.
+\end{thebibliography}
+
+\end{document}

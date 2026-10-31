@@ -1,0 +1,183 @@
+\documentclass[11pt]{amsart}
+\usepackage{amsmath,amssymb}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+
+\title{A note on the nested radical iteration $x_{n+1}=\sqrt{2+x_n}$}
+\author{Miriam K. Oduya}
+\address{Department of Mathematics, Lakeshore State College, Halvorsen, MN, USA}
+\email{m.oduya@lakeshore-state.example.edu}
+\date{}
+
+\begin{document}
+
+\begin{abstract}
+We give a self-contained treatment of the iteration $x_{n+1}=\sqrt{2+x_n}$
+started at an arbitrary admissible point $a\ge -2$. We show that the iterates
+always converge to $2$, with a geometric rate, and deduce the corresponding
+statement for the Ces\`aro means.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+
+The nested radical $\sqrt{2+\sqrt{2+\sqrt{2+\cdots}}}$ is a standard first
+example of a recursively defined sequence. In most textbooks the iteration is
+started at $x_0=0$ or $x_0=\sqrt 2$, and convergence is obtained from the
+monotone convergence theorem. The purpose of this note is to record the
+argument for every starting value at which the iteration makes sense, that
+is, for every $a\ge -2$, and to make the elementary estimates explicit.
+Our main result is Theorem~\ref{thm:main}; in Section~\ref{sec:cesaro} we
+derive a statement about averages from a classical theorem of Cauchy.
+
+Throughout, $\mathbb N=\{0,1,2,\dots\}$, and $\sqrt{\cdot}$ denotes the
+non-negative square root on $[0,\infty)$.
+
+\section{The iteration}
+
+\begin{definition}\label{def:seq}
+Let $f\colon[-2,\infty)\to[0,\infty)$, $f(x)=\sqrt{2+x}$. For $a\ge -2$ we
+define the sequence $(x_n)_{n\in\mathbb N}=(x_n(a))_{n\in\mathbb N}$ by
+$x_0=a$ and $x_{n+1}=f(x_n)$ for $n\in\mathbb N$.
+\end{definition}
+
+Since $f$ takes values in $[0,\infty)\subset[-2,\infty)$, the sequence is
+well defined, and $x_n\ge 0$ for all $n\ge 1$.
+
+\begin{lemma}\label{lem:fixed}
+For $x\ge -2$ we have $f(x)=x$ if and only if $x=2$.
+\end{lemma}
+
+\begin{proof}
+Clearly $f(2)=\sqrt4=2$. Conversely, if $f(x)=x$ then $x\ge 0$, since $f$ is
+non-negative, and squaring gives $x^2=x+2$, i.e.\ $(x-2)(x+1)=0$. As $x\ge 0$,
+we get $x=2$.
+\end{proof}
+
+\begin{lemma}\label{lem:contr}
+For every $x\ge -2$,
+\[
+  |f(x)-2|\le \tfrac14\,|x-2|.
+\]
+\end{lemma}
+
+\begin{proof}
+Rationalising,
+\[
+  f(x)-2=\frac{(2+x)-4}{\sqrt{2+x}+2}=\frac{x-2}{\sqrt{2+x}+2}.
+\]
+The denominator is at least $2$, whence the claim.
+\end{proof}
+
+\begin{lemma}\label{lem:mono}
+If $-2\le x\le 2$, then $x\le f(x)\le 2$. If $x\ge 2$, then $2\le f(x)\le x$.
+\end{lemma}
+
+\begin{proof}
+Let $-2\le x\le 2$. Then $2+x\le 4$, so $f(x)\le 2$. Since both sides are
+non-negative, the inequality $x\le\sqrt{2+x}$ is equivalent to $x^2\le 2+x$,
+that is, to $(x-2)(x+1)\le 0$, and this holds for $-2\le x\le 2$.
+
+Now let $x\ge 2$. Then $2+x\ge 4$, so $f(x)\ge 2$; moreover $x\ge 2>0$, so
+$f(x)\le x$ is equivalent to $2+x\le x^2$, i.e.\ to $(x-2)(x+1)\ge 0$, which
+holds.
+\end{proof}
+
+\begin{corollary}\label{cor:monoseq}
+Let $a\ge -2$ and $x_n=x_n(a)$.
+\begin{enumerate}
+\item If $a\le 2$, then $x_n\le x_{n+1}\le 2$ for all $n\in\mathbb N$.
+\item If $a\ge 2$, then $2\le x_{n+1}\le x_n$ for all $n\in\mathbb N$.
+\end{enumerate}
+\end{corollary}
+
+\begin{proof}
+For (1), $x_0=a\in[-2,2]$, and if $x_n\in[-2,2]$ then Lemma~\ref{lem:mono}
+gives $x_n\le x_{n+1}\le 2$; in particular $x_{n+1}\in[-2,2]$. Induction on
+$n$ finishes the proof. Part (2) is identical, using the second half of
+Lemma~\ref{lem:mono}.
+\end{proof}
+
+\begin{lemma}\label{lem:rate}
+Let $a\ge -2$. Then $|x_n(a)-2|\le 2^{-n}|a-2|$ for every $n\in\mathbb N$.
+\end{lemma}
+
+\begin{proof}
+For $n=0$ there is nothing to prove. If the inequality holds for $n$, then,
+as $x_n\ge -2$, Lemma~\ref{lem:contr} gives
+$|x_{n+1}-2|=|f(x_n)-2|\le\frac12|x_n-2|\le 2^{-(n+1)}|a-2|$.
+\end{proof}
+
+\begin{lemma}\label{lem:limcand}
+Let $a\ge -2$ and suppose that $x_n(a)\to L$ for some $L\in\mathbb R$ with
+$L\ne 2$. Then $L=-1$.
+\end{lemma}
+
+\begin{proof}
+Since $x_n\ge -2$ for all $n$, $L\ge -2$, and $f$ is continuous on
+$[-2,\infty)$. Letting $n\to\infty$ in $x_{n+1}=f(x_n)$ gives $L=\sqrt{2+L}$,
+hence $L^2=L+2$ and $L\in\{2,-1\}$. As $L\ne 2$, $L=-1$.
+\end{proof}
+
+\begin{theorem}\label{thm:main}
+For every $a\ge -2$ the sequence $(x_n(a))_{n\in\mathbb N}$ converges, and
+\[
+  \lim_{n\to\infty}x_n(a)=2.
+\]
+\end{theorem}
+
+\begin{proof}
+If $a\le 2$, then by Corollary~\ref{cor:monoseq}(1) the sequence is
+non-decreasing and bounded above by $2$; if $a\ge 2$, it is non-increasing
+and bounded below by $2$ by Corollary~\ref{cor:monoseq}(2). In either case the
+monotone convergence theorem shows that $x_n\to L$ for some $L\ge -2$.
+Passing to the limit in $x_{n+1}=f(x_n)$, using continuity of $f$ at $L$,
+gives $f(L)=L$, so $L=2$ by Lemma~\ref{lem:fixed}. (Alternatively, if
+$L\ne 2$ then $L=-1$ by Lemma~\ref{lem:limcand}, which is impossible because
+$x_n\ge 0$ for $n\ge 1$ forces $L\ge 0$.) Lemma~\ref{lem:rate} gives the
+same conclusion directly, together with a geometric rate.
+\end{proof}
+
+\section{Ces\`aro means}\label{sec:cesaro}
+
+\begin{definition}\label{def:cesaro}
+For a real sequence $y=(y_n)_{n\in\mathbb N}$ and $N\ge 1$, the $N$-th
+Ces\`aro mean of $y$, i.e.\ the arithmetic mean of its first $N$ terms, is
+\[
+  \sigma_N(y)=\frac1N\sum_{n=0}^{N}y_n .
+\]
+\end{definition}
+
+The following is the classical theorem of Cauchy on the regularity of the
+Ces\`aro method; see~\cite{Cau21} and~\cite[Chapter~V]{Har49}.
+
+\begin{theorem}[Cauchy]\label{thm:cauchy}
+Let $(y_n)_{n\in\mathbb N}$ be a real sequence and $L\in\mathbb R$. Then
+$y_n\to L$ if and only if $\sigma_N(y)\to L$ as $N\to\infty$.
+\end{theorem}
+
+\begin{corollary}\label{cor:cesaro}
+Let $0\le a\le 2$ and $x_n=x_n(a)$. Then $\sigma_N(x)\to 2$ as
+$N\to\infty$.
+\end{corollary}
+
+\begin{proof}
+By Theorem~\ref{thm:main}, $x_n\to 2$. Theorem~\ref{thm:cauchy} now gives
+$\sigma_N(x)\to 2$.
+\end{proof}
+
+\begin{thebibliography}{9}
+\bibitem{Cau21} A.-L.~Cauchy, \emph{Cours d'analyse de l'\'Ecole royale
+polytechnique. I\textsuperscript{re} partie: Analyse alg\'ebrique}, Debure,
+Paris, 1821.
+\bibitem{Har49} G.~H.~Hardy, \emph{Divergent Series}, Clarendon Press,
+Oxford, 1949.
+\end{thebibliography}
+
+\end{document}
