@@ -372,6 +372,9 @@ on macOS (the example note, on the `macos` branch).
    codex login                                              # follow the browser login
    ```
 
+   On a machine without a browser, `codex login --device-auth` works only after you enable device-code
+   login in ChatGPT's security settings; otherwise use the browser login above.
+
    You need a ChatGPT plan with Codex access that offers the model the generated reviewer roles
    use (`gpt-6.1-sol`; codex/README.md, "Roles"). Keep the version fixed for the whole run: the run
    is pinned to its tools, so update Codex only between runs (if your installation updates itself,

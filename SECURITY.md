@@ -4,7 +4,7 @@ formalize-paper runs AI agents that execute code in your Lean project. Its permi
 prompts; it is **not a sandbox** (INSTALL.md, "Permissions"). Run formalizations under a dedicated
 user account or on a dedicated machine or VM that holds no credentials you are not willing to
 expose. The protocol's integrity checks detect tampering with the audit record after the fact; they
-do not prevent it (KNOWN_LIMITATIONS.md, "The record proves consistency, not provenance").
+do not prevent it (docs/maintainer-notes.md, "The record proves consistency, not provenance").
 
 ## Reporting a vulnerability
 
