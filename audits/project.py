@@ -1606,16 +1606,19 @@ def write_license(choice, root=None):
     else:
         return 1, (f"FAIL[tool-call] --license {choice!r}: not a known licence name or a file; give apache-2.0, "
                    f"none, or the path of a file holding the licence's standard text")
-    text = open(src, "rb").read()
-    if not text.strip():
-        return 1, f"FAIL[tool-call] --license: {src} is empty"
-    if os.path.lexists(dest):
-        same = os.path.isfile(dest) and not os.path.islink(dest) and open(dest, "rb").read() == text
-        return 0, ("license: LICENSE already present and identical; kept" if same else
-                   "license: the project already has a LICENSE; kept it (name it at Checkpoint A if it differs "
-                   "from the intake's answer)")
-    with open(dest, "xb") as f:
-        f.write(text)
+    try:
+        text = open(src, "rb").read()
+        if not text.strip():
+            return 1, f"FAIL[tool-call] --license: {src} is empty"
+        if os.path.lexists(dest):
+            same = os.path.isfile(dest) and not os.path.islink(dest) and open(dest, "rb").read() == text
+            return 0, ("license: LICENSE already present and identical; kept" if same else
+                       "license: an existing LICENSE was kept (not replaced); record it in RUN_LOG.md and the "
+                       "completion message")
+        with open(dest, "xb") as f:
+            f.write(text)
+    except OSError as e:
+        return 1, f"FAIL[tool-call] --license: could not write {dest}: {e.strerror or e}"
     return 0, f"license: wrote LICENSE ({key if key in LICENSE_TEXTS else 'text of ' + choice}); commit it with the scaffold"
 
 
@@ -1638,7 +1641,7 @@ def _license_controls():
         open(lic, "w").write("Mathlib's own licence\n")
         rc, line = write_license("apache-2.0", d)
         out.append(("an existing different LICENSE is kept, never overwritten",
-                    rc == 0 and open(lic).read() == "Mathlib's own licence\n" and "kept it" in line))
+                    rc == 0 and open(lic).read() == "Mathlib's own licence\n" and "kept (not replaced)" in line))
         os.remove(lic)
         rc, line = write_license("mit", d)
         out.append(("an unknown licence name is refused with a coded line naming the accepted values",
@@ -1653,6 +1656,23 @@ def _license_controls():
         rc, line = write_license("apache-2.0", d)
         out.append(("a LICENSE symlink is kept, never written through",
                     rc == 0 and not os.path.exists(os.path.join(d, "elsewhere"))))
+        empty = os.path.join(d, "empty.txt")
+        open(empty, "w").write(" \n")
+        os.remove(lic)
+        rc, line = write_license(empty, d)
+        out.append(("an empty licence text is refused (FAIL[tool-call], nothing written)",
+                    rc == 1 and line.startswith("FAIL[tool-call]") and "empty" in line and not os.path.lexists(lic)))
+        rc, line = write_license("apache-2.0", os.path.join(d, "no-such-dir"))
+        out.append(("a write error is a coded FAIL[tool-call] line, exit 1, not a traceback",
+                    rc == 1 and line.startswith("FAIL[tool-call]") and "could not write" in line))
+        import contextlib
+        rcs = []
+        for argv in (["--license"], ["--license", "apache-2.0", "extra"]):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rcs.append((main(argv), buf.getvalue()))
+        out.append(("--license with no argument or two arguments: FAIL[tool-call], exit 2",
+                    all(rc == 2 and o.startswith("FAIL[tool-call] --license takes one argument") for rc, o in rcs)))
     finally:
         shutil.rmtree(d, ignore_errors=True)
     return out
