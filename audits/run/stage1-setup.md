@@ -107,7 +107,7 @@ Read this after the human's OK at Checkpoint A. It ends with the pin commit; the
      Record the Checkpoint A approval, and set the stage with `project.py --stage`.
    - License (6c): `python3 audits/project.py --license apache-2.0` (the default) or `--license
      none` (no file). It never replaces an existing `LICENSE` (a Mathlib clone has one: it is kept;
-     name it at Checkpoint A when it differs from the answer). Another license: only if you have its
+     record it in RUN_LOG.md and the completion message). Another license: only if you have its
      standard text verbatim (MIT, BSD), save it in your scratch directory and run `--license <that
      file>`; otherwise say so in the completion message. Never copy the file with `cp`.
    - Commit the Lean scaffold (with `LICENSE`, if you added it).
