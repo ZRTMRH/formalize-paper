@@ -1585,6 +1585,79 @@ def scratch(name):
     raise ValueError("no free scratch directory name")
 
 
+LICENSE_TEXTS = {"apache-2.0": os.path.join("skills", "formalize-paper", "LICENSE-Apache-2.0.txt")}
+
+
+def write_license(choice, root=None):
+    """Stage 1 step 5, intake 6c: write <project>/LICENSE from the licence text shipped with the skill
+    (apache-2.0), or from a file holding another licence's text; "none" writes nothing. Never overwrites
+    an existing LICENSE (a Mathlib clone has one). Does not commit: the scaffold commit takes it.
+    A script command because Claude Code's auto mode denied the `cp` it replaces. Returns (rc, line)."""
+    root = root or REPO
+    key = (choice or "").strip().lower()
+    key = "apache-2.0" if key == "apache" else key
+    dest = os.path.join(root, "LICENSE")
+    if key == "none":
+        return 0, "license: none asked; no LICENSE written"
+    if key in LICENSE_TEXTS:
+        src = os.path.join(AUDITS, LICENSE_TEXTS[key])
+    elif choice and os.path.isfile(os.path.expanduser(choice)):
+        src = os.path.expanduser(choice)
+    else:
+        return 1, (f"FAIL[tool-call] --license {choice!r}: not a known licence name or a file; give apache-2.0, "
+                   f"none, or the path of a file holding the licence's standard text")
+    text = open(src, "rb").read()
+    if not text.strip():
+        return 1, f"FAIL[tool-call] --license: {src} is empty"
+    if os.path.lexists(dest):
+        same = os.path.isfile(dest) and not os.path.islink(dest) and open(dest, "rb").read() == text
+        return 0, ("license: LICENSE already present and identical; kept" if same else
+                   "license: the project already has a LICENSE; kept it (name it at Checkpoint A if it differs "
+                   "from the intake's answer)")
+    with open(dest, "xb") as f:
+        f.write(text)
+    return 0, f"license: wrote LICENSE ({key if key in LICENSE_TEXTS else 'text of ' + choice}); commit it with the scaffold"
+
+
+def _license_controls():
+    """--license (Stage 1, 6c): [(check, passed)]."""
+    import tempfile, shutil
+    d = tempfile.mkdtemp(prefix="license-")
+    out = []
+    try:
+        lic = os.path.join(d, "LICENSE")
+        bundled = open(os.path.join(AUDITS, LICENSE_TEXTS["apache-2.0"]), "rb").read()
+        rc, line = write_license("none", d)
+        out.append(("--license none writes nothing", rc == 0 and not os.path.lexists(lic) and "no LICENSE" in line))
+        rc, line = write_license("Apache-2.0", d)
+        out.append(("--license apache-2.0 writes the bundled text to LICENSE",
+                    rc == 0 and open(lic, "rb").read() == bundled and "wrote LICENSE" in line))
+        rc, line = write_license("apache-2.0", d)
+        out.append(("--license apache-2.0 again: idempotent (kept, unchanged)",
+                    rc == 0 and open(lic, "rb").read() == bundled and "identical; kept" in line))
+        open(lic, "w").write("Mathlib's own licence\n")
+        rc, line = write_license("apache-2.0", d)
+        out.append(("an existing different LICENSE is kept, never overwritten",
+                    rc == 0 and open(lic).read() == "Mathlib's own licence\n" and "kept it" in line))
+        os.remove(lic)
+        rc, line = write_license("mit", d)
+        out.append(("an unknown licence name is refused with a coded line naming the accepted values",
+                    rc == 1 and line.startswith("FAIL[tool-call]") and "apache-2.0" in line
+                    and not os.path.lexists(lic)))
+        txt = os.path.join(d, "mit.txt")
+        open(txt, "w").write("MIT License\n")
+        rc, line = write_license(txt, d)
+        out.append(("--license FILE writes that file's text", rc == 0 and open(lic).read() == "MIT License\n"))
+        os.remove(lic)
+        os.symlink(os.path.join(d, "elsewhere"), lic)
+        rc, line = write_license("apache-2.0", d)
+        out.append(("a LICENSE symlink is kept, never written through",
+                    rc == 0 and not os.path.exists(os.path.join(d, "elsewhere"))))
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+    return out
+
+
 def work_dir_problem(cfg):
     """Why the configured work_dir is not acceptable, or None. It must be a relative path under the
     project's .formalization-work/ (git-excluded, covered by the project's permission rules)."""
@@ -3589,6 +3662,7 @@ def selftest():
     checks += _release_controls(fake)
     checks += _comment_only_controls()
     checks += _steady_clock_controls()
+    checks += _license_controls()
     for name, ok in checks:
         print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
     ok = all(c for _, c in checks)
@@ -4185,6 +4259,8 @@ USAGE = """usage:
   project.py --env-check                     PYTHONDONTWRITEBYTECODE=1 in this session? (run/stage1-setup.md)
   project.py --compile-source FILE.tex       xelatex twice, no shell escape, into .formalization-work/source-build/
   project.py --scratch NAME                  print a fresh scratch directory for one subagent
+  project.py --license apache-2.0|none|FILE   Stage 1, intake 6c: write LICENSE in the project (never
+                                             overwrites one; does not commit)
   project.py --prepare-delivery [--project NAME]   regenerate SUMMARY, REPORT, the DECISIONS box, the approved
                                              sheet's stamp and README A-C; record their hashes (DELIVERY.json)
   project.py --deliver [--project NAME]      check only (make_report.py --check --delivery, no stop or question
@@ -4231,6 +4307,13 @@ def main(argv):
         except ValueError as e:
             print(f"FAIL: {e}")
             return 1
+    if argv[:1] == ["--license"]:
+        if len(argv) != 2:
+            print("FAIL[tool-call] --license takes one argument: apache-2.0, none, or the path of a licence text")
+            return 2
+        rc, line = write_license(argv[1])
+        print(line)
+        return rc
     if argv[:1] == ["--comment-only"]:
         # `project.py --comment-only [BASE] [--project NAME]`: are all Lean changes since BASE (default:
         # the last proof-examining round's commit) comments and docstrings only? Exit 0 yes, 1 no
