@@ -77,9 +77,7 @@ ALLOW = (["Bash(lake build:*)", "Bash(lake env lean:*)", "Bash(lake exe cache ge
             "Bash(git -C audits status:*)", "Bash(git -C audits add:*)", "Bash(git -C audits commit:*)",
             # read-only history of the audit record: the adjudicator reads it
             "Bash(git -C audits log:*)", "Bash(git -C audits show:*)",
-            "Bash(git -C audits mv:*)", "Bash(git -C audits checkout -- *)",
-            # Stage 1, intake 6c: the default license text shipped with the skill
-            "Bash(cp audits/skills/formalize-paper/LICENSE-Apache-2.0.txt LICENSE)"]
+            "Bash(git -C audits mv:*)", "Bash(git -C audits checkout -- *)"]
          + RENDER_TOOLS + EDITS)
 # What nobody in a run may edit (RUN.md rule 4: the pinned apparatus), whatever else allows it,
 # and Lake's package checkouts.

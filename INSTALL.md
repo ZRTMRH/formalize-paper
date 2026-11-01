@@ -161,10 +161,11 @@ The rules added:
   decisions, audit_coverage, axiom_sweep, unused_args, dependencies, stops, selftest_all); `git status`, `git rev-parse`, `git branch --show-current`, `git switch -c`,
   `git add`, `git commit`, `git fetch upstream` (exactly), `git -C audits status|add|commit|mv`,
   `git -C audits checkout -- …`, the read-only `git -C audits log|show` (the adjudicator reads the
-  audit record's history), and Stage 1's copy of the default license text to `LICENSE` (exactly). The run's other needs go through these scripts: the
+  audit record's history). The run's other needs go through these scripts: the
   environment check (`project.py --env-check`), compiling a `.tex` source with shell escape off
   (`project.py --compile-source`), creating and committing the helpers' work directory
-  (`project.py --init-work-dir`, `--work-commit`), a fresh scratch directory for each subagent
+  (`project.py --init-work-dir`, `--work-commit`), the project's `LICENSE` at Stage 1
+  (`project.py --license`), a fresh scratch directory for each subagent
   inside the project (`project.py --scratch <name>`), and the delivery copy into `deliverables/`
   (`project.py --prepare-delivery`, then `project.py --deliver`), and the run log (`project.py --log <section>`, `--stage [<text>]`).
   Readers run their scripts by relative path, and git without `-C`.

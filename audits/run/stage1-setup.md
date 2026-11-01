@@ -105,11 +105,11 @@ Read this after the human's OK at Checkpoint A. It ends with the pin commit; the
      --intake-move` puts the intake saved in Stage 0 (with the line `python3 audits/prompt.py --intake
      --hash` prints; the pin refuses without it) under `## Intake (<date>)` and removes the saved copy.
      Record the Checkpoint A approval, and set the stage with `project.py --stage`.
-   - License (6c), only if the project has no `LICENSE` file (a Mathlib clone has one: keep it, and
-     name it at Checkpoint A when it differs from the answer). Apache-2.0 (the default): `cp
-     audits/skills/formalize-paper/LICENSE-Apache-2.0.txt LICENSE`. Another license: write its
-     standard text only if you have it verbatim (MIT, BSD); otherwise say so in the completion
-     message. "None": no file.
+   - License (6c): `python3 audits/project.py --license apache-2.0` (the default) or `--license
+     none` (no file). It never replaces an existing `LICENSE` (a Mathlib clone has one: it is kept;
+     name it at Checkpoint A when it differs from the answer). Another license: only if you have its
+     standard text verbatim (MIT, BSD), save it in your scratch directory and run `--license <that
+     file>`; otherwise say so in the completion message. Never copy the file with `cp`.
    - Commit the Lean scaffold (with `LICENSE`, if you added it).
    - Commit the audits repo, naming what you set up: `git -C audits add projects/<name>.json
      <ROUNDS-DIR-IN-AUDITS>/RUN_LOG.md && git -C audits commit -m "setup <name>"` (by name; never

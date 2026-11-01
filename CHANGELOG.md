@@ -21,6 +21,8 @@
   `INSTALL.md`, with a quick check (seconds) instead of the full self-tests, which every run
   performs itself; Codex status (two runs on Linux, including a real paper; one on macOS);
   macOS support on the separate `macos` branch (less tested).
+- **Later fix:** the licence file is now written by a setup command (`project.py --license`), so
+  Claude Code's auto mode no longer blocks it (it often denied the file copy used before).
 
 ## 0.3.0 (release date: the date of the v0.3.0 tag)
 
