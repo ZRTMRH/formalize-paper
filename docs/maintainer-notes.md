@@ -21,7 +21,7 @@ maintainers; the numbered items T1–T35 say what each limitation means for you 
 - **Linux only.** The checks read Linux's `/proc` (the scan for reviewer processes in
   `lanecheck.py` and `stops.py`), and the install steps use `apt`. Supported: Debian or Ubuntu, or
   Ubuntu under WSL2 on Windows. On macOS (this branch) the same facts come from `libproc`, without
-  `/proc`; macOS is less tested (two runs on one Intel Mac). Two cases there are skipped rather than
+  `/proc`; macOS has had fewer runs (four, on one 8 GB Intel Mac). Two cases there are skipped rather than
   refused: one of your own processes that cannot be read at that moment, and a process whose parent cannot
   be read. The worst outcome is a leftover agent loop that goes unreported; proofs are unaffected (they are
   checked by Lean's kernel).
@@ -116,7 +116,7 @@ maintainers; the numbered items T1–T35 say what each limitation means for you 
   `codex exec` inside a sandbox can fail before reading its task (app-server socket directory).
   Fallback detection now fails closed for known startup errors and absent/empty final messages,
   but does not make nested execution work. Do not silently rerun reviewers outside the sandbox.
-- **Codex CLI support is experimental.** See `codex/README.md` for what has been checked and what
+- **Codex CLI support has had fewer runs than Claude Code.** See `codex/README.md` for what has been checked and what
   has not. The protocol is tuned for Claude Code.
 - **Adjudicator-owned records go stale and nobody may refresh them.** `SKIPPED.md`,
   `PAPER_DEFECTS.md` and `VACUOUS.md` keep the statuses and line numbers of their last
@@ -354,7 +354,7 @@ maintainers' table in `TRADEOFFS.md`, which says why each was accepted and how i
   short test papers; the long real papers ran on earlier versions.
 - **T24 A run takes hours even for a short paper**: about 4–6 h for a 3-page test paper (three test
   runs: 5 h 40 m, 5 h 52 m and about 5 h 20 m; a hands-off run about 4 h), and 1–2 days for a
-  30-page paper. Parallel runs share one subscription's usage limits.
+  35-page paper. Parallel runs share one subscription's usage limits.
 - **T25 Ceilings and caps are guesses.** Statement rounds 4 (re-approval 2), diff rounds by budget
   2/4/6, delivery rounds 2, renderer rounds 6, failed cures 2 per stop and 3 per check, openings 3
   per round, reader-fix rounds 2, SUMMARY 62 lines. *For you:* when a cap is reached the

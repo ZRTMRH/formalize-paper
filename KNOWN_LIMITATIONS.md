@@ -17,6 +17,6 @@ What you should know before relying on a run. The full, detailed list (mostly fo
   nothing you would mind an agent seeing.
 - **The PDFs are produced and checked by agents.** The markdown delivered beside each PDF is the
   authoritative text.
-- **Platforms.** Most tested on Linux with Claude Code. macOS (this branch) is less tested: runs on one Intel Mac under Claude Code and Codex. On macOS two rare cases in the reviewer-process check are skipped rather than refused (a process of yours that cannot be read at that moment, and a process whose parent cannot be read); the worst outcome is a leftover agent loop that goes unreported, and proofs are unaffected. The Codex CLI is experimental; a "model at capacity" error can pause a Codex run until you type `resume`.
-- **Time and usage.** A run takes hours even for a short paper (a 30-page paper took about 16 hours of active
+- **Platforms.** Most tested on Linux with Claude Code. macOS (this branch) has had fewer runs, all on one 8 GB Intel Mac, but has delivered real papers under Claude Code and Codex. On macOS two rare cases in the reviewer-process check are skipped rather than refused (a process of yours that cannot be read at that moment, and a process whose parent cannot be read); the worst outcome is a leftover agent loop that goes unreported, and proofs are unaffected. The Codex CLI has had fewer runs than Claude Code; a "model at capacity" error can pause a Codex run until you type `resume`.
+- **Time and usage.** A run takes hours even for a short paper (a 35-page paper took about 16 hours of active
   run time on an earlier version), and it uses a large share of a subscription's usage limits.

@@ -4,7 +4,7 @@ This takes about 30 minutes the first time, most of it downloading Mathlib. Ever
 a terminal on Debian or Ubuntu, or Ubuntu under WSL2, with `sudo` for the packages.
 
 **System**: Debian or Ubuntu, or Ubuntu under WSL2 on Windows, or macOS (this `macos` branch; see
-"macOS" below). macOS is less tested than Linux.
+"macOS" below). macOS has had fewer runs than Linux, but has delivered real papers.
 
 **Easiest:** clone this repository, open Claude Code (or Codex) in it and ask it to set up formalize-paper by following this file; it asks before each command and tells you if something needs your password. The steps below are the reference.
 
@@ -43,7 +43,7 @@ sudo apt install -y git python3 curl \
 - **Python** must be 3.10 or newer (`python3 --version`); 3.11 or newer (or 3.10 with `tomli`) for
   `install.sh --codex`.
 
-### macOS (this branch; less tested than Linux)
+### macOS (this branch; fewer runs than Linux)
 
 Tested on one Mac: a 2019 MacBook Air (dual-core Intel Core i5, 8 GB), macOS 14. Two runs delivered there, one
 under Claude Code (a real paper, 8 GB, one agent at a time, about 24 h) and one under the Codex CLI 0.166.0 (the
@@ -296,7 +296,7 @@ diff rounds (rounds that re-examine only what changed); `standard` 4 lanes and a
 `thorough` 4 lanes until a round adopts nothing. (A *lane* is one reviewer criterion; a *round* is
 one pass of the reviewers plus the adjudicator's decisions.) The usage a run consumes depends on the
 paper. For planning: about 4–5 hours for a short paper (a few pages, about ten results), and 1–2
-days for a paper like the 30-page L∞ paper (67 results), plus the time you take at the checkpoints.
+days for a paper like the 35-page L∞ paper (67 results), plus the time you take at the checkpoints.
 
 After the intake, the agent creates the run's git branch (its name is shown at Checkpoint A), and works
 on its own. It stops three times:
@@ -394,11 +394,11 @@ Stage 0 starts a new run: it asks the full intake and works on a new branch it c
 For Codex, run `setup.sh --codex ~/sparse-note-try` instead (and `--dev` for a dev installation): the
 flags are passed to `install.sh`, which cannot add them to an existing installation later.
 
-## Codex CLI (experimental)
+## Codex CLI
 
-Use this **instead of section 3**. Codex support is experimental (see the box at the top of
-[`codex/README.md`](codex/README.md)): two runs delivered on Linux (the example note and a real paper) and one
-on macOS (the example note, on the `macos` branch).
+Use this **instead of section 3**. Codex has had fewer runs than Claude Code (see the box at the top of
+[`codex/README.md`](codex/README.md)), but it has delivered real papers: a 5-page paper on Linux and the
+same paper on an 8 GB Mac, plus the example note on both.
 
 1. **Install and log in to the Codex CLI.** Tested with version 0.163.0:
 
