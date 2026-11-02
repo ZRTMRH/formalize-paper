@@ -1,13 +1,15 @@
-# Codex CLI support (experimental)
+# Codex CLI support
 
-Codex support is experimental. Under Codex CLI 0.163.0 two hands-off runs have delivered on the
-current version, on Linux: the example note and a real 5-page paper (about 4 h, the same outcome as
-under Claude Code). The citation check does not yet run under Codex (planned). Codex on macOS: one run (the example note) delivered on the `macos` branch.
+Codex has had fewer runs than Claude Code, but it delivers real papers. Under Codex CLI 0.163.0,
+hands-off runs have delivered on Linux the example note and a real 5-page paper (about 4 h, the same
+outcome as under Claude Code), and on an 8 GB Mac (the `macos` branch) the example note and the same
+5-page paper. The citation check does not yet run under Codex (planned).
 
-> **What "experimental" means in practice (tested with Codex CLI 0.163.0)**
+> **What to expect in practice (tested with Codex CLI 0.163.0)**
 > - Earlier versions ran end to end on the one-page example note (0.2.0) and a small synthetic paper
 >   (a pre-release of 0.3.0). On the current version it has delivered on the example note and on a real
->   5-page paper (Linux, about 4 h, the same outcome as under Claude Code), and on the example note on macOS.
+>   5-page paper (Linux, about 4 h, the same outcome as under Claude Code), and on macOS on the example note and
+>   the same 5-page paper.
 > - A run can stall: a "Selected model is at capacity" error stops the session until someone
 >   types "resume". The optional watchdog only notifies you; it never resumes.
 > - Without `--add-dir <project>/.git` every git commit of the agent waits for your approval.

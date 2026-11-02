@@ -261,7 +261,7 @@ diff rounds (rounds that re-examine only what changed); `standard` 4 lanes and a
 `thorough` 4 lanes until a round adopts nothing. (A *lane* is one reviewer criterion; a *round* is
 one pass of the reviewers plus the adjudicator's decisions.) The usage a run consumes depends on the
 paper. For planning: about 4–5 hours for a short paper (a few pages, about ten results), and 1–2
-days for a paper like the 30-page L∞ paper (67 results), plus the time you take at the checkpoints.
+days for a paper like the 35-page L∞ paper (67 results), plus the time you take at the checkpoints.
 
 After the intake, the agent creates the run's git branch (its name is shown at Checkpoint A), and works
 on its own. It stops three times:
@@ -359,11 +359,11 @@ Stage 0 starts a new run: it asks the full intake and works on a new branch it c
 For Codex, run `setup.sh --codex ~/sparse-note-try` instead (and `--dev` for a dev installation): the
 flags are passed to `install.sh`, which cannot add them to an existing installation later.
 
-## Codex CLI (experimental)
+## Codex CLI
 
-Use this **instead of section 3**. Codex support is experimental (see the box at the top of
-[`codex/README.md`](codex/README.md)): two runs delivered on Linux (the example note and a real paper) and one
-on macOS (the example note, on the `macos` branch).
+Use this **instead of section 3**. Codex has had fewer runs than Claude Code (see the box at the top of
+[`codex/README.md`](codex/README.md)), but it has delivered real papers: a 5-page paper on Linux, and the
+same paper on an 8 GB Mac (on the `macos` branch), plus the example note on both.
 
 1. **Install and log in to the Codex CLI.** Tested with version 0.163.0:
 

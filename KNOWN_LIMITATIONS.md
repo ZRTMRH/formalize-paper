@@ -17,6 +17,6 @@ What you should know before relying on a run. The full, detailed list (mostly fo
   nothing you would mind an agent seeing.
 - **The PDFs are produced and checked by agents.** The markdown delivered beside each PDF is the
   authoritative text.
-- **Platforms.** Most tested on Linux (Debian or Ubuntu, or Ubuntu under WSL2) with Claude Code. macOS works on the separate `macos` branch and is less tested. The Codex CLI is experimental: two runs delivered on Linux (including a real paper) and one on macOS; a "model at capacity" error can pause a Codex run until you type `resume`.
-- **Time and usage.** A run takes hours even for a short paper (a 30-page paper took about 16 hours of active
+- **Platforms.** Most tested on Linux (Debian or Ubuntu, or Ubuntu under WSL2) with Claude Code. macOS (the separate `macos` branch) and the Codex CLI have had fewer runs, but both have delivered real papers: under Codex, a 5-page paper on Linux and on an 8 GB Mac; on the Mac under Claude Code, Ramanujan's proof of Bertrand's postulate; a "model at capacity" error can pause a Codex run until you type `resume`.
+- **Time and usage.** A run takes hours even for a short paper (a 35-page paper took about 16 hours of active
   run time on an earlier version), and it uses a large share of a subscription's usage limits.
