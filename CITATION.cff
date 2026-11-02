@@ -9,6 +9,8 @@ type: software
 authors:
   - family-names: Zhou
     given-names: Runtian
+  - family-names: Tang
+    given-names: Xichen
 version: 0.3.0
 date-released: 2026-10-26
 # version: keep it equal to the VERSION file (the one version source); date-released: set at the tag
