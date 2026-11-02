@@ -9,8 +9,10 @@ type: software
 authors:
   - family-names: Zhou
     given-names: Runtian
-version: 0.3.0
-date-released: 2026-10-26
+  - family-names: Tang
+    given-names: Xichen
+version: 0.3.1
+date-released: 2026-10-31
 # version: keep it equal to the VERSION file (the one version source); date-released: set at the tag
 # Apache-2.0 except the parts adapted from Trellis (PolyForm-Noncommercial-1.0.0); see NOTICE.
 license:
