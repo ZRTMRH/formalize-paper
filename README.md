@@ -12,6 +12,10 @@ arXiv:2610.28271) cites version 0.2.0, kept as tag `v0.2.0`; its formalization's
 [`CERTIFICATE.md`](https://github.com/ZRTMRH/le-shi-wei-linf-lean/blob/v1.0/CERTIFICATE.md) shows
 what a delivered run certifies.
 
+**Report:** R. Zhou and X. Tang, *formalize-paper: an open-source tool for formalizing research papers in
+Lean on an ordinary computer* (November 2026): [`paper/formalize-paper-report.pdf` on `main`](https://github.com/ZRTMRH/formalize-paper/blob/main/paper/formalize-paper-report.pdf).
+The report is licensed under CC BY 4.0.
+
 **This is the `macos` branch**: the Linux release (branch `main`) plus macOS support. macOS has had
 fewer runs than Linux, all on one 8 GB Intel Mac, but it has delivered real papers: Ramanujan's proof
 of Bertrand's postulate under Claude Code and a 5-page paper under Codex, plus the example note under
