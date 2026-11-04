@@ -25,6 +25,17 @@ keywords:
   - formalization
   - AI agents
   - Claude Code
+preferred-citation:
+  type: report
+  title: "formalize-paper: an open-source tool for formalizing research papers in Lean on an ordinary computer"
+  authors:
+    - family-names: Zhou
+      given-names: Runtian
+    - family-names: Tang
+      given-names: Xichen
+  year: 2026
+  month: 11
+  url: "https://github.com/ZRTMRH/formalize-paper/blob/main/paper/formalize-paper-report.pdf"
 references:
   - type: software
     title: Trellis

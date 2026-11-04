@@ -12,6 +12,10 @@ arXiv:2610.28271) cites version 0.2.0, kept as tag `v0.2.0`; its formalization's
 [`CERTIFICATE.md`](https://github.com/ZRTMRH/le-shi-wei-linf-lean/blob/v1.0/CERTIFICATE.md) shows
 what a delivered run certifies.
 
+**Report:** R. Zhou and X. Tang, *formalize-paper: an open-source tool for formalizing research papers in
+Lean on an ordinary computer* (November 2026): [`paper/formalize-paper-report.pdf`](paper/formalize-paper-report.pdf).
+The report is licensed under CC BY 4.0.
+
 It runs under Linux (Debian or Ubuntu, or Ubuntu under WSL2 on Windows) with Claude Code or the
 OpenAI Codex CLI (tested with 0.163.0), and on macOS from the separate `macos` branch. Claude Code on
 Linux has had the most runs; Codex and macOS have had fewer, but each has delivered real papers: under
