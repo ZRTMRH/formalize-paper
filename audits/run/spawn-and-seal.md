@@ -28,7 +28,8 @@ one home of these rules; the stage files point here.
   Never ask the human about it.
 - **Lanes** (subagent type `auditor`): everything after "with:" in the printed line, the lane
   token included, is the lane's whole prompt. That machine-generated envelope is never saved to a
-  prompt file, re-typed or hand-composed. Spawn every lane of a wave in ONE message, in parallel;
+  prompt file, re-typed or hand-composed. Copy the printed line whole, from this output; a retyped
+  token fails the seal. Spawn every lane of a wave in ONE message, in parallel;
   never serialize the lanes themselves.
 - **A wave is at most 8 lanes**, fewer when the machine has less than 32 GB of RAM or the human
   asked for smaller waves (more lanes probing Lean at once ran out of memory). When the human says
@@ -50,7 +51,7 @@ completion result (not messages from siblings), require its expected verdict fil
 python3 audits/lane_auth.py seal --verdict <verdict> --sha256 <sha256> --agent-id <agentId>
 ```
 
-with `verdict` and `sha256` from that child's `LANE_COMPLETION` line and `agentId` from that
+with `verdict` and `sha256` copied from that child's `LANE_COMPLETION` line and `agentId` from that
 child's result (Codex: the child's thread id). The lane computed the digest from its intended JSON
 bytes before writing, so a token-preserving replacement before completion cannot be sealed: never
 substitute a digest computed from the file on disk or taken from a sibling's message. The script

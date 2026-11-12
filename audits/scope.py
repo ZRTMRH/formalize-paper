@@ -48,7 +48,6 @@ HEADER = re.compile(rf"^{ATTRS}{MODS}({KW})\b", re.M)
 SCOPE_CMD = re.compile(r"^(namespace|section|end|mutual)\b[ \t]*([^\s]*)", re.M)
 IDENT = r"[^\W\d][\w'!?₀-₉ₐ-ₜ]*(?:\.[^\W\d][\w'!?₀-₉ₐ-ₜ]*)*"
 TOKEN = re.compile(IDENT)
-INDEX_ROW = re.compile(rf"^\|\s*((?:{project.RESULT_KINDS_RE})\s[^|]*?)\s*\|\s*(.*?)\s*\|\s*$", re.M)
 STATEMENT_KINDS = {"theorem", "lemma"}
 
 # Lane name -> what its scope unit is.
@@ -231,8 +230,9 @@ def dependents_closure(changed, decls):
 
 
 def index_rows(text):
-    """[(label, rest of the row)] from an index table."""
-    return [(m.group(1).strip(), m.group(2)) for m in INDEX_ROW.finditer(text or "")]
+    """[(label, rest of the row)] from an index table: project.index_rows (E2E-FIX2 M1: the label
+    words gained Problem and Question; "Problem 6.4" was left unfrozen and unreviewed)."""
+    return project.index_rows(text)
 
 
 def compute(repo, files, index_file, prev, full):
@@ -886,8 +886,12 @@ def no_round_line(cfg, repo, kind, stage):
             return None
     except Exception:       # noqa: BLE001 -- fail towards the round that audits more
         return None
-    what = (f"only comments and docstrings changed since round {c['round']} ({str(c['commit'])[:11]}), checked with "
-            "Lean as --deliver checks it" if changed else f"nothing changed since round {c['round']}")
+    what = (f"only comments and docstrings changed since round {c['round']} ({str(c['commit'])[:11]}), "
+            + ("checked with Lean as --deliver checks it" if c.get("comment_only_basis") == "compiled" else
+               # DESIGN-M7: the source basis (or none given: never overclaim)
+               "checked on the source with comments removed, as --deliver checks it (Lean found the same "
+               "declarations, but the compiled files are not byte-for-byte identical)")
+            if changed else f"nothing changed since round {c['round']}")
     if kind == "full":
         return (f"NEXT[no-round] {what}, and that round is a full-scope round, adjudicated and settled: it is Stage 5's "
                 "full-scope round. Run no round: commit, run Phase 0 (it checks the approved statements are unchanged) "
@@ -1212,7 +1216,7 @@ def _no_round_controls(check):
     def run(rkind, stage=st5, **kw):
         s_ = dict(dict(commits=["abc docstrings"], dirty=[], comment_only=True, problem=None,
                        round="2026-01-01-full-aaaaaaa", kind="full", settled=None, stale=[], pend=[], unver=[],
-                       redo=None, boom=False), **kw)
+                       redo=None, boom=False, basis=None), **kw)
         state.update(s_)
         return no_round_line({"rounds_dir": "R", "lean_files": []}, "/nonexistent", rkind, stage)
 
@@ -1220,7 +1224,8 @@ def _no_round_controls(check):
         if state["boom"]:
             raise RuntimeError("unreadable")
         return {"round": state["round"], "commit": "aaaaaaa", "commits": state["commits"], "dirty": state["dirty"],
-                "problem": state["problem"], "comment_only": state["comment_only"]}
+                "problem": state["problem"], "comment_only": state["comment_only"],
+                **({"comment_only_basis": state["basis"]} if state["basis"] else {})}
     project.changes_after_last_audit = changes
     project.rounds = lambda cfg: []
     project.round_kind = lambda rd: state["kind"]
@@ -1232,6 +1237,12 @@ def _no_round_controls(check):
     try:
         chk("trial #11: Stage 5, a diff round on a docstring-only change (as --deliver's Lean check finds it): "
             "NEXT[no-round]", (run("diff") or "").startswith("NEXT[no-round] only comments and docstrings"))
+        _wc, _ws, _wn = run("diff", basis="compiled") or "", run("diff", basis="source") or "", run("diff") or ""
+        chk("DESIGN-M7: the no-round line says the basis: compiled 'checked with Lean'; source, or no basis given, "
+            "'checked on the source' (never overclaimed)",
+            "checked with Lean as --deliver checks it" in _wc and "checked on the source" not in _wc
+            and "checked on the source with comments removed" in _ws and "checked with Lean" not in _ws
+            and _wn == _ws and _ws.startswith("NEXT[no-round] only comments and docstrings"))
         chk("trial #11: Stage 5, a full round when the last round is a settled full-scope round and only docstrings "
             "changed since (or nothing): NEXT[no-round], it is Stage 5's full-scope round",
             "it is Stage 5's full-scope round" in (run("full") or "")
@@ -1290,6 +1301,22 @@ def selftest():
         nonlocal ok
         print(f"  {'ok  ' if cond else 'FAIL'}  {name}")
         ok &= bool(cond)
+
+    # --- E2E-FIX2 (the e2e run on arXiv:2610.00765: its "Problem 6.4" row was never frozen, put on the sheet or
+    # reviewed, with no warning): Problem and Question rows are read; every other `|` line that is not a separator or
+    # a header is returned as skipped, for the index check's NOTE (E2E-FIX2c). Synthetic.
+    IX = ("/-!\n| Paper | Lean |\n|---|---|\n| Theorem 1.1 | `P.t` |\n| Problem 6.4 | `P.EForm`, `P.problem_6_4` |\n"
+          "| Question 2 | `P.q` |\n| lemma 2.1 | `P.l` |\n|  | `P.orphan` |\n\nThe bound reads\n"
+          "|f x - f y| ≤ C * |x - y|\n-/\n\n| Result | Lean |\n| :--- | --- |\n| Lemma 3.1 | `P.e` |\n"
+          "| Symbol | Lean |\n")
+    check("E2E-FIX2: Problem and Question rows are read, beside the old label words, in every table; header and "
+          "separator rows are not rows",
+          [l for l, _ in index_rows(IX)] == ["Theorem 1.1", "Problem 6.4", "Question 2", "Lemma 3.1"]
+          and dict(index_rows(IX))["Problem 6.4"] == "`P.EForm`, `P.problem_6_4`")
+    check("E2E-FIX2c: every other `|` line (lower case, an empty label, a docstring formula, a glossary row) is "
+          "returned as skipped, never dropped without a word",
+          project.index_table(IX)[1] == ["| lemma 2.1 | `P.l` |", "|  | `P.orphan` |", "|f x - f y| ≤ C * |x - y|",
+                                         "| Symbol | Lean |"])
 
     # --- the parser, on the constructs an independent audit showed it misread ------------------
     P = lambda t: {k for k in parse_decls(t) if k != "_unnamed"}
@@ -1440,6 +1467,14 @@ end P
               {"P.thing", "P.other", "P.uses_thing_in_statement", "P.uses_thing_in_proof_only",
                "P.unrelated", "P.Inner.deep", "P.hidden_helper"} <= set(decls))
         check("full scope: every index row, Construction included", len(rows) == 5)
+        # E2E-FIX2 M1: a "Problem" row (the e2e run's problem_6_4) is a row of the full scope and of a diff round
+        with open(os.path.join(d, "P/Main.lean"), "w") as f_:
+            f_.write(m.replace("-/\n", "| Problem 1.6 | `P.other` |\n-/\n"))
+        _rows_full = compute(d, files, "P/Main.lean", None, True)[1]
+        _rows_diff = compute(d, files, "P/Main.lean", git(d, "rev-parse", "HEAD").strip(), False)[1]
+        open(os.path.join(d, "P/Main.lean"), "w").write(m)
+        check("E2E-FIX2 M1: a Problem row is in the full scope and, new or edited, in a diff round's scope",
+              "Problem 1.6" in _rows_full and len(_rows_full) == 6 and _rows_diff == ["Problem 1.6"])
 
         # --- the command-line paths: previous round, kinds, fingerprint delta, verify ----------
         head = git(d, "rev-parse", "--short=11", "HEAD").strip()
@@ -1664,9 +1699,22 @@ end P
         open(os.path.join(d, "P/Basic.lean"), "w").write(_src.replace("\nend P", '\ndef lit : String := "b"\nend P', 1))
         _skl = stage4_skip_line(_cfg4, d, _h1, "Stage 4 — audit rounds")
         run("checkout", "--", "P/Basic.lean")
+        # review of the M7 build, H1: Lean steps over the character after `/-`, so `/-/- -/` is closed and the
+        # `example` after it is code (the trailing `-/` sits in a line comment); a change to it is no comment change
+        _h1t = open(os.path.join(d, "P/Basic.lean")).read()
+        open(os.path.join(d, "P/Basic.lean"), "w").write(
+            _h1t.replace("\nend P", "\n/-/- -/ example : 1 = 1 := rfl -- -/\nend P", 1))
+        run("commit", "-qam", "h1")
+        _h2 = git(d, "rev-parse", "HEAD").strip()
+        open(os.path.join(d, "P/Basic.lean"), "w").write(
+            _h1t.replace("\nend P", "\n/-/- -/ example : 2 = 2 := rfl -- -/\nend P", 1))
+        _skh = stage4_skip_line(_cfg4, d, _h2, "Stage 4 — audit rounds")
+        run("checkout", "--", "P/Basic.lean")
         check("trial #10 audit: in Stage 4 a diff round on a comment/docstring-only change is skipped for Stage 5's "
               "full round (NEXT[stage5]); in Stage 5 it runs; a code or string-literal change runs it",
               (_sk4 or "").startswith("NEXT[stage5]") and _sk5 is None and _skc is None and _skl is None)
+        check("review of the M7 build, H1: a code change after `/-/- -/` (one closed comment in Lean) runs the diff "
+              "round", _skh is None)
     finally:
         shutil.rmtree(d, ignore_errors=True)
     ok &= _cap_controls(check)

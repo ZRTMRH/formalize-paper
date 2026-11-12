@@ -429,6 +429,200 @@ def guard_problems(audits, base, patch):
     return out
 
 
+# D. CORE-REACHABLE CODE IS FLAGGED, NEVER REFUSED (D2, approver 2026-10-29): the core (B) is unpatchable, but it calls
+#    patchable code that decides its result (patchability-test REVIEW.md: a patch to decisions.unproved widens the
+#    sweep's exemptions, and so does one to project.lean_body). A patch touching such code is listed in FACTS
+#    "core_reachable" for the reviewer (question 12); it never adds a refusal and never changes required_approvals.
+#    The list is derived one hop from the core files (core_reachable_map: every `module.name` a core .py file reads of
+#    a non-core module of the apparatus, and the whole of every script a core file runs as `{PY} audits/<x>.py`, such
+#    as Phase 0's gate steps), plus these names by hand (None: the whole file), plus every data file a whole-file entry
+#    names (its Lean tail). NOT covered (a flag, question 12 says so): a helper those names call; a module two hops
+#    away (scope.parse_decls, which dependencies.py reads); a module outside the map that patches a listed one at
+#    import time (`decisions.unproved = ...` in render_record.py).
+CORE_REACHABLE = {
+    "project.py": ("lean_body", "lean_tail", "run_lean", "agent_may_reapprove", "approval_by", "committed_blob",
+                   "disclosed", "select", "RELEASE", "CAUSES",      # RELEASE, CAUSES: how phase0 classes a finding
+                   # DESIGN-M7: the comment-only decision, which says what olean_parts.lean's output means (with the
+                   # kinds, O1's mapping, the Verso guard and the lexer's helpers: review L5)
+                   "comment_only_since", "comment_only_detail", "_comment_only_text", "code_only", "lexer_ambiguous",
+                   "DOC_READERS", "VERSO", "_verso", "lean_identical", "_parts_differ", "_olean_diff", "LeanReason",
+                   "_run_group",       # REREVIEW-M7 NEW-2: runs the Lean stage's three calls
+                   "reason_kind", "bytes_only_kind", "BYTES_ONLY", "O1_LAYOUT", "changes_after_last_audit",
+                   "_co_lex", "_co_read", "_co_marker_token", "CO_OPEN_OK",
+                   # review of the M7 build, M1: every helper of the lexer and of the Lean stage
+                   "_co_block_end", "_co_string_end", "_co_char_end", "_co_interp_end", "_co_until_brace",
+                   "_co_id_first", "_co_id_rest", "_co_letterlike", "_CO_NUMBER", "_CO_RAW", "_CO_HEX", "_CO_LIT",
+                   "_CO_LIVE_MAX", "_CO_SYNTAX_CMD", "OLEAN_DIFF", "OLEAN_DIFF_BUDGET", "OLEAN_PARTS"),
+    # review of the M7 build, M1: O1 decides whether a bytes-only difference can be comment-only
+    "olean_diff.lean": None,
+    "decisions.py": ("unproved", "goal_decls", "pending_reapproval", "table_rows", "is_repaired"),
+    "signoff.py": ("approve", "build_bundle", "APPROVE_WRITES", "bundle_problem", "index_rows", "signatures",
+                   "_raw_text", "closure"),
+    "dependencies.py": ("problems",),
+    "stops.py": None,        # phase0 reads stops.causes; the core-fault route
+    "lane_auth.py": None,    # tokens and seals
+}
+RUNS_RE = re.compile(r"\{PY\} audits/([A-Za-z0-9_]+\.py)")
+DATA_RE = re.compile(r"""["']([A-Za-z0-9_]+\.(?:lean|sh|json|txt))["']""")
+
+
+def core_reachable_map(audits, base, core=CORE):
+    """{file: (name, ...) or None (the whole file)} of the code the core relies on at `base` (D above), with
+    {file: {name: why}} beside it: CORE_REACHABLE, plus one hop from each core .py file at `base`. A core file that does
+    not parse adds nothing (the hand list still holds)."""
+    import ast
+    tree = tooling_tree(audits, base) or set()
+    whole, names = {}, {}
+
+    def add(f, name, why):
+        if f in core:
+            return
+        if name is None:
+            whole.setdefault(f, set()).add(why)
+        else:
+            names.setdefault(f, {}).setdefault(name, set()).add(why)
+    for f, ns in CORE_REACHABLE.items():
+        for x in (ns or (None,)):
+            add(f, x, "listed by hand")
+    for c in sorted(core):
+        if not c.endswith(".py"):
+            continue
+        src = show(audits, base, c)
+        if src is None:
+            continue
+        for m in RUNS_RE.finditer(src):
+            if m.group(1) in tree:
+                add(m.group(1), None, f"{c} runs it")
+        try:
+            mod = ast.parse(src)
+        except (SyntaxError, ValueError):
+            continue
+        alias = {}
+        for node in ast.walk(mod):
+            if isinstance(node, ast.Import):
+                for a in node.names:
+                    if "." not in a.name and f"{a.name}.py" in tree:
+                        alias[a.asname or a.name] = f"{a.name}.py"
+            elif isinstance(node, ast.ImportFrom) and not node.level and node.module and f"{node.module}.py" in tree:
+                for a in node.names:
+                    add(f"{node.module}.py", a.name, f"{c} imports it")
+        for node in ast.walk(mod):
+            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in alias:
+                add(alias[node.value.id], node.attr, f"{c} reads it")
+    # one more hop, data only (fix round 1, ATTACK-C L10): a data file a whole-file entry names by its file name (its
+    # Lean tail, a pattern list) is whole too, e.g. dependencies_tail.lean, which dependencies.py runs
+    for f in sorted(w for w in whole if w.endswith(".py")):
+        src = show(audits, base, f) or ""
+        for m in DATA_RE.finditer(src):
+            if m.group(1) in tree and m.group(1) != f:
+                add(m.group(1), None, f"{f} (listed whole) reads it")
+    out = {f: None for f in whole}
+    out.update({f: tuple(sorted(ns)) for f, ns in names.items() if f not in whole})
+    why = {f: {"<whole file>": "; ".join(sorted(w))} for f, w in whole.items()}
+    for f, ns in names.items():
+        if f not in whole:
+            why[f] = {n: "; ".join(sorted(w)) for n, w in ns.items()}
+    return out, why
+
+
+def changed_lines(patch, rel):
+    """(removed line numbers of the base file, added line numbers of the patched file) of `rel` in a git diff."""
+    removed, added, cur, hunk, o, n = set(), set(), None, False, 0, 0
+    for line in patch.splitlines():
+        m = DIFF_FILE.match(line)
+        if m:
+            cur, hunk = m.group(2), False
+            continue
+        h = re.match(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", line)
+        if h:
+            hunk, o, n = True, int(h.group(1)), int(h.group(2))
+            continue
+        if cur != rel or not hunk:
+            continue
+        if line.startswith("+"):
+            added.add(n); n += 1
+        elif line.startswith("-"):
+            removed.add(o); o += 1
+        elif line.startswith(" ") or line == "":
+            o += 1; n += 1
+    return removed, added
+
+
+def top_spans(text):
+    """[(first line, last line, name or None)] of the top-level statements of a Python text (decorators included): a
+    def's or class's name, an assignment's single plain target name; None for every other statement (an import, an
+    `if`, an assignment to an attribute or to several names). SyntaxError when it does not parse."""
+    import ast
+    out = []
+    for node in ast.parse(text).body:
+        first = min([node.lineno] + [d.lineno for d in getattr(node, "decorator_list", [])])
+        name = None
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            name = node.name
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            ts = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if len(ts) == 1 and isinstance(ts[0], ast.Name):
+                name = ts[0].id
+        out.append((first, node.end_lineno, name))
+    return out
+
+
+def core_reachable(audits, base, patch, core=CORE):
+    """[{"file", "name", "why"}] (sorted) of the code the core relies on (core_reachable_map) that the patch touches:
+    a listed name whose top-level span (top_spans) holds a removed line of the base file or an added line of the
+    patched file; "<whole file>" for any change to a file listed whole; "<module level>" for a change inside another
+    top-level statement of a listed file (an import, an assignment to an attribute); "<unparsed>" when either side does
+    not parse or cannot be read, and for the whole patch when anything here fails. A flag only (D above): it never
+    raises."""
+    try:
+        reach, why = core_reachable_map(audits, base, core)
+        out = set()
+        for rel, _k in patch_files(patch):
+            if rel not in reach:
+                continue
+            removed, added = changed_lines(patch, rel)
+            if not removed and not added:
+                continue
+            if reach[rel] is None:
+                out.add((rel, "<whole file>", why[rel]["<whole file>"]))
+                continue
+            old = show(audits, base, rel)
+            tmp = tempfile.mkdtemp(prefix="tp-reach-")
+            try:
+                p_ = os.path.join(tmp, rel)
+                os.makedirs(os.path.dirname(p_) or tmp, exist_ok=True)
+                if old is not None:
+                    open(p_, "w", encoding="utf-8").write(old)
+                open(os.path.join(tmp, "x.diff"), "w", encoding="utf-8").write(patch)
+                r = subprocess.run(["git", "apply", f"--include={rel}", "x.diff"], cwd=tmp, capture_output=True,
+                                   text=True)
+                new = open(p_, encoding="utf-8").read() if not r.returncode and os.path.exists(p_) else None
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+            try:
+                if new is None:
+                    raise SyntaxError("the patch does not apply")
+                spans = [(s, removed) for s in top_spans(old or "")] + [(s, added) for s in top_spans(new)]
+            except (SyntaxError, ValueError):
+                out.add((rel, "<unparsed>", "the base or the patched file does not parse"))
+                continue
+            for (a, b, name), lines in spans:
+                if not any(a <= x <= b for x in lines):
+                    continue
+                if name is None:
+                    out.add((rel, "<module level>", "a top-level statement of a file the core reads from"))
+                elif name in reach[rel]:
+                    out.add((rel, name, why[rel][name]))
+        return [{"file": f, "name": n, "why": w} for f, n, w in sorted(out)]
+    except Exception as e:      # noqa: BLE001 -- a flag never becomes a stop path: flag the whole patch instead
+        return [{"file": "<patch>", "name": "<unparsed>", "why": f"core_reachable failed: {type(e).__name__}"}]
+
+
+def reach_text(f):
+    """D2's display of FACTS "core_reachable": "file.name, ..." or "none" (FACTS an older pin wrote have no key)."""
+    return ", ".join(f"{x.get('file')}.{x.get('name')}" for x in (f or {}).get("core_reachable") or []) or "none"
+
+
 def shadow_problem(path, tree):
     """Why the new file `path` could be imported in place of another module (None: it cannot)."""
     if os.path.dirname(path) not in IMPORT_DIRS:
@@ -917,7 +1111,9 @@ def floor_judge(code_dir, ms):
             p = os.path.join(code_dir, m[1])
             return "killed" if os.path.exists(p) and open(p, encoding="utf-8").read().count(m[2]) == 1 else "missing"
         if base.get(key(m)) != "passes":
-            return f"baseline: {m[4]}'s selftest fails on the patched apparatus unmutated (a floor violation, never a kill)"
+            # REVIEW-FLOOR LOW-3: name the selftest exactly as it ran (`stops.py --selftest --floor`, not the full one)
+            return (f"baseline: `{' '.join([m[4], '--selftest'] + list(key(m)[1]))}` fails on the patched apparatus "
+                    "unmutated (a floor violation, never a kill)")
         return run_floor_mutant(code_dir, m)
     base_m = lambda g: run_floor_mutant(code_dir, (None, None, None, None, g[0], list(g[1])), mutate=False)
     with concurrent.futures.ThreadPoolExecutor(max_workers=JOBS) as ex:
@@ -957,7 +1153,8 @@ def compute_facts(cfg, tp, n, diagnosis, patch, audits=None):
     stop_check = sd_.get("command") or sd_.get("check")
     facts = {"tp": tp, "attempt": n, "patch_sha256": sha_bytes(patch.encode("utf-8")), "pinned_commit": pin,
              "files": [p for p, _k in files], "regression_test": reg,
-             "diagnosis_affects": (AFFECTS_RE.search(diagnosis) or [None, None])[1]}
+             "diagnosis_affects": (AFFECTS_RE.search(diagnosis) or [None, None])[1],
+             "core_reachable": core_reachable(audits, pin, patch, core_files(audits, rd))}    # D2: a flag, never a refusal
     if refuse:
         return facts, refuse
     pr, pd = scratch_tree(audits, pin)
@@ -1785,7 +1982,8 @@ def record_lines(cfg, rd=None, audits=None):
             out += ["", f"#### {tp} attempt {n} (patch_sha256 `{f.get('patch_sha256')}`; affects-review-inputs: "
                     f"{f.get('affects_review_inputs')}{' (forced by the blast radius)' if f.get('affects_forced') else ''};"
                     f" floor hits: {', '.join(h['id'] + ' ' + h['why'] for h in (f.get('floor') or {}).get('hits') or []) or 'none'};"
-                    f" approvals needed: {f.get('required_approvals')})", "", "Diagnosis:", ""]
+                    f" approvals needed: {f.get('required_approvals')}; core-reachable: {reach_text(f)})", "",
+                    "Diagnosis:", ""]
             out += ["    " + l for l in open(os.path.join(ad, "DIAGNOSIS.md"), encoding="utf-8").read().splitlines()]
             out += ["", "Diff:", "", "```diff"] + open(os.path.join(ad, "patch.diff"), encoding="utf-8").read().splitlines() + ["```"]
             for n_, m_, name in reviews(rd, tp):
@@ -1846,8 +2044,9 @@ def verify_delivery(cfg, rd, audits):
 # The FIRST pin's result_status.py is the reference: at --prepare-delivery make_report writes, on SUMMARY page 1 and in
 # REPORT, one RAISED line for every result whose status is stronger under the patched tools than under the first pin's;
 # at --deliver verify_delivery (this file is core, and it runs from the FIRST pin's extraction) recomputes them and
-# refuses unless both documents carry each line verbatim, and unless REPORT carries the "Checks weakened" row. The code
-# only flags; the delivery status-check agent reads each line and judges whether the records support the raise.
+# notes (never refuses, approver 2026-10-28) unless both documents carry each line verbatim, and unless REPORT carries
+# the "Checks weakened" row; the README's code-written section lists each. The code only flags; the delivery
+# reviewers and the main agent judge whether the records support the raise.
 TOOLS_PATCHED = ("the software that checks the formalization was corrected during this run (details for maintainers in "
                  "RUN_RECORD.md)")      # == make_report.TOOLS_PATCHED
 WEAKENED_TITLE = "Checks weakened"
@@ -2206,7 +2405,8 @@ def main(argv=None):
             f = prepare(cfg, a.tp)
             print(f"prepared attempt {f['attempt']} of {a.tp} (patch_sha256 {f['patch_sha256'][:12]}; approvals needed: "
                   f"{f['required_approvals']}; affects-review-inputs: {f['affects_review_inputs']}"
-                  f"{' (forced: the blast radius shows PASS->FAIL)' if f['affects_forced'] else ''}). Next: "
+                  f"{' (forced: the blast radius shows PASS->FAIL)' if f['affects_forced'] else ''}; core-reachable: "
+                  f"{reach_text(f)}). Next: "
                   f"python3 audits/tool_patch.py review --tp {a.tp}")
         elif a.command == "facts":
             txt, refuse = facts_text(cfg, a.tp, a.attempt)
@@ -2476,6 +2676,87 @@ def selftest():
         say("LOW 4: `tool_patch.py facts` prints exactly what prepare wrote to FACTS.json (no extra key; refusals go to "
             "stderr and the exit code)",
             ftxt == open(os.path.join(tp_dir(rd, tp), "A1", "FACTS.json")).read() and not frf)
+        # D2 (approver 2026-10-29): FACTS "core_reachable" flags a patch touching code the core relies on; never refuses
+        import ast as _ast
+        h_d2 = G("rev-parse", "HEAD")
+
+        def d2_patch(edits):
+            """The diff of `edits` [(file, line index or name, appended text or ("insert", text))], tree restored."""
+            for f_, where, add_ in edits:
+                pf = os.path.join(d, f_)
+                ls = open(pf).read().split("\n")
+                if isinstance(where, str):
+                    where = next(i for i, l in enumerate(ls) if re.match(rf"^(?:def |class )?{re.escape(where)}\b", l))
+                if isinstance(add_, tuple):
+                    ls.insert(where, add_[1])
+                else:
+                    ls[where] += add_
+                open(pf, "w").write("\n".join(ls))
+            out_ = subprocess.run(["git", "-C", d, "diff", "--", *sorted({e[0] for e in edits})],
+                                  capture_output=True, text=True).stdout
+            subprocess.run(["git", "-C", d, "checkout", "--", *sorted({e[0] for e in edits})], capture_output=True)
+            return out_
+        CR = lambda pt: core_reachable(d, h_d2, pt)
+        names_ = lambda r: sorted(f"{x['file']}.{x['name']}" for x in r)
+        rmap, _rwhy = core_reachable_map(d, h_d2)
+        other = next(n_.name for n_ in _ast.parse(open(os.path.join(d, "decisions.py")).read()).body
+                     if isinstance(n_, _ast.FunctionDef) and n_.name not in rmap["decisions.py"])
+        lb = next(n_ for n_ in _ast.parse(open(os.path.join(d, "project.py")).read()).body
+                  if isinstance(n_, _ast.FunctionDef) and n_.name == "lean_body")
+        lt_line = next(i for i, l in enumerate(open(os.path.join(d, "project.py")).read().split("\n"))
+                       if l.startswith("def lean_tail("))
+        r_un = CR(d2_patch([("decisions.py", "unproved", "  # d2")]))
+        r_other = CR(d2_patch([("decisions.py", other, "  # d2")]))
+        r_la = CR(d2_patch([("lane_auth.py", 0, "  # d2")]))
+        r_bad = CR(d2_patch([("decisions.py", "unproved", " def (:")]))
+        r_aw = CR(d2_patch([("signoff.py", "APPROVE_WRITES", "  # d2")]))
+        r_st = CR(d2_patch([("stops.py", 0, ("insert", "import os as _d2"))]))
+        r_ml = CR(d2_patch([("decisions.py", 0, ("insert", "import os as _d2"))]))
+        p_two = d2_patch([("project.py", lb.end_lineno - 1, "  # d2"), ("project.py", lt_line, "  # d2")])
+        r_two = CR(p_two)
+        say("D2: FACTS core_reachable lists a hunk in decisions.unproved, not one in another decisions function "
+            f"({other}); any lane_auth.py change is the whole file; an unparsable patched file is <unparsed>; an "
+            "assignment (signoff.APPROVE_WRITES) is listed by its name; a module-level line of a whole-file entry "
+            "(stops.py) is the whole file, of a partly listed file (decisions.py) <module level>; one hunk spanning "
+            "project.lean_body and lean_tail lists both",
+            names_(r_un) == ["decisions.py.unproved"] and r_other == [] and names_(r_la) == ["lane_auth.py.<whole file>"]
+            and names_(r_bad) == ["decisions.py.<unparsed>"] and names_(r_aw) == ["signoff.py.APPROVE_WRITES"]
+            and names_(r_st) == ["stops.py.<whole file>"] and names_(r_ml) == ["decisions.py.<module level>"]
+            and p_two.count("\n@@ ") == 1 and names_(r_two) == ["project.py.lean_body", "project.py.lean_tail"])
+        say("D2: the core-reachable map is derived one hop from the core: Phase 0's gate scripts whole (make_report, "
+            "unused_args, dependencies, tree_state: phase0.py runs them), the names core files read (project.select, "
+            "decisions.table_rows), module-level assignments (project.RELEASE, CAUSES), with the reason for each; "
+            "a whole-file entry's data file (dependencies_tail.lean) is whole too",
+            all(rmap.get(f_, ()) is None and "phase0.py runs it" in _rwhy[f_]["<whole file>"]
+                for f_ in ("make_report.py", "unused_args.py", "dependencies.py", "tree_state.py"))
+            and {"select", "RELEASE", "CAUSES", "lean_body"} <= set(rmap["project.py"])
+            and "table_rows" in rmap["decisions.py"] and "phase0.py reads it" in _rwhy["decisions.py"]["table_rows"]
+            and rmap["stops.py"] is None and rmap["lane_auth.py"] is None and not any(c_ in rmap for c_ in CORE)
+            and rmap.get("dependencies_tail.lean", ()) is None
+            and "dependencies.py (listed whole) reads it" in _rwhy["dependencies_tail.lean"]["<whole file>"])
+        r_twice = CR(d2_patch([("decisions.py", "unproved", "  # d2"), ("lane_auth.py", 0, "  # d2"),
+                               ("signoff.py", "approve", "  # d2")]))
+        say("D2 (review LOW D2-2): the list is sorted and deterministic, and core_reachable never raises (an unreadable "
+            "repository or patch is flagged <unparsed>)",
+            r_twice == CR(d2_patch([("signoff.py", "approve", "  # d2"), ("decisions.py", "unproved", "  # d2"),
+                                    ("lane_auth.py", 0, "  # d2")]))
+            and r_twice == sorted(r_twice, key=lambda x: (x["file"], x["name"], x["why"])) and len(r_twice) == 3
+            and core_reachable(os.path.join(base, "nowhere"), h_d2, "x")[0]["name"] == "<unparsed>"
+            and core_reachable(d, h_d2, "not a diff")[0]["name"] == "<unparsed>")
+        # a flag, never a refusal: compute_facts refuses exactly the same with the flag stubbed out
+        _cr, p_la = core_reachable, d2_patch([("lane_auth.py", 0, "  # d2")])
+        fa_, ra_ = compute_facts(cfg, tp, 1, DIAGNOSIS_TEXT, p_la, audits=d)
+        globals()["core_reachable"] = lambda *a_, **k_: []
+        try:
+            fb_, rb_ = compute_facts(cfg, tp, 1, DIAGNOSIS_TEXT, p_la, audits=d)
+        finally:
+            globals()["core_reachable"] = _cr
+        say("D2: core_reachable is in FACTS.json (an empty list for S-TP1's tp_sample.py patch, re-derived identically by "
+            "`tool_patch.py facts`); it adds no refusal (compute_facts refuses the same with it stubbed out) and "
+            "required_approvals stays the floor's",
+            f1.get("core_reachable") == [] and '"core_reachable": []' in ftxt and f1["required_approvals"] == 1
+            and names_(fa_["core_reachable"]) == ["lane_auth.py.<whole file>"] and fb_["core_reachable"] == []
+            and ra_ == rb_ and "required_approvals" not in fa_)
         pre_apply = refused(apply, cfg, tp)
         reviewer(line1, "approve", "reviewer-1")
         cfg["standing_defers"] = [{"id": "D1", "item": "x"}]     # a grow-only key grew since the pin (bench2 replay)
@@ -3065,7 +3346,16 @@ def selftest():
             write_attempt(tp_, 1, [FIX, ("project.py", "    tpd = tool_patch.delivery_problems(cfg)", "    tpd = []"),
                                    ("lane_auth.py", "if not isinstance(token, str) or sha(token.encode()) != meta['token_sha256']:",
                                     "if False:")])
-            fm = prepare(cfg, tp_)
+            # DESIGN-FLOOR (2026-11-10): the real floor run is the two mutants this scenario asserts on (TPC2, LA1), as
+            # the gap-2 scenario runs LA8 alone: the whole floor here ran every floor selftest (stops.py's and
+            # project.py's whole selftests among them) inside every tool_patch.py selftest, and a real floor runs
+            # this selftest once per TP mutant (E2E finding #2: a 39-minute FACTS run)
+            keep_fm = floor_mutants
+            globals()["floor_mutants"] = lambda a_, r_: [m for m in keep_fm(a_, r_) if m[0].split()[0] in ("TPC2", "LA1")]
+            try:
+                fm = prepare(cfg, tp_)
+            finally:
+                globals()["floor_mutants"] = keep_fm
             _p, ln = review(cfg, tp_); reviewer(ln, "approve", "reviewer-f1")
             one = refused(apply, cfg, tp_)
             _p, ln = review(cfg, tp_); reviewer(ln, "approve", "reviewer-f2")
@@ -3084,6 +3374,83 @@ def selftest():
             lie = refused(apply, cfg, tp_)
             say("R1: FACTS that claim no floor hit do not lower the bar: apply recomputes the floor's pattern half (TPC2 "
                 "gone) and still needs two approvals", fl_["required_approvals"] == 1 and "needs 2" in lie and "TPC2" in lie)
+        # ---- DESIGN-FLOOR (2026-11-10): the math gate's floor mutants are judged by the fast entries (stops.py and
+        # project.py --selftest --floor), for real: on the apparatus as it is none is a hit; a patch that weakens the
+        # gate and keeps every pattern (integrity_blocks calls a core tooling FAIL a note, --deliver drops the gate's
+        # refusals) makes each a hit (its floor selftest fails unmutated); a patch that weakens the fast controls
+        # instead (they answer ok) makes each a hit (it survives)
+        MGS = ("MG2", "MG3", "MG4", "MG6", "MG7", "MG8", "MG9")
+        _ns = {"__name__": "mutant_list_floor_fast"}
+        try:
+            exec(compile(open(os.path.join(d, "tests", "mutant_list.py")).read(), "mutant_list", "exec"), _ns)  # noqa: S102
+        except (OSError, SyntaxError):
+            pass
+        ms_g = [m[:6] for m in _ns.get("MUTANTS") or [] if m[0].split()[0] in MGS]
+        IBW = ("stops.py", '    m = re.match(r"^\\s*FAIL\\[([a-z0-9-]+)\\]\\s*(.*)$", line or "")\n    if not m or m.group(1)',
+               '    if (line or "").startswith("FAIL[tool" + "ing]"):\n        return False\n'
+               '    m = re.match(r"^\\s*FAIL\\[([a-z0-9-]+)\\]\\s*(.*)$", line or "")\n    if not m or m.group(1)')
+        DLW = ("project.py", '    block += [("deliver", g) for g in gb]\n',
+               '    block += [("deliver", g) for g in gb]\n    block = [b_ for b_ in block if b_[0] != "deliver"]\n')
+        SFC = ("stops.py", "    res = _floor_controls(tb=True)\n    print(", "    res = [True]\n    print(")
+        PFC = ("project.py", "        checks = _floor_controls(tb=True)\n        for name, ok in checks:",
+               "        checks = [('x', True)]\n        for name, ok in checks:")
+        # REVIEW-FLOOR MEDIUM-1 / LOW-6: the reviewer's attacks, every MG pattern kept. P4: the gate refuses nothing
+        # when `involved` and skips a failing freeze; P1: --deliver drops the gate's refusals in release only
+        P4 = ("stops.py", "    block, notes = [], []\n    for cmd in standard_blocking(cfg):\n",
+              '    block, notes = [], []\n    if cfg.get("involvement") == "involved":\n        return block, notes\n'
+              '    for cmd in standard_blocking(cfg):\n        if "fingerprint.py" in cmd:\n            continue\n')
+        P1 = ("project.py", '    block += [("deliver", g) for g in gb]\n',
+              '    block += [("deliver", g) for g in gb]\n    if mode(cfg) == "release":\n'
+              '        block = [b_ for b_ in block if b_[0] != "deliver"]\n')
+        STOPS_MGS = sorted(m_ for m_ in MGS if m_ != "MG2")
+        # REVIEW-FLOOR LOW-6: a drift is a FAIL, never a silent skip (a later edit must not turn this scenario off).
+        # Only a patched apparatus that changed an MG line itself skips, said: that is a floor pattern hit already
+        # (flagged to its reviewer), and fact (b) runs this selftest on every patched apparatus (SWEEP-FIX D3, T2)
+        mg_ids = sorted(m[0].split()[0] for m in ms_g) == sorted(MGS) and all(m[5] == ["--floor"] for m in ms_g)
+        mg_pat = mg_ids and all(open(os.path.join(d, m[1])).read().count(m[2]) == 1 for m in ms_g)
+        edits_ok = anchored(*[x[:2] for x in (IBW, DLW, SFC, PFC, P4, P1)])
+        if not mg_ids:
+            say("DESIGN-FLOOR: tests/mutant_list.py defines the MG mutants MG2-MG4 and MG6-MG9, each judged with "
+                "--floor (the fast-floor scenario's anchors)", False)
+        elif not mg_pat:
+            print("  (fast-floor scenario not run: an MG mutant's pattern is not in this apparatus, itself a floor hit)")
+        elif not edits_ok:
+            say("DESIGN-FLOOR: the fast-floor scenario's edit lines (stops.py, project.py) are in this apparatus "
+                "(every MG pattern is: the scenario is out of date)", False)
+        else:
+            def tree(name, edits):
+                t_ = os.path.join(base, "ff-" + name)
+                shutil.copytree(d, t_, ignore=shutil.ignore_patterns("__pycache__", ".git", "P"))
+                for f_, o_, n_ in edits:
+                    p_ = os.path.join(t_, f_)
+                    txt_ = open(p_).read()
+                    open(p_, "w").write(txt_.replace(o_, n_, 1))
+                return t_
+            ff = {k_: floor_judge(tree(k_, e_), ms_g)["hits"]
+                  for k_, e_ in (("as-is", []), ("gate", [IBW, DLW]), ("controls", [SFC, PFC]), ("p4", [P4]), ("p1", [P1]))}
+            print(f"  (fast floor: {json.dumps(ff)[:400]})")
+            say("DESIGN-FLOOR: the math gate's floor mutants (MG2-MG4, MG6-MG9) are judged by the fast floor entries: none "
+                "is a hit on the apparatus as it is; a patch weakening integrity_blocks and --deliver's gate with every "
+                "pattern kept makes each a hit (its floor selftest fails unmutated); a patch weakening the fast controls "
+                "makes each a hit (the mutant survives)",
+                ff["as-is"] == []
+                and sorted(h_["id"] for h_ in ff["gate"]) == sorted(MGS)
+                and all(h_["why"].startswith("baseline") for h_ in ff["gate"])
+                and sorted(h_["id"] for h_ in ff["controls"]) == sorted(MGS)
+                and all(h_["why"] == "survived" for h_ in ff["controls"]))
+            say("REVIEW-FLOOR MEDIUM-1 / LOW-6: the reviewer's attacks are floor hits, every pattern kept: p4 (the gate "
+                "refuses nothing when `involved`, skips a failing freeze) makes each stops.py MG mutant a hit, p1 "
+                "(--deliver drops the gate's refusals in release only) makes MG2 a hit, each because its fast floor "
+                "selftest fails unmutated (the hit names `--selftest --floor`)",
+                sorted(h_["id"] for h_ in ff["p4"]) == STOPS_MGS and [h_["id"] for h_ in ff["p1"]] == ["MG2"]
+                and all(h_["why"].startswith("baseline: `") and "--selftest --floor`" in h_["why"]
+                        for h_ in ff["p4"] + ff["p1"]))
+            # REVIEW-FLOOR LOW-2: a mutant that makes the gate (or --deliver) raise inside the fast controls is
+            # "crashed" (a hit), not "killed": the controls print the traceback
+            xr = {f_: run_floor_mutant(d, ("XR " + f_, f_, o_, o_ + "    raise RuntimeError('XRQZ')\n", f_, ["--floor"]))
+                  for f_, o_ in (("stops.py", P4[1]), ("project.py", P1[1]))}
+            say("REVIEW-FLOOR LOW-2: an exception inside the fast floor's controls (math_gate, --deliver) counts as a "
+                "crash of the mutant, a floor hit, never a kill", xr == {"stops.py": "crashed", "project.py": "crashed"})
         # ---- safety review 2026-10-25 (HIGH 1): TPa weakens approval_problems (`if approvals and len(...) < need`);
         # it is a floor hit (TP22) and needs two approvals. TPb is then applied with NO review: its link's pinned-before
         # verifier is TPa's weakened one, so only the first pin's re-check sees it, and integrity --check runs it

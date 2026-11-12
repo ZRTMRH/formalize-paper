@@ -337,6 +337,66 @@ def question_rows(rounds):
     return out
 
 
+# B1 (review H1): an ADOPT the operator did not carry out reaches the human as a decisions item. OUTCOMES.md's outcome
+# cell has a fixed vocabulary (AUDIT_PROTOCOL step 4, "When done" 3): implemented as described / implemented
+# differently / could not be implemented / not implemented -- disagree. Every outcome that does not start with
+# "implemented" counts as not carried out (attack review MEDIUM-2: "declined -- disagree", "deferred (disagree)",
+# "done"), and so does an ADOPT row with no OUTCOMES.md row. Read for disclosure only, never to settle.
+OUTCOME_DONE_RE = re.compile(r"^\W*implemented\b", re.I)
+NO_OUTCOME = "no OUTCOMES.md row"
+
+
+def _later_pass(d2, base, key):
+    """Did round directory `d2`'s `base` lane judge the item (norm_item `key`) Pass (compatibility review L2)?"""
+    import lanecheck, audit_coverage as ac
+    try:
+        doc = ac.lane_doc(d2, base)
+    except (OSError, ValueError):
+        return False
+    return any(ac.norm_item(it) == key and v == "Pass" for it, v in lanecheck.judged_items(doc).items()) \
+        if doc else False
+
+
+def declined_adopts(rounds):
+    """[(round, lane, item, outcome, note)] of every ADOPT row whose OUTCOMES.md row's outcome does not start with
+    "implemented", or that has no OUTCOMES.md row (outcome NO_OUTCOME), and whose (lane, item) no later round decides
+    again (a later ADOPTED.md row re-raises it, as a QUESTION the human answers, or settles it) or judges Pass. Before
+    B1 the next round's adjudicator saw the decline (B') and re-raised it; a decided row now scopes no round, so the
+    decline is asked here (Checkpoint C under `involved`, a disclosed delegated decision under a delegating level)."""
+    import lanecheck, audit_coverage as ac
+    out = []
+    for i, d in enumerate(rounds):
+        recorded = {}
+        for header, cells in table_rows(_read(os.path.join(d, "OUTCOMES.md"))):
+            if "outcome" not in header or "item" not in header:
+                continue
+            cell = lambda h: lanecheck.clean_cell(cells[header.index(h)]) if h in header and \
+                header.index(h) < len(cells) else ""
+            lane, item = cell("lane"), cell("item")
+            if not re.search(r"[A-Za-z]", cell("outcome")):
+                continue        # a placeholder row ("| — | (no ADOPT rows) | — | round adopted nothing |")
+            recorded.setdefault((lanecheck.lane_base(lane), ac.norm_item(item)),
+                                (lane, item, " ".join(cell("outcome").split()), " ".join(cell("note").split())))
+        try:
+            adopts = [r for r in lanecheck.valid_rows(d) if str(r.decision).upper().startswith("ADOPT")]
+        except Exception:       # noqa: BLE001 -- an unreadable ADOPTED.md: its OUTCOMES rows are still read
+            adopts = []
+        cands = dict(recorded)
+        # a row for the item under any lane spelling counts as recorded ("outcomes (B')" for an `outcomes` row)
+        rec_items = {k for _b, k in recorded}
+        for r in adopts:
+            if ac.norm_item(r.item) not in rec_items:
+                cands.setdefault((r.base, ac.norm_item(r.item)), (r.lane, r.item, NO_OUTCOME, ""))
+        for (base, key), (lane, item, oc, note) in cands.items():
+            if oc != NO_OUTCOME and OUTCOME_DONE_RE.match(oc):
+                continue
+            if any(r.base == base and ac.norm_item(r.item) == key for d2 in rounds[i + 1:]
+                   for r in lanecheck.valid_rows(d2)) or any(_later_pass(d2, base, key) for d2 in rounds[i + 1:]):
+                continue
+            out.append((os.path.basename(d), lane, item, oc, note))
+    return out
+
+
 def delegated_stops(cfg):
     """{S<n>} of every stop the operator closed under a delegating level (stops.py close --delegated)."""
     import stops
@@ -849,10 +909,14 @@ def changes_after(cfg, rounds):
         return []
     if c["problem"]:
         return [f"UNKNOWN: {c['problem']}"]
-    tag = " (comments and docstrings only, verified mechanically)" if c.get("comment_only") else ""
+    # DESIGN-M7: on the source basis (or with none given: never overclaim) the tag says it was checked on the source
+    tag = ("" if not c.get("comment_only") else " (comments and docstrings only, verified mechanically)"
+           if c.get("comment_only_basis") == "compiled" else CO_SOURCE_TAG)
     return [x + tag for x in c["commits"]] + [f"UNCOMMITTED: {p}" for p in c["dirty"]]
 
 
+CO_SOURCE_TAG = (" (comments and docstrings only: the code is unchanged once comments are removed, checked on the "
+                 "source)")
 _real_changes_after = changes_after
 
 
@@ -1004,7 +1068,7 @@ def box_lines(cfg):
     # approver 2026-10-24), not a decision
     import stops
     for r in stops.stop_rows(cfg, phase="run"):
-        if r.get("cured") or r["by"] == "nobody yet" or r.get("core"):
+        if r.get("cured") or r["by"] == "nobody yet" or r.get("core") or r.get("withdrawn"):
             continue        # a not-verified close is no decision of the author's: RUN_RECORD.md's (approver 2026-10-26)
         # every other closed stop, a late one (closed at delivery) included (mini4/mini5 S1); in full, never clipped
         out.append(f"stop {r['stop']} ({', '.join(r['classes']) or 'no cause class'}; "
@@ -1220,7 +1284,7 @@ LEAVE_SECTIONS_RE = re.compile(r"(?:Open questions|Checkpoint C|Answered)\b")
 # anchor_id/versioned use below): `considered:` or any other free word is not one.
 ANCHOR_KINDS = ("approval", "global", "check", "notformalized", "question", "revote", "proxy", "delegated",
                 "open", "defer", "proposed-defer", "defect", "vacuous", "skip", "route", "uncovered",
-                "after-last-round", "unused")
+                "after-last-round", "unused", "declined")
 _ANCHOR = rf"(?:{'|'.join(map(re.escape, ANCHOR_KINDS))}):[\w.:/@+\-]+"
 # a delegated line logged under the anchor it decides: "- check:Lemma_3.1: [DELEGATED …"
 DELEGATED_PRE_RE = re.compile(rf"^\s*[-*][ \t]+(?:answered[ \t]+)?({_ANCHOR})(?::[ \t]|[ \t]+\()[^\n]*?\[DELEGATED ")
@@ -1415,8 +1479,8 @@ def question_mention(item):
     return item.split(":")[0].strip()[:40]
 
 
-RESULT_RE = re.compile(r"\b(definition|lemma|theorem|proposition|corollary|conjecture|claim|remark|example|fact|"
-                       r"observation)s?[\s_]+(\d+(?:\.\d+)*)", re.I)
+# E2E-FIX2 M1: the kind words are project.RESULT_KINDS (these copies lacked Problem, Question, Construction, ...)
+RESULT_RE = re.compile(rf"\b({project.RESULT_KINDS_RE})s?[\s_]+(\d+(?:\.\d+)*)", re.I)
 DECL_KINDS = ("question", "unused", "revote")
 
 
@@ -1428,8 +1492,7 @@ def result_of(text):
 
 # a paper-result label in a labelled field: kind word, blank, dotted number, and nothing that
 # continues the number (`Lemma 3a`, `Lemma 3_2`); a plural ("Lemmas 3.2 and 3.3") names several
-LABEL_RE = re.compile(r"(?<![\w])(definition|lemma|theorem|proposition|corollary|conjecture|claim|remark|example|"
-                      r"fact|observation)(s?)[ \t~]+(\d+(?:\.\d+)*)(?![\w]|\.\d)", re.I)
+LABEL_RE = re.compile(rf"(?<![\w])({project.RESULT_KINDS_RE})(s?)[ \t~]+(\d+(?:\.\d+)*)(?![\w]|\.\d)", re.I)
 
 
 def exact_label(field):
@@ -1530,8 +1593,9 @@ KIND_TITLES = {"global": "Global differences (conventions stated once on the she
                "revote": "Unsettled re-votes", "proxy": "Decisions taken for you as a [PROXY]",
                "delegated": "Other decisions delegated at intake", "open": "Open questions",
                "defer": "Standing rules in the audit configuration",
-               "proposed-defer": "Proposed standing rules (not configured)"}
-HUMAN_KINDS = ("question", "proxy", "open", "revote")
+               "proposed-defer": "Proposed standing rules (not configured)",
+               "declined": "ADOPT rows not carried out"}
+HUMAN_KINDS = ("question", "proxy", "open", "revote", "declined")
 
 
 def kind_group(anchor, deleg):
@@ -2075,6 +2139,23 @@ def skeleton(cfg, rounds, last_round):
             f"uses " + "; ".join(f"`{a}`" for a in args) + f" of the approved statement `{decl}`. Options: keep it "
             "(the paper's statement, with an idle hypothesis), or drop it (a stronger statement: a "
             "re-approval and one more round).\n\n" + FIELDS, mention=decl)
+    # 6c. ADOPT rows not carried out (B1, review H1): OUTCOMES.md "not implemented -- disagree" / "could not be
+    # implemented", not decided again by a later round -- the human's (Checkpoint C), or a disclosed delegated decision
+    for rnd, lane, it_, oc, note in declined_adopts(rounds):
+        # anchored on the stable fields (round, lane, item), never the free-text outcome or note (compatibility
+        # review L2: rewording OUTCOMES.md must not ask the human again)
+        import lanecheck as _lc, audit_coverage as _ac
+        add(versioned("declined", f"{rnd}-{lane}-{it_}", f"{rnd}\n{_lc.lane_base(lane)}\n{_ac.norm_item(it_)}"),
+            f"ADOPT not carried out: {it_}",
+            f"Round {rnd}, lane {lane}: the adjudicator ADOPTed a change (its row in {rnd}/ADOPTED.md); "
+            + ("the author's OUTCOMES.md has no row for it" if oc == NO_OUTCOME else
+               f"the author's OUTCOMES.md records \u201c{oc}\u201d" + (f": {note}" if note else ""))
+            # INT-REVIEW LOW-1: no claim about the result's status here (an ADOPT can sit on a Pass verdict, e.g. a
+            # docstring improvement, whose result stays faithful): the summary's table gives the status
+            + ". No later round decided it again or passed it, and no further round is run for it. Keep the Lean as "
+            "it is, or have the change made (a statement change goes through re-approval).\n\n" + FIELDS,
+            mention=question_mention(it_), asked=(rnd,), label=it_,
+            matter=decl_matter(it_, idx) or exact_label(it_))
     # 7. changes after the last audit round
     late = changes_after(cfg, rounds)
     if late:
@@ -2711,6 +2792,7 @@ def selftest():
         _per_matter_controls(tmp, say)
         _question_level_controls(tmp, say)
         _checkpoint_c_controls(tmp, say)
+        _declined_controls(tmp, say)
         _checkpoint_b_decided_controls(tmp, say)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -2937,6 +3019,99 @@ def _question_level_controls(tmp, say):
             not needs_human(cfg, rounds)(late, "N.lem"))
     finally:
         project.REPO, globals()["reapproval_question"] = keep_r, keep_q
+
+
+def _declined_controls(tmp, say):
+    """B1 (review H1): an ADOPT row OUTCOMES.md records as not carried out is a decisions item: under `involved` one
+    of Checkpoint C's (delivery waits for the human's answer), under a delegating level a disclosed item; a later
+    round's row on the same item takes over; an implemented one is no item."""
+    rd = os.path.join(tmp, "dcl")
+    r1, r2 = os.path.join(rd, "2026-01-01-aaaaaaa"), os.path.join(rd, "2026-01-02-bbbbbbb")
+    head = "| lane | item | verdict | decision | reason |\n|---|---|---|---|---|\n"
+    os.makedirs(r1)
+    json.dump({"_meta": {"kind": "full"}, "correspondence": ["Paper.x", "Paper.y", "Paper.z"]},
+              open(os.path.join(r1, "TARGET.json"), "w"))
+    open(os.path.join(r1, "ADOPTED.md"), "w").write(
+        head + "| correspondence | Paper.x | Fail | **ADOPT** — drop h | x |\n"
+        "| correspondence | Paper.y | Fail | **ADOPT** — docstring | y |\n"
+        "| correspondence | Paper.z | Fail | **ADOPT** — reprove | z |\n")
+    open(os.path.join(r1, "OUTCOMES.md"), "w").write(
+        "| lane | item | outcome | note |\n|---|---|---|---|\n"
+        "| correspondence | Paper.x | not implemented — disagree | strengthens the approved statement |\n"
+        "| correspondence | Paper.y | implemented as described | done |\n"
+        "| correspondence | Paper.z | could not be implemented | the proof does not go through |\n")
+    logp = os.path.join(rd, "RUN_LOG.md")
+    open(logp, "w").write("# Run log\n## Open questions\n## Answered\n")
+    g = globals()
+    keep = (project.REPO, g["changes_after"], g["reapproval_question"])
+    project.REPO = tmp
+    g["changes_after"] = lambda c, r: []
+    g["reapproval_question"] = lambda c_: None
+    try:
+        cfg = {"name": "D", "rounds_dir": "dcl", "lean_files": [], "involvement": "involved"}
+        o = checkpoint_c_open(cfg)
+        dc = sorted(x for x in o if x.startswith("declined:"))
+        say("B1 (review H1): involved, two ADOPT rows not carried out (disagree; could not be implemented) and no Lean "
+            "change: each is a Checkpoint C item, --deliver waits; the implemented one is no item",
+            len(dc) == 2 and all("Paper.x" in x or "Paper.z" in x for x in dc) and checkpoint_c_refusal(cfg))
+        open(logp, "a").write("".join(f"- answered {x} (2026-01-03, 2026-01-01-aaaaaaa): keep the Lean as it is\n"
+                                      for x in dc))
+        say("B1 (review H1): the human's answers close those items", not any(x.startswith("declined:")
+                                                                           for x in checkpoint_c_open(cfg)))
+        cfg["involvement"] = "hands-off"
+        open(logp, "w").write("# Run log\n## Open questions\n## Answered\n")
+        _md, anchors = skeleton(cfg, project.rounds(cfg), r1)
+        say("B1 (review H1): under a delegating level the decline is a disclosed item of the decisions document "
+            "(C never waits)", sum(a.startswith("declined:") for a in anchors) == 2 and checkpoint_c_open(cfg) == []
+            and "ADOPT not carried out" in _md)
+        cfg["involvement"] = "involved"
+        os.makedirs(r2)
+        json.dump({"_meta": {"kind": "full"}, "correspondence": ["Paper.x"]}, open(os.path.join(r2, "TARGET.json"), "w"))
+        open(os.path.join(r2, "ADOPTED.md"), "w").write(head + "| correspondence | Paper.x | Fail | **QUESTION** | "
+                                                               "keep h? |\n")
+        for k_, d_ in enumerate((r1, r2)):
+            os.utime(d_, (1_700_000_000 + 3600 * k_, 1_700_000_000 + 3600 * k_))
+        o = checkpoint_c_open(cfg)
+        say("B1 (review H1): a later round's row on the declined item takes over (its QUESTION is asked, the decline "
+            "is not asked twice)", [x for x in o if x.startswith("declined:")] == [
+                x for x in dc if "Paper.z" in x] and anchor_id("question", "Paper.x") in o)
+        # attack review MEDIUM-2: any outcome not starting with "implemented" is a decline, an ADOPT with no
+        # OUTCOMES.md row is one too; compatibility review L2: a later round's Pass on the item takes over, and the
+        # anchor does not move when the outcome's note is reworded
+        rd2 = os.path.join(tmp, "dcl2")
+        s1 = os.path.join(rd2, "2026-01-01-aaaaaaa")
+        os.makedirs(s1)
+        json.dump({"_meta": {"kind": "full"}, "correspondence": ["Paper.a", "Paper.b", "Paper.c", "Paper.d", "Paper.e"]},
+                  open(os.path.join(s1, "TARGET.json"), "w"))
+        open(os.path.join(s1, "ADOPTED.md"), "w").write(head + "".join(
+            f"| correspondence | Paper.{k} | Fail | **ADOPT** — x | x |\n" for k in "abcde"))
+        oc_ = lambda note: ("| lane | item | outcome | note |\n|---|---|---|---|\n"
+                            f"| correspondence | Paper.a | declined — disagree | {note} |\n"
+                            "| correspondence | Paper.b | deferred (disagree) | later |\n"
+                            "| correspondence | Paper.c | implemented differently | done |\n"
+                            "| correspondence | Paper.e | done | fixed |\n"
+                            "| — | (no ADOPT rows) | — | round adopted nothing |\n")
+        open(os.path.join(s1, "OUTCOMES.md"), "w").write(oc_("too strong"))
+        rr = [s1]
+        got = {it: oc for _r, _l, it, oc, _n in declined_adopts(rr)}
+        _md, anc1 = skeleton(dict(cfg, rounds_dir="dcl2"), rr, s1)
+        open(os.path.join(s1, "OUTCOMES.md"), "w").write(oc_("it strengthens the statement"))
+        _md, anc2 = skeleton(dict(cfg, rounds_dir="dcl2"), rr, s1)
+        say("B1 (attack review MEDIUM-2): 'declined — disagree', 'deferred (disagree)', 'done' and a missing OUTCOMES "
+            "row are declines; 'implemented differently' is not; rewording the note keeps the anchor",
+            got == {"Paper.a": "declined — disagree", "Paper.b": "deferred (disagree)", "Paper.d": NO_OUTCOME,
+                    "Paper.e": "done"}
+            and sorted(a for a in anc1 if a.startswith("declined:")) == sorted(a for a in anc2 if a.startswith("declined:"))
+            and sum(a.startswith("declined:") for a in anc1) == 4)
+        s2 = os.path.join(rd2, "2026-01-02-bbbbbbb")
+        os.makedirs(s2)
+        json.dump({"lane": "correspondence", "scope": ["Paper.a"], "verdicts": [{"item": "Paper.a", "verdict": "Pass",
+                                                                                "checked": "x"}]},
+                  open(os.path.join(s2, "correspondence.json"), "w"))
+        say("B1 (compatibility review L2): a later round's Pass on the declined item takes it off the list",
+            sorted(it for _r, _l, it, _o, _n in declined_adopts([s1, s2])) == ["Paper.b", "Paper.d", "Paper.e"])
+    finally:
+        project.REPO, g["changes_after"], g["reapproval_question"] = keep
 
 
 def _checkpoint_c_controls(tmp, say):
@@ -4467,6 +4642,24 @@ def _selftest(tmp, say):
         finally:
             project.changes_after_last_audit = cal
         say("a git failure in changes_after is an UNKNOWN item, never silence", ca_lines == ["UNKNOWN: git failed"])
+        _tags = {}
+        try:
+            for _b in ("compiled", "source", None):
+                project.changes_after_last_audit = lambda c, r, _b=_b: {
+                    "problem": None, "commits": ["abc1234 doc"], "dirty": [], "round": "x", "commit": "y",
+                    "comment_only": True, **({"comment_only_basis": _b} if _b else {})}
+                _tags[_b] = _real_changes_after(cfg, rounds)
+            project.changes_after_last_audit = lambda c, r: {
+                "problem": None, "commits": ["abc1234 code"], "dirty": [], "round": "x", "commit": "y",
+                "comment_only": False, "comment_only_basis": None}
+            _tags["no"] = _real_changes_after(cfg, rounds)
+        finally:
+            project.changes_after_last_audit = cal
+        say("DESIGN-M7: a comment-only commit is tagged by its basis: compiled 'verified mechanically'; source, or no "
+            "basis given, 'checked on the source' (never overclaimed); a code change carries no tag",
+            _tags["compiled"] == ["abc1234 doc (comments and docstrings only, verified mechanically)"]
+            and _tags["source"] == _tags[None] == ["abc1234 doc" + CO_SOURCE_TAG]
+            and "checked on the source" in CO_SOURCE_TAG and _tags["no"] == ["abc1234 code"])
         # main(): --write / --check / refusal to overwrite / --round
         saved_sel = project.select
         project.select = lambda name=None: (cfg, "stub")

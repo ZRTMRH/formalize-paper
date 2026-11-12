@@ -103,6 +103,10 @@ def strip_comments(text, literals=False):
                 out.append(m.group(0) if literals else "'" + " " * (len(m.group(0)) - 2) + "'")
                 i += len(m.group(0)); continue
         if text.startswith("/-", i):
+            if depth == 0 and i + 2 < n:
+                # Lean's `whitespace` steps over the character after an opening `/-` unread (review of the M7 build,
+                # H1): the `/-` of `/-/-` opens nothing, so `/-/- -/` is closed and what follows it is code
+                out.append("  " + ("\n" if text[i + 2] == "\n" else " ")); depth = 1; i += 3; continue
             depth += 1; out.append("  "); i += 2; continue
         if depth and text.startswith("-/", i):
             depth -= 1; out.append("  "); i += 2; continue
@@ -611,6 +615,11 @@ def selftest():
         say("macro is review", len(h["macro/elab/syntax (non-local)"]) == 1)
         say("a missing Lean file is reported", bool(h.get("MISSING FILE")))
         say("strip_comments keeps line numbers", strip_comments("a\n/- x\ny -/\nb").count("\n") == 3)
+        # review of the M7 build, H1: Lean steps over the character after `/-`, so `/-/- -/` is one closed comment
+        say("`/-/- -/` is one closed comment: the code after it is kept (Lean's `whitespace`)",
+            strip_comments("/-/- -/ theorem t : 1 = 1 := sorry -- -/\n").split() == "theorem t : 1 = 1 := sorry".split()
+            and strip_comments("/-/-\nx -/ -/ y").split() == ["-/", "y"]
+            and strip_comments("/--/ a -/ b").split() == ["b"])
     finally:
         shutil.rmtree(d, ignore_errors=True)
 

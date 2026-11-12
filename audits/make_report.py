@@ -250,7 +250,7 @@ def trust_rows(cfg):
         if hist:
             note += "; earlier approvals: " + ", ".join(hist)
         rows.append(("Approval of statements", est,
-                     (f"{who}: {st.count('approved')} of {len(st)} results approved {how}, "
+                     (f"{who}: {st.count('approved')} of {len(st)} statements on the sign-off sheet approved {how}, "
                       f"{st.count('excluded')} excluded, on {a.get('date', '?')} at Lean commit "
                       f"{a.get('commit', '?')}{note}") if st else
                      f"{who}: {len(a.get('fingerprints', {}))} declarations approved {a.get('date', '?')} "
@@ -391,6 +391,9 @@ RESOLVED_INTRO = ("A check or a tool call stopped the run, and nobody was asked:
                   "cure the cause table prints, closed by re-running the stop's recorded check, which must pass (RUN.md, "
                   "\"Stops and set-asides\"); a fault in the proof-validity core with no Lean-side workaround is "
                   "closed instead as not established, its check still failing. Its record is `<rounds dir>/stops/S<n>/`.")
+# compat review L1 (batch A): said only when a row of the table is a withdrawal, so no other run record changes
+RESOLVED_WITHDRAWN = (" A stop the operator opened in error is withdrawn instead (`close --withdrawn`): its check was "
+                      "still failing, nothing was cured, and it is counted as a failed cure.")
 
 
 def resolved_stops(cfg):
@@ -1010,6 +1013,22 @@ def fail_breakdown(dec, word):
     return f"{len(dec)} Fail verdicts ({', '.join(parts)})"
 
 
+# DESIGN-M7: the words that mark a comment-only verdict on the source basis (later_row; the facts draft reads them)
+LATER_SOURCE = "checked mechanically on the Lean source"
+
+
+def later_fact(n, st_):
+    """The facts draft's words for later_row's status `st_` with `n` commits (the SUMMARY is written from them).
+    Review M2 (DESIGN-M7): the source basis is said as such, never "verified mechanically"."""
+    if "change ONLY comments" in st_:
+        return (f"{n} Lean commit(s) change only comments and docstrings ("
+                + ("checked mechanically on the Lean source with comments removed; the compiled files are not "
+                   "byte-for-byte identical" if LATER_SOURCE in st_ else "verified mechanically") + ")")
+    return (f"{n} Lean commit(s) NOT re-audited (checked only by Phase 0)"
+            + ("; shipped as they are: the delivery phase's round cap is reached" if "round cap is reached" in st_
+               else ""))
+
+
 def later_row(cfg):
     """The trust-table row for changes after the last proof-examining round (None: no such round)."""
     c = project.changes_after_last_audit(cfg, project.rounds(cfg))
@@ -1022,12 +1041,21 @@ def later_row(cfg):
         return (name, what, f"UNKNOWN: {c['problem']}")
     parts = []
     if c["commits"] and c.get("comment_only"):
-        # mini2 audit (time): verified mechanically, so no round was run for it
-        parts.append(f"{len(c['commits'])} commit(s) since {where} change ONLY comments and docstrings "
-                     "(verified mechanically: each changed file, compiled before and after, gives identical "
-                     "declarations -- statements, proofs, definition bodies, attributes -- `project.py "
-                     "--comment-only`; no statement or proof changed); the changed "
-                     "docstrings themselves were not re-read by an audit lane: " + "; ".join(c["commits"]))
+        # mini2 audit (time): verified mechanically, so no round was run for it. DESIGN-M7: on the source basis (or
+        # with no basis given: never overclaim) the wording says what was checked and that no cause is established
+        if c.get("comment_only_basis") == "compiled":
+            parts.append(f"{len(c['commits'])} commit(s) since {where} change ONLY comments and docstrings "
+                         "(verified mechanically: each changed file, compiled before and after, gives identical "
+                         "declarations -- statements, proofs, definition bodies, attributes -- `project.py "
+                         "--comment-only`; no statement or proof changed); the changed "
+                         "docstrings themselves were not re-read by an audit lane: " + "; ".join(c["commits"]))
+        else:
+            parts.append(f"{len(c['commits'])} commit(s) since {where} change ONLY comments and docstrings "
+                         f"({LATER_SOURCE}: with comments and docstrings removed, each changed file reads exactly as "
+                         "before; Lean compiled both versions and found the same declarations, types, values and "
+                         "attributes, but the compiled files are not byte-for-byte identical, and why is not known; "
+                         "`project.py --comment-only`); no audit lane re-read the changed docstrings: "
+                         + "; ".join(c["commits"]))
     elif c["commits"]:
         cap = project.delivery_cap(cfg)
         parts.append(f"{len(c['commits'])} commit(s) since {where} NOT re-audited (checked only by "
@@ -1054,8 +1082,36 @@ DECL = r"(?:theorem|lemma|def|abbrev|structure|inductive|class|instance|noncompu
 # "Definition (notation 𝒬(n), tex l.38-39)" -- approved and frozen (signoff.index_rows, scope.INDEX_ROW read it) --
 # was left out of the coverage table, the statuses and the summary (11 listed against 12 approved). One parser
 # now: every row the freeze and the sheet read
-RESULT = re.compile(rf"^(?:{project.RESULT_KINDS_RE})\s+\S", re.I)
-NUMBERED = re.compile(rf"^(?:{project.RESULT_KINDS_RE})\s+[\d.]*\d", re.I)
+# E2E-FIX2 M1: which rows are results is project.index_table's (its label words: project.INDEX_KINDS);
+# a numbered one is a label whose words are followed by a number ("Problem 6.4", "lemma 2.1", "Lemma~2.1", "Equation
+# (1.3)"); "Definition (partial sums, tex l.107)" and "Theorem A" are not numbered
+NUMBERED = re.compile(r"^[^\W\d_][\w'’-]*(?:\s+[^\W\d_][\w'’-]*)?[\s~]+\(?[\d.]*\d")
+# The owner's rule (no new stop): a row whose label word the index reader before E2E-FIX2 did not read (Problem,
+# Question, Notation, ...) is a result row now, but a fault of the index's own hygiene in it (no declaration, a
+# dangling name, no SKIPPED.md row) is a NOTE, never a FAIL: such rows were never checked before. The old words:
+OLD_INDEX_KINDS = re.compile(r"(?:Definition|Lemma|Theorem|Proposition|Corollary|Claim|Remark|Example|Conjecture|"
+                             r"Fact|Observation|Construction)\s")
+
+
+def newly_read(label):
+    """Is `label` an index row only E2E-FIX2's reader reads (its fault is a NOTE)?"""
+    return not OLD_INDEX_KINDS.match(str(label))
+
+
+def newly_read_notes(acc_p):
+    """(problems, notes) of index_accounting's problems: one for a newly read row (newly_read) with no SKIPPED.md row
+    is a NOTE (the owner's rule), every other problem stays."""
+    probs, notes = [], []
+    for p_ in acc_p:
+        m_ = isinstance(p_, str) and re.match(r"! (.+): not formalized by the index, and no SKIPPED\.md row explains "
+                                              r"it$", p_)
+        if m_ and newly_read(m_.group(1)):
+            notes.append(f"NOTE: {p_[2:]} (a row of this label word was not read before: a note, not a failure)")
+        else:
+            probs.append(p_)
+    return probs, notes
+
+
 NOT_FORMALIZED = re.compile(r"not formalized|no new statement|deferred|out of scope", re.I)
 
 
@@ -1071,6 +1127,18 @@ def declared_names(lean_files):
                 if q != "_unnamed":
                     names |= scope.short_names(q)
     return names
+
+
+def index_cells(path):
+    """The cells of every result row of the index file `path`, as lists of cells; [] when it is missing: 99d928e's
+    report reader (table_rows, then a label opening with a result word, any case, indentation stripped), its words
+    widened only by Problem and Question (project.INDEX_KINDS; E2E-FIX2c: nothing it read is dropped). No guard of
+    its own: a path that is not a readable file fails as at 99d928e (a first pin's result_status that cannot read
+    the index must fail, so tool_patch's status comparison fails closed; SWEEP-FIX D4)."""
+    return [r for r in table_rows(path) if r and RESULT.match(r[0])]
+
+
+RESULT = re.compile(rf"^(?:{'|'.join(project.INDEX_KINDS)})\s+\S", re.I)
 
 
 def table_rows(path):
@@ -1116,7 +1184,6 @@ def cited_names(cells, declared):
 # may simply have no 4.4). It cannot say the index is COMPLETE: a green run means the index is
 # internally honest, not that the paper is covered (that stays with the faithfulness lane). Phase 0
 # runs it as its own gate (`--check --index-only`), which a statement round does not waive.
-INDEX_ROW = re.compile(rf"^\|\s*((?:{project.RESULT_KINDS_RE})\s[^|]*?)\s*\|\s*(.*?)\s*\|\s*$")
 NUM = re.compile(r"(\d+)\.(\d+)")
 
 
@@ -1130,22 +1197,31 @@ def index_check(cfg, declared):
     path = os.path.join(REPO, project.index_file(cfg) or "")
     if not os.path.isfile(path):
         return None
-    rows = [(m.group(1).strip(), m.group(2).strip())
-            for m in map(INDEX_ROW.match, open(path, encoding="utf-8").read().splitlines()) if m]
+    rows, skipped = project.index_table(open(path, encoding="utf-8").read())
+    rows = [(lab, rest.strip()) for lab, rest, _l in rows]
     if not rows:
         return None
-    out = dict(rows=rows, dangling=[], empty=[], witness=[], gaps=[], unknown=[])
+    # E2E-FIX2 M1: a data row no result can be keyed on (an empty label) is named, never dropped silently
+    out = dict(rows=rows, dangling=[], empty=[], witness=[], gaps=[], unknown=[], skipped=skipped, noted=[])
     strict = bool(cfg.get("index_strict"))
     for paper, lean in rows:
+        if newly_read(paper):       # its dangling names and emptiness are NOTEs (OLD_INDEX_KINDS)
+            sub = dict(dangling=[], empty=[], unknown=out["unknown"])
+        else:
+            sub = out
         spans = re.findall(r"`([^`]+)`", lean)
         cited = [t for t in spans if IDENT.match(t)]
         if strict:
-            out["dangling"] += [(paper, t) for t in spans if t not in declared]
+            sub["dangling"] += [(paper, t) for t in spans if t not in declared]
         else:
-            out["dangling"] += [(paper, t) for t in cited if t not in declared and OURS.match(t)]
-            out["unknown"] += [(paper, t) for t in cited if t not in declared and not OURS.match(t)]
+            sub["dangling"] += [(paper, t) for t in cited if t not in declared and OURS.match(t)]
+            sub["unknown"] += [(paper, t) for t in cited if t not in declared and not OURS.match(t)]
         if not any(t in declared for t in cited) and not NOT_FORMALIZED.search(lean):
-            out["empty"].append((paper, lean[:70]))
+            sub["empty"].append((paper, lean[:70]))
+        if sub is not out:
+            out["noted"] += [(paper, f"`{t}` is not a declaration of this project") for _p, t in sub["dangling"]]
+            out["noted"] += [(paper, "it cites no existing declaration and does not say \"not formalized\"")
+                             for _p, _l in sub["empty"]]
     seen = {}
     for paper, _ in rows:
         m = NUM.search(paper)
@@ -1299,6 +1375,41 @@ def f10_verdict(rounds_dir, cite, label=None):
     return str((mine or its)[-1].get("verdict", "")), None
 
 
+def f10_verdict_for(rounds_dir, cite, name):
+    """f10_verdict of the lane record `cite` for the refutation `name` (A3b; b2v TP1, tightened): the verdict of
+    the F10 item that the record's round scheduled for `name` (its TARGET.json `_meta.f10`, the parent round's for
+    a revote/ record); (None, why) when such an item was scheduled but the record did not judge it, or when the
+    round has an F10 schedule (the key `f10` present, even `{}`: scope.py writes it in every round since F10
+    scheduling) with no item for `name` (the line cites the wrong record), or when its TARGET.json cannot be read.
+    f10_verdict's answer (the record's last F10 item) only for a round from before F10 scheduling (no `f10` key).
+    A record judging several counterexamples confirms or rejects each only for its own refutation."""
+    v, why = f10_verdict(rounds_dir, cite)
+    if why:
+        return v, why
+    import lanecheck
+    p = os.path.normpath(os.path.join(rounds_dir, cite))
+    rd = os.path.dirname(p)
+    if os.path.basename(rd) == "revote":
+        rd = os.path.dirname(rd)
+    short = name.split(".")[-1]
+    try:
+        meta = json.load(open(os.path.join(rd, "TARGET.json"), encoding="utf-8")).get("_meta") or {}
+        got = lanecheck.judged_items(json.load(open(p, encoding="utf-8")))
+    except (OSError, ValueError, AttributeError):
+        return None, f"F10 cites {cite}, whose round's TARGET.json cannot be read (its F10 schedule)"
+    if not isinstance(meta, dict) or "f10" not in meta:
+        return v, why           # a round scoped before F10 scheduling: the record's last F10 item
+    f10 = meta.get("f10")
+    items = [lanecheck.clean_cell(i) for i, n in f10.items() if str(n).split(".")[-1] == short] \
+        if isinstance(f10, dict) else []
+    if not items:
+        return None, f"F10 cites {cite}, whose round {os.path.basename(rd)} scheduled no F10 item for {short}"
+    mine = [got[i] for i in items if got.get(i)]
+    if not mine:
+        return None, f"F10 cites {cite}, which did not judge the F10 item scheduled for {short}"
+    return str(mine[-1]), None
+
+
 # F12 in code (B4, U2 §3 "Minimal correction"): a `false` row whose repair claims to be minimal (typo, add hypothesis,
 # local) cites the paper-faithfulness lane that confirmed the paper's proof proves the corrected statement,
 # `F12: <round>/<lane file>.json`, whose F12 item is Pass and cites the step of the paper's proof where the added
@@ -1322,7 +1433,7 @@ def defect_result(head, row):
     if j is None or j >= len(row):
         return None
     lab = " ".join(re.split(r"[,;]|\s\(", str(row[j]).replace("*", "").replace("`", ""), maxsplit=1)[0].split())
-    return lab if re.match(rf"(?:{project.RESULT_KINDS_RE})\s", lab) else None
+    return lab if re.match(rf"(?:{project.RESULT_KINDS_RE})\s", lab, re.I) else None
 
 
 def f12_rows(path):
@@ -1670,9 +1781,9 @@ def row_decls(head, row, cfg=None, refuted=None):
     lab = defect_result(head, row)
     if cfg is not None and lab:
         p = os.path.join(project.REPO, project.index_file(cfg) or "")
-        for m in map(INDEX_ROW.match, open(p, encoding="utf-8").read().splitlines() if os.path.isfile(p) else []):
-            if m and " ".join(m.group(1).split()) == lab:
-                out |= {_short(t) for t in re.findall(r"`([^`]+)`", m.group(2)) if IDENT.match(t)}
+        for lab_, rest_ in project.index_rows(open(p, encoding="utf-8").read() if os.path.isfile(p) else ""):
+            if " ".join(lab_.split()) == lab:
+                out |= {_short(t) for t in re.findall(r"`([^`]+)`", rest_) if IDENT.match(t)}
     return out
 
 
@@ -1779,7 +1890,7 @@ def f10_problems(path, head, rows, cfg=None):
             continue
         ok = False
         for ln in enc:
-            if re.search(rf"\b{re.escape(name)}\b", ln) and any(f10_verdict(rd, c)[0] == "Fail"
+            if re.search(rf"\b{re.escape(name)}\b", ln) and any(f10_verdict_for(rd, c, name)[0] == "Fail"
                                                                  for c in F10_CITE.findall(ln)):
                 ok = True
         if not ok:
@@ -1889,6 +2000,14 @@ def index_only(cfg, pending=False):
             print(f"  {a_}: {b_}")
     print(f"NUMBERING GAPS ({len(ix['gaps'])}, warning: the paper may simply have no such result): "
           + (", ".join(ix["gaps"]) or "none"))
+    for a_, b_ in ix.get("noted") or []:     # the owner's rule: a newly read row's fault is a flag
+        print(f"NOTE: index row {a_!r}: {b_} (fix the index; a row of this label word was not read before, so this "
+              f"is a note, not a failure)")
+    sk_ = ix.get("skipped") or []
+    if sk_:     # E2E-FIX2c: a `|` line not read as a result row is named, never dropped silently (one NOTE)
+        print(f"NOTE: {len(sk_)} `|` line(s) of the index are not read as result rows (their first cell does not open "
+              f"with a result word: {', '.join(project.INDEX_KINDS)}); if one is a result, give it the paper's "
+              f"label: " + "; ".join(repr(x[:80]) for x in sk_))
     names = refutation_name_problems(cfg)
     print(f"REFUTATIONS NOT NAMED not_<decl>_as_printed ({len(names)})")
     for x in names:
@@ -2623,8 +2742,7 @@ def summary_inputs(cfg):
     import decisions, stops
     rd = os.path.join(REPO, cfg["rounds_dir"])
     inp = {"rd": rd}
-    index = table_rows(os.path.join(REPO, project.index_file(cfg)))
-    inp["index"] = [r for r in index if r and RESULT.match(r[0])]
+    inp["index"] = index_cells(os.path.join(REPO, project.index_file(cfg) or ""))
     for k, f, keycol in (("skipped", "SKIPPED.md", "what"), ("deviations", "DEVIATIONS.md", "kind"),
                          ("vacuous", "VACUOUS.md", "statement")):
         inp[k] = record_table(os.path.join(rd, f), keycol)
@@ -2760,6 +2878,10 @@ def plain_status(statuses):
 
 
 ANSWERS_SECTION = "Answers recorded as yours"
+# DESIGN-E fix 2: SUMMARY's first page points to the README's code-written section (project.CHECKED_HEADING); a
+# delivered SUMMARY without it is a note (delivery_problems), never a refusal
+README_POINTER = ("What the checking code found -- each result's status as the code computes it, the answers recorded "
+                  "as yours, and anything the checks noticed -- is in README.md.")
 ANSWERS_INTRO = ("Check that you gave each: the protocol cannot verify who typed them. The audit commit that recorded "
                  "each is your receipt (a later rewrite of the run's history changes it).")
 ANSWER_PREFIXES = {"answer": "answer", "stop answer": "question answer", "approval": "approval", "stop": "stop decision"}
@@ -2786,10 +2908,12 @@ PAGE_GROUPS = (
 # when the page is full, items are counted (named on one line, with the place of their full text) instead of listed:
 # first the kinds a reader can most easily miss without harm, one item at a time; then the answers (their receipts
 # stay in REPORT); then, evenly, the kinds a reader must see (the one with the most lines listed gives one up first)
+# A reading choice is a question to the authors (C8): reduced to a count only with the most important kinds,
+# never among the first (batch C fix round 1, COMPAT-C L4).
 COLLAPSE_LOW = ("not a defect", "global difference", "superseded row", "standing defer", "stated only",
-                "not formalized", "reading choice", "proof route", "waiver", "re-approval")
+                "not formalized", "proof route", "waiver", "re-approval")
 COLLAPSE_ANSWERS = ("answer", "question answer", "approval", "stop decision")
-COLLAPSE_EVEN = ("assumption", "missing theory", "open question", "unused hypothesis", "stop",
+COLLAPSE_EVEN = ("assumption", "missing theory", "open question", "reading choice", "unused hypothesis", "stop",
                  "proof slip", "vacuous", "defect")
 SINCE_SHORT = "decided by the operator on your behalf"     # a summary line's word for a [DELEGATED] decision since
 SHORT_MAX = 130         # a line's free text longer than this is shortened to its first sentence, with a pointer
@@ -3020,11 +3144,7 @@ def disclosure_keys(cfg, inp=None):
             add("after the last audit round", "", st_)
         else:
             # composed from the row's facts, short by construction (the commits themselves: the report)
-            what = (f"{n_.group(1)} Lean commit(s) change only comments and docstrings (verified mechanically)"
-                    if "change ONLY comments" in st_ else
-                    f"{n_.group(1)} Lean commit(s) NOT re-audited (checked only by Phase 0)"
-                    + ("; shipped as they are: the delivery phase's round cap is reached"
-                       if "round cap is reached" in st_ else ""))
+            what = later_fact(n_.group(1), st_)
             keys.append(Key(grp["after the last audit round"], "after the last audit round", "",
                             what + ("; UNCOMMITTED changes" if "UNCOMMITTED" in st_ else "")
                             + f" (the commits: {_where(cfg, 'not run', sec)})"))
@@ -3050,7 +3170,8 @@ def page_stops(rows):
     by you, or closed by the operator on your behalf (a delegated decision). A self-cure is RUN_RECORD.md's."""
     # a stop closed as not verified (a fault of the checking tools): the page says its consequence in plain words, the
     # stop itself is RUN_RECORD.md's (approver, 2026-10-26)
-    return [s for s in rows if not s.get("cured") and not s.get("deferred") and not s.get("core")]
+    return [s for s in rows if not s.get("cured") and not s.get("deferred") and not s.get("core")
+            and not s.get("withdrawn")]
 
 
 def _preamble(t, inp):
@@ -3418,7 +3539,7 @@ def summary_page(cfg, inp=None):
             "sheet of the latest approval (SIGNOFF.pdf, SIGNOFF.md" + (f"; round {(inp.get('approval') or {}).get('round')}"
                                                                       if (inp.get("approval") or {}).get("round") else "")
             + "), D the run record (RUN_RECORD.md: how the run went -- self-cured stops, set-asides, process events, "
-            "known presentation faults).", "", "- " + PDF_LINE]
+            "known presentation faults).", "", "- " + PDF_LINE, "", "- " + README_POINTER]
     by = {g: [k for k in keys if k.group == g] for g, _ in PAGE_GROUPS}
     shown = {p: sum(1 for k in keys if k.prefix == p) for _, ps in PAGE_GROUPS for p in ps}
 
@@ -3484,8 +3605,10 @@ def summary_md(cfg, inp=None):
 
 
 def _table_rows_of(text):
-    """{label: status} and [label] (every occurrence) of the summary's results table."""
+    """{label: status} and [label] (every occurrence) of the summary's results table. Rows inside an HTML comment are
+    not read (re-review E L4: the reader does not see them, and project.summary_result_rows drops them too)."""
     st, seen = {}, []
+    text = re.sub(r"<!--.*?(?:-->|\Z)", "", text, flags=re.S)
     sec_ = text.split("\n## Results", 1)[-1].split("\n## ", 1)[0]
     for l in sec_.splitlines():
         if not l.startswith("| ") or l.startswith("| Status |") or l.startswith("|---"):
@@ -3845,6 +3968,14 @@ def delivery_problems(cfg, inp=None):
         out.append(("deliver", f"the summary coverage check (it reads the generator's layout; your wording may differ) "
                                f"cannot see {len(sp_)} item(s) in SUMMARY.md as it expects -- check that each is covered: "
                                + "; ".join(sp_)))
+    # DESIGN-E fix 2: the agent's SUMMARY keeps the line pointing to README.md's code-written section (a note)
+    try:
+        summ_ = open(os.path.join(rd, "SUMMARY.md"), encoding="utf-8").read()
+    except OSError:
+        summ_ = None
+    if summ_ is not None and project.CHECKED_POINTER.lower() not in summ_.lower():
+        out.append(("deliver", "SUMMARY.md has no line pointing to README.md's section \"What the checking code "
+                               "found\" (run/stage5-delivery.md step 5): add it on its first page"))
     # trial #10 audit: every Lean name a delivered document cites exists (a wrong Mathlib name shipped); the main
     # agent's SUMMARY and REPORT as delivered (approver 2026-10-28)
     try:
@@ -3881,6 +4012,115 @@ def delivery_problems(cfg, inp=None):
     # documents and the delivery reviewers advise (run/stage5-delivery.md)
     out += [("deliver-stale", t) for t in stale_problems(cfg)]
     out += pending_adjudication(cfg, inp)
+    out += decided_notes(cfg, inp)
+    return out
+
+
+def _outcome_of(rd, rnd, lane, item):
+    """The outcome cell of round `rnd`'s OUTCOMES.md row for (lane, item) -- lane by its base, item as
+    audit_coverage.norm_item compares them -- or None when the file has no such row."""
+    import lanecheck, audit_coverage as ac
+    p = os.path.join(rd, rnd, "OUTCOMES.md")
+    if not os.path.exists(p):
+        return None
+    import decisions
+    for header, cells in decisions.table_rows(open(p, encoding="utf-8").read()):
+        if "outcome" not in header or "item" not in header or "lane" not in header:
+            continue
+        cl = lambda h: lanecheck.clean_cell(cells[header.index(h)]) if header.index(h) < len(cells) else ""
+        if lanecheck.lane_base(cl("lane")) == lanecheck.lane_base(lane) and \
+                ac.norm_item(cl("item")) == ac.norm_item(str(item)):
+            return " ".join(cl("outcome").split())
+    return None
+
+
+def _decl_files(cfg, decls, _cache=None):
+    """{lean file} declaring any of `decls` (scope.py's parser; `_cache`: a dict reused across calls)."""
+    import scope
+    cache = {} if _cache is None else _cache
+    if "names" not in cache:
+        cache["names"] = {}
+        for rel in cfg.get("lean_files", []):
+            f = os.path.join(REPO, rel)
+            if os.path.exists(f):
+                cache["names"][rel] = set().union(*[scope.short_names(q) for q in
+                                                     scope.parse_decls(open(f, encoding="utf-8").read())
+                                                     if q != "_unnamed"] or [set()])
+    want = set(decls) | {d.rsplit(".", 1)[-1] for d in decls}
+    return {rel for rel, ns_ in cache["names"].items() if ns_ & want}
+
+
+def decided_notes(cfg, inp=None):
+    """[("deliver", note)]: never a refusal (B1, MAINTAINING L5). A decided row scopes no round, so what that round
+    did as a side effect is said here for the main agent to judge (JUDGEMENT.md):
+      * one line naming the results "not established" only through decided rows (review L4), to explain in the
+        summary;
+      * an ADOPT whose round's OUTCOMES.md has no row for it, or says "implemented ..." while no Lean commit after
+        that round touched a file declaring it (review M1: B' of the next round used to catch a fix claimed and not
+        made);
+      * an answered QUESTION whose answer took another reading than the one its row says the Lean takes (review M3:
+        the Lean then formalizes a reading the decision did not take; RUN.md stage 5 step 7);
+      * an answered QUESTION with no Lean commit after its round touching a file declaring it (attack review L4: an
+        answer that asked for a change nothing then made);
+      * a QUESTION row whose [Lean: ...] token its own text contradicts (attack review MEDIUM-1: read as no reading)."""
+    import result_status as _rs
+    inp = {} if inp is None else inp
+    out = []
+    try:
+        rts = _rs.routes(cfg, inp)
+        c = _rs.ctx_of(cfg, inp)
+    except Exception as e:      # noqa: BLE001 -- a note, never a refusal
+        return [("deliver", f"the decided rows could not be read for their notes ({e!r})")]
+    res = list(dict.fromkeys(r.result for r in rts if r.route == "decided"))
+    if res:
+        out.append(("deliver", f"{len(res)} result(s) read \"not established\" only because of rows their round's "
+                               "adjudicator already decided (ADOPT, DEFER, an answered QUESTION; no further round can "
+                               "change them, so none is run): explain each in the summary: " + ", ".join(res[:20])
+                               + (", ..." if len(res) > 20 else "")))
+    rd = os.path.join(REPO, cfg["rounds_dir"])
+    seen, fcache = set(), {}
+
+    def no_commit(rnd, it, v):
+        """The files declaring `it` when no Lean commit after round `rnd` touched any of them (else None)."""
+        decls = [_rs.item_decl(it, c["ns"], c["known"])] if not re.match(
+            rf"(?i)^\W*(?:{project.RESULT_KINDS_RE})\s", str(it)) else v["names"]
+        files = _decl_files(cfg, [x for x in decls if x], fcache)
+        commit = project.round_commit(rnd)
+        r_ = subprocess.run(["git", "-C", REPO, "log", "--format=%H", f"{commit}..HEAD", "--", *sorted(files)],
+                            capture_output=True, text=True) if files else None
+        if not files or r_.returncode != 0 or not r_.stdout.strip():
+            return ", ".join(sorted(files)) if files else "a file declaring it"
+        return None
+    for (rnd, lane, items), v in sorted((c.get("decided_rows") or {}).items()):
+        for it, d in zip(items, v["decs"]):
+            if d not in ("ADOPT", "QUESTION") or (rnd, lane, it) in seen:
+                continue
+            seen.add((rnd, lane, it))
+            if d == "QUESTION":
+                nf = no_commit(rnd, it, v)
+                if nf:
+                    out.append(("deliver", f"the QUESTION row of round {rnd} on {lane} | {it} ({v['result']}) was "
+                                           f"answered, and no Lean commit after round {rnd} touched {nf}: if the "
+                                           "answer asked for a change, check that it was made (no further round "
+                                           "re-checks it), and say what holds in the summary"))
+                continue
+            oc = _outcome_of(rd, rnd, lane, it)
+            what = f"the ADOPT row of round {rnd} on {lane} | {it} ({v['result']})"
+            if oc is None:
+                out.append(("deliver", f"{what} has no OUTCOMES.md row: check that it was carried out (or record its "
+                                       "outcome) and say what holds in the summary (a decisions item too: "
+                                       "decisions.declined_adopts)"))
+                continue
+            if not oc.lower().startswith("implemented"):
+                continue            # declined: a decisions item (decisions.declined_adopts)
+            nf = no_commit(rnd, it, v)
+            if nf:
+                out.append(("deliver", f"{what}: OUTCOMES.md says \"{oc[:60]}\", but no Lean commit after round "
+                                       f"{rnd} touched {nf}: check that the change was made"))
+    for m in (c.get("reading_mismatch") or {}).values():
+        out.append(("deliver", m))
+    for m in (c.get("token_conflict") or {}).values():
+        out.append(("deliver", m))
     return out
 
 
@@ -3956,8 +4196,10 @@ def pending_adjudication(cfg, inp=None):
     fix 2: a `leave <decl> unproved` line logged after the final round looped between NEXT[stage5] and
     RED[adj-record])."""
     import decisions, result_status as _rs
+    # B1 (MAINTAINING L5): a row its round's adjudicator already decided (route `decided`) is not pending: no round
+    # can clear it, and its result keeps its "not established ... decision: X" status (decided_notes says so)
     out = [("adj-record", f"pending the next adjudication: {r.result}: {r.reason}")
-           for r in _rs.routes(cfg, inp) if r.code == "adj-record"]
+           for r in _rs.routes(cfg, inp) if r.code == "adj-record" and r.route != "decided"]
     pend = decisions.pending_refusal(cfg)
     if pend:
         out.append(("adj-record", pend))
@@ -3973,13 +4215,23 @@ def pending_adjudication(cfg, inp=None):
 
 
 def delivery_check(cfg):
-    """make_report.py --check --delivery: print each RED precondition; exit 1 if any (a FORMS command)."""
-    found = delivery_problems(cfg)
+    """make_report.py --check --delivery: print each RED precondition; exit 1 if any (a FORMS command). The notes of
+    decided rows (decided_notes) are printed as NOTE[deliver] and are no precondition (compatibility review L3: a
+    decided row alone never reads "NOT deliverable")."""
+    inp = {}
+    found = delivery_problems(cfg, inp)
+    try:
+        notes = set(decided_notes(cfg, inp))
+    except Exception:       # noqa: BLE001 -- then every line stays a RED line, as before
+        notes = set()
+    red = [f for f in found if f not in notes]
     for code, t in found:
-        print(f"RED[{code}] " + " ".join(str(t).split()))
-    print(f"delivery check: {'ok' if not found else 'NOT deliverable'}: {len(found)} precondition(s) open"
-          + ("" if not found else " (never a stop: prepare and the readers, a full round, or a diff round)"))
-    return 1 if found else 0
+        print(f"{'NOTE' if (code, t) in notes else 'RED'}[{code}] " + " ".join(str(t).split()))
+    n_note = len(found) - len(red)
+    print(f"delivery check: {'ok' if not red else 'NOT deliverable'}: {len(red)} precondition(s) open"
+          + (f"; {n_note} note(s) for the summary" if n_note else "")
+          + ("" if not red else " (never a stop: prepare and the readers, a full round, or a diff round)"))
+    return 1 if red else 0
 
 
 def assumptions(cfg):
@@ -4647,7 +4899,7 @@ def adjudication_findings(cfg, round_name=None, revotes=None):
     out += adj(prose_only_defects(os.path.join(rd, "PAPER_DEFECTS.md")))
     out += missing_theory_problems(cfg, heads["skipped"] or [], recs["skipped"])
     ixf = project.index_file(cfg)
-    index = [r for r in table_rows(os.path.join(REPO, ixf)) if r and RESULT.match(r[0])] if ixf else []
+    index = index_cells(os.path.join(REPO, ixf)) if ixf else []
     left_p, left_notes, _rows, pending = unproved_problems(cfg, index, heads["skipped"] or [], recs["skipped"],
                                                            declared)
     out += [p_ for p_ in left_p if is_pending(p_)] + adj(f"! {n_}" for n_ in left_notes)
@@ -4700,8 +4952,7 @@ def build(cfg, check_only=False, pending_ok=False, adjudicating=None):
     declared = declared_names(cfg["lean_files"])
     problems = []
 
-    index = table_rows(os.path.join(REPO, index_file))
-    index = [r for r in index if r and RESULT.match(r[0])]
+    index = index_cells(os.path.join(REPO, index_file or ""))
     # each record's table is the one whose header has its key column: PAPER_DEFECTS.md opens with
     # a status and repair legend, and reading the FIRST table put every defect under the legend's headers
     heads, recs = {}, {}
@@ -4744,11 +4995,17 @@ def build(cfg, check_only=False, pending_ok=False, adjudicating=None):
     left_p, left_notes, left_rows, pending = unproved_problems(cfg, index, heads["skipped"], skipped, declared)
     problems += left_p
     accounted, unaccounted, acc_p = index_accounting(index, skipped, declared, pending, index_adopts(cfg))
+    # the owner's rule: a newly read row (OLD_INDEX_KINDS) with no SKIPPED.md row is a note, never a FAIL
+    acc_p, new_notes = newly_read_notes(acc_p)
     problems += acc_p
 
     dev_adj = deviations_adjudicators(rounds_dir)
     for r in index + ([] if dev_adj else deviations):
         for t in cited_names(r, declared):
+            if r in index and newly_read(r[0]):
+                new_notes.append(f"NOTE: cited but not declared: `{t}` (in: {r[0][:44]}; a row of this label word "
+                                 f"was not read before: a note, not a failure)")
+                continue
             problems.append(f"! cited but not declared: `{t}` (in: {r[0][:44]})")
     for f_, rows_ in (("SKIPPED.md", skipped), ("PAPER_DEFECTS.md", defects)) \
             + ((("DEVIATIONS.md", deviations),) if dev_adj else ()):
@@ -4769,7 +5026,7 @@ def build(cfg, check_only=False, pending_ok=False, adjudicating=None):
     # QUESTION rows are the adjudicator's (ADOPTED.md): their LaTeX is set as code, as in ADJ_RECORDS
     questions = [(r_, l_, i_, refresh_lines(codeify_latex(w_), cfg), n_) for r_, l_, i_, w_, n_ in open_questions(cfg)]
     _rp = rendering_problems(cfg, skipped, defects, deviations, index, vacuous, questions, clearances_shown(cfg))
-    record_notes = [p_ for p_ in _rp if p_.startswith("NOTE")]
+    record_notes = [p_ for p_ in _rp if p_.startswith("NOTE")] + new_notes
     if not check_only:
         record_notes += stale_sorry_notes(rounds_dir, delivered_commit(cfg))     # ADDENDUM N2: never HEAD
     # a Lean name or file a record cites that no longer exists is a claim about nothing: F, it blocks
@@ -5118,6 +5375,30 @@ def _index_controls():
                          ("not_lemma_5_as_printed", ""), ("lemma_6_is_false", "Foo"))]
                        == ["not_lemma_7_4_b_as_printed", "not_lemma_7_4_b_as_printed", "not_lemma_2_as_printed",
                            "not_lemma_4_as_printed", "not_lemma_5_as_printed", "not_lemma_6_as_printed"]))
+        # E2E-FIX2 M1 (the e2e run's "Problem 6.4" row was dropped by every reader of the index): a Problem row is
+        # checked; a `|` line not read is named in a NOTE, never dropped silently
+        # the owner's rule (no new stop): a row of a label word not read before E2E-FIX2 gets NOTEs, never a FAIL
+        open(os.path.join(tmp, "P", "Main.lean"), "w").write(
+            "/-!\n| Paper | Lean |\n|---|---|\n| Lemma 1.1 | `lemma_1_1` |\n| Problem 6.4 | `problem_6_4` |\n"
+            "| Question 2 | a question |\n-/\n")
+        _bp = io.StringIO()
+        with contextlib.redirect_stdout(_bp), contextlib.redirect_stderr(_bp):
+            _rcp = index_only(strict)
+        checks.append(("E2E-FIX2 M1 (owner's rule): a Problem row is read by the index check: its undeclared name and "
+                       "an empty Question row are NOTEs naming them, not failures; the same faults in a Lemma row "
+                       "still fail; a declared name passes",
+                       _rcp == 0 and "NOTE: index row 'Problem 6.4': `problem_6_4` is not a declaration" in _bp.getvalue()
+                       and "NOTE: index row 'Question 2': it cites no existing declaration" in _bp.getvalue()
+                       and ix(["| Lemma 1.1 | `lemma_1_1` |", "| Lemma 6.4 | `problem_6_4` |"], strict) == 1
+                       and ix(["| Lemma 1.1 | `lemma_1_1` |", "| problem 6.4 | `helper` |"], strict) == 0))
+        open(os.path.join(tmp, "P", "Main.lean"), "w").write(
+            "/-!\n| Paper | Lean |\n|---|---|\n| Lemma 1.1 | `lemma_1_1` |\n|  | `helper` |\n-/\n")
+        _b = io.StringIO()
+        with contextlib.redirect_stdout(_b), contextlib.redirect_stderr(_b):
+            _rcn = index_only(cfg)
+        checks.append(("E2E-FIX2 M1: a row with an empty label is named in a NOTE (not a failure)",
+                       _rcn == 0 and "NOTE: 1 `|` line(s) of the index are not read as result rows" in _b.getvalue()
+                       and "'|  | `helper` |'" in _b.getvalue()))
         open(os.path.join(tmp, "P", "Main.lean"), "w").write("/-! no table here -/\n")
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             checks.append(("index: an unparseable table refuses to pass", index_only(cfg) == 2))
@@ -5341,12 +5622,32 @@ def selftest():
                                                                "commits": ["abc1234 docstring"], "dirty": [],
                                                                "comment_only": False}
             _lr2 = later_row(cfg)[2]
+            _lrs = {}
+            for _b in ("compiled", "source"):
+                project.changes_after_last_audit = lambda c_, r_, _b=_b: {
+                    "round": "r", "commit": "c", "problem": None, "commits": ["abc1234 docstring"], "dirty": [],
+                    "comment_only": True, "comment_only_basis": _b, "comment_only_lean": ["F.lean: x"]}
+                _lrs[_b] = later_row(cfg)[2]
         finally:
             project.changes_after_last_audit = _cal
         checks.append(("mini2-B(c): a change after the last round verified comment-only is reported as such; any "
                        "other is NOT re-audited",
                        "ONLY comments and docstrings" in _lr1 and "NOT re-audited" not in _lr1
                        and "NOT re-audited" in _lr2))
+        # DESIGN-M7 (review M2, M3): the source basis says what was checked, states no cause, and never says "verified
+        # mechanically" (nor does the facts draft the summary is written from); a missing basis gets the source words
+        checks.append(("DESIGN-M7: a comment-only change on the source basis (or with no basis) is reported as checked "
+                       "on the Lean source, the bytes not identical and why not known, never 'verified mechanically'; "
+                       "on the compiled basis as verified mechanically; the facts draft follows each",
+                       LATER_SOURCE in _lrs["source"] and "why is not known" in _lrs["source"]
+                       and "verified mechanically" not in _lrs["source"] and "comment change can cause" not in _lrs["source"]
+                       and LATER_SOURCE in _lr1 and "verified mechanically" not in _lr1
+                       and "verified mechanically" in _lrs["compiled"] and LATER_SOURCE not in _lrs["compiled"]
+                       and "ONLY comments and docstrings" in _lrs["compiled"]
+                       and "verified mechanically" not in later_fact("1", _lrs["source"])
+                       and "on the Lean source" in later_fact("1", _lrs["source"])
+                       and "verified mechanically" in later_fact("1", _lrs["compiled"])
+                       and "NOT re-audited" in later_fact("1", _lr2)))
         open(os.path.join(tmp, "P", "Src.lean"), "w").write("theorem thm_1_1 : True := trivial\n")
         checks.append(("a fully covered index passes", build(cfg, True) == 0))
         _dfx = ("| # | where | status | repair | says | why | witness | consequence | found |\n"
@@ -5861,7 +6162,7 @@ def selftest():
                 json.dump({"lane": "paper-faithfulness", "verdicts": [{"item": it_, "verdict": "Pass",
                                                                        "checked": "used in step 3 (tex l.42)"}]},
                           open(os.path.join(g3, g3r(k_), n_ + ".json"), "w"))
-        open(os.path.join(g3, "Main.lean"), "w").write("| Lemma 2 | `N.lemma_2` |\n")
+        open(os.path.join(g3, "Main.lean"), "w").write("| Paper | Lean |\n|---|---|\n| Lemma 2 | `N.lemma_2` |\n")
         g3cfg = {"index_file": "Main.lean", "lean_files": ["Main.lean"]}
 
         def f12g(cite, refname=True, cfg_=None, where="Lemma 2, tex l.40"):
@@ -6031,7 +6332,7 @@ def selftest():
             return dict((r[0], (r[1], r[2])) for r in trust_rows(cfg))["Approval of statements"]
         e, st_ = appr_doc(by="human")
         checks.append(("trust: approval counts results and says blanket vs individual",
-                       "1 of 2 results approved as a blanket" in st_ and "1 excluded" in st_))
+                       "1 of 2 statements on the sign-off sheet approved as a blanket" in st_ and "1 excluded" in st_))
         checks.append(("trust: a human approval says a mathematician read the sheet",
                        "approved by a human" in st_ and "mathematician read" in e))
         e, st_ = appr_doc(by="agent", note="Thm 1.1' approved by the user")
@@ -7191,7 +7492,7 @@ def selftest():
                    "| Lemma 3.1 | `P.lemma_3_1` |", "| Construction (the family S, tex l.230) | `P.S` |"]
         idx(rows_c2)
         ip_ = os.path.join(tmp, "P", "Main.lean")
-        mine = [r[0] for r in table_rows(ip_) if r and RESULT.match(r[0])]
+        mine = [r[0] for r in index_cells(ip_)]
         frozen = [lab for lab, _r in _sc.index_rows(open(ip_, encoding="utf-8").read())]
         checks.append(("C2 audit: every index row the freeze and the sign-off sheet read is a row of the coverage table "
                        "and the statuses (an unnumbered Definition (notation ...) row too), counted as unnumbered",
@@ -7204,6 +7505,32 @@ def selftest():
                                        ["Theorem B", "`P.b`"]]) == "3 index rows (1 numbered result plus 1 restatement "
                        "of earlier results plus 1 other unnumbered row (a lettered result such as \"Theorem A\", a remark, a "
                        "condition))"))
+        # E2E-FIX2 M1: the coverage table and the statuses read a Problem row too, and count it as numbered
+        idx(rows_c2 + ["| Problem 6.4 | `P.problem_6_4` |", "| Question 2 | `P.q` |"])
+        mine2 = [r[0] for r in index_cells(ip_)]
+        checks.append(("E2E-FIX2 M1: a Problem row (and a Question row) is a row of the coverage table and the "
+                       "statuses, as of the freeze, and is counted as a numbered result",
+                       mine2 == [lab for lab, _r in _sc.index_rows(open(ip_, encoding="utf-8").read())]
+                       and mine2[-2:] == ["Problem 6.4", "Question 2"]
+                       and count_text([["Problem 6.4"], ["lemma 2.1"], ["Lemma~2.2"], ["Main Theorem 2"],
+                                       ["Open problem 3"]]) == "5 numbered results"
+                       and count_text([["Claim in the proof of Lemma 3"], ["Definition (S, tex l.10)"]])
+                       == "2 index rows (0 numbered results plus 1 other unnumbered row (a lettered result such as "
+                          "\"Theorem A\", a remark, a condition) plus 1 unnumbered definition or notation the paper "
+                          "introduces in its text)"))
+        _ap, _an = newly_read_notes(index_accounting([["Lemma 1", "x"], ["Problem 6.4", "x"]], [], set(), set())[2])
+        checks.append(("owner's rule: a newly read row (Problem) with no declaration and no SKIPPED.md row is a NOTE "
+                       "of the report check; a Lemma row's is still a problem",
+                       _ap == ["! Lemma 1: not formalized by the index, and no SKIPPED.md row explains it"]
+                       and len(_an) == 1 and _an[0].startswith("NOTE: Problem 6.4: not formalized")))
+        idx(rows_c2 + ["  | Lemma 2.1 | `P.l` |", "| lemma 2.2 | `P.l2` |", "| Problem 6.4 | `P.p` |",
+                       "| Exercise 3 | `P.e` |"])
+        mine3 = [r[0] for r in index_cells(ip_)]
+        checks.append(("E2E-FIX2d (REVIEW-E2E-FIX2c 3): the report's index reader reads what 99d928e's read (an "
+                       "indented row, a lower-case label) plus Problem, and nothing else",
+                       mine3[-3:] == ["Lemma 2.1", "lemma 2.2", "Problem 6.4"]))
+        idx(rows_c2)
+        checks += _selftest_f10_label()
         print()
         for n, p in checks:
             print(f"  {'ok  ' if p else 'FAIL'}  {n}")
@@ -7213,6 +7540,75 @@ def selftest():
     finally:
         REPO = keep
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _selftest_f10_label():
+    """A3b (b2v TP1 cases a-c, plus the tightening d-e and the non-`_as_printed` Lean refutation): an encoding-error
+    line is judged by the F10 item its round scheduled for the refutation it names. [(check, passed)]."""
+    import tempfile
+    ITEM_T, ITEM_P = "F10: the counterexample of Theorem 4.1", "F10: the counterexample of Proposition 3.2"
+    HEAD = ["#", "where", "status", "repair"]
+    both = {ITEM_T: "P.not_thm_as_printed", ITEM_P: "P.not_prop_as_printed"}
+
+    def rejected(verdicts, other=None, f10=both, name="not_thm_as_printed", cfg=None, msg=False, elsewhere=False):
+        d = tempfile.mkdtemp(prefix="mrf10-")
+        try:
+            rnd = os.path.join(d, "2026-01-01-full-abc")
+            os.makedirs(rnd)
+            if elsewhere:       # another round scheduled and decided the named refutation's item: it is due
+                rb = os.path.join(d, "2026-01-02-full-def")
+                os.makedirs(rb)
+                json.dump({"_meta": {"f10": both}}, open(os.path.join(rb, "TARGET.json"), "w"))
+                json.dump({"lane": "paper-faithfulness", "verdicts": [t_fail, p_pass]},
+                          open(os.path.join(rb, "paper-faithfulness.json"), "w"))
+            json.dump({"_meta": {} if f10 is None else {"f10": f10}}, open(os.path.join(rnd, "TARGET.json"), "w"))
+            json.dump({"lane": "paper-faithfulness", "verdicts": verdicts},
+                      open(os.path.join(rnd, "paper-faithfulness.json"), "w"))
+            if other:
+                json.dump({"lane": "paper-faithfulness@2", "verdicts": other},
+                          open(os.path.join(rnd, "paper-faithfulness@2.json"), "w"))
+            json.dump({"lane": "correspondence", "verdicts": [
+                {"item": "P.not_thm_as_printed", "verdict": "Fail", "comment": "wrong witness"},
+                {"item": "P.not_prop_as_printed", "verdict": "Pass", "comment": "ok"}]},
+                open(os.path.join(rnd, "correspondence.json"), "w"))
+            path = os.path.join(d, "PAPER_DEFECTS.md")
+            open(path, "w").write(f"# Paper defects\n\n## Not defects\n\n- encoding error: `P.{name}` cites a wrong "
+                                  f"witness. F10: 2026-01-01-full-abc/paper-faithfulness.json (its F10 item Fail)\n")
+            hit = [p_ for p_ in f10_problems(path, HEAD, [], cfg) if name in p_ and "encoding-error line" in p_]
+            return " ".join(hit) if msg else bool(hit)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+    t_fail = {"item": ITEM_T, "verdict": "Fail", "comment": "wrong witness"}
+    t_pass = {"item": ITEM_T, "verdict": "Pass", "comment": "holds"}
+    p_fail = {"item": ITEM_P, "verdict": "Fail", "comment": "wrong witness"}
+    p_pass = {"item": ITEM_P, "verdict": "Pass", "comment": "holds"}
+    case_a = rejected([t_fail, p_pass])
+    case_b = rejected([t_pass, p_fail])
+    case_c = rejected([p_fail], other=[t_pass])
+    # the cited record's LAST F10 item is Fail (another refutation's): the old last-item answer accepted these
+    case_d = rejected([t_pass, p_fail], f10={ITEM_P: "P.not_prop_as_printed"}, elsewhere=True)
+    case_e = rejected([t_pass, p_fail], f10={}, elsewhere=True)
+    old_ok = rejected([t_pass, p_fail], f10=None, elsewhere=True)
+    keep = globals()["lean_refutations"]
+    globals()["lean_refutations"] = lambda c_: {"thm_4_1_false": "P/Src.lean"}
+    try:
+        case_n = rejected([t_fail], f10={ITEM_T: "P.not_thm_as_printed"}, name="thm_4_1_false", cfg={"name": "x"},
+                          msg=True)
+    finally:
+        globals()["lean_refutations"] = keep
+    return [
+        ("A3b (b2v TP1): an encoding-error line is judged by its own refutation's scheduled F10 item: (a) own Fail, "
+         "another's Pass last: accepted; (b) own Pass, another's Fail last: rejected; (c) the cited record did not "
+         "judge the own item: rejected",
+         (not case_a) and case_b and case_c),
+        ("A3b tightening: (d) the cited round scheduled F10 items, none for the named refutation: rejected; (e) the "
+         "same with an empty schedule (`f10: {}`, key present): rejected; a round from before F10 scheduling (no "
+         "`f10` key) keeps the record's last item (another's Fail): accepted",
+         case_d and case_e and not old_ok),
+        ("A3b review: a Lean refutation not named `not_<X>_as_printed` is due at once and no round schedules it: "
+         "its line is rejected with the rename hint",
+         "scheduled no F10 item" not in case_n and "renames it `not_thm_4_1_as_printed`" in case_n),
+    ]
 
 
 def _selftest_one_page():
@@ -7296,6 +7692,11 @@ def _selftest_one_page():
                      "stop", "stop decision"} <= kinds
                     and sum(1 for k in keys if k.prefix == "defect") == 6
                     and sum(1 for k in keys if k.prefix == "stop") == 5))
+        cm_ = ("## Results\n\n| Status | Results |\n|---|---|\n<!--\n| faithful | Lemma 1.2 |\n-->\n"
+               "| **false** | Lemma 1.2 |\n<!-- | faithful | Lemma 9.9 |\n")
+        out.append(("re-review E L4: the results table's rows inside an HTML comment (closed or left open) are not "
+                    "read, as project.summary_result_rows drops them",
+                    _table_rows_of(cm_) == ({"Lemma 1.2": "**false**"}, ["Lemma 1.2"])))
         tbl = _table_rows_of(md)[1]
         out.append(("one page: the results table holds every result once, equal statuses on one row; the goal line "
                     "gives the goal's status; the decisions line counts matters, no decision listed one by one",

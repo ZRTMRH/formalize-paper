@@ -11,6 +11,11 @@ commands:
   stops.py close --stop S<n> --human "<the human's answer, verbatim>"
   stops.py close --stop S<n> --delegated "<what was done>"   (delegating levels; never a STOP class)
   stops.py close --stop S<n> --cured "<what was done>"   (release mode: self-cure; re-runs the recorded check)
+  stops.py close --stop S<n> --withdrawn "<why it was opened in error; the fault's route instead>"   (release
+                                                          mode: only a stop opened in error, never one whose fault
+                                                          was cured (--cured); never a human stop; refused while its
+                                                          check passes;
+                                                          counted as a failed cure, listed in RUN_RECORD.md)
   stops.py classify --stop S<n> --as tool-bug|interference|other --evidence TEXT   (release mode: the cure
                                                           budget is spent; the operator's judgement, recorded)
   stops.py list
@@ -20,7 +25,7 @@ commands:
   stops.py disclose --cmd "<the check, read-only form>"     (release mode: record its DISCLOSED lines)
   stops.py disclose --note "<what failed>" --cause tool-fault --script NAME   (release mode: a crash of
                                                           a script whose job is non-blocking)
-  stops.py --selftest
+  stops.py --selftest [--floor]                 (--floor: the math gate's floor controls only, seconds)
 
 DISCLOSE (release mode only; project.RELEASE): a fault of class N -- presentation, bookkeeping, or a
 crash of a script that serves only those -- is not a stop. The check prints it as DISCLOSED[<code>]
@@ -66,8 +71,12 @@ no further --cured is accepted (under any stop id) until the operator CLASSIFIES
 release has four human stops, project.RELEASE_STOPS; the old "stop 4, a cure that keeps failing" is gone):
 `stops.py classify --stop S<n> --as tool-bug|interference|other --evidence TEXT` ("stop S<n> classify <j>"):
 tool-bug -> the tool-patch route (tool_patch.py; close --cured "tool-patch TP<k>"), interference -> stop 3, the
-human's (close --human), other -> one more cure attempt, logged. A redo closes on the fresh round whose
-TARGET.json names its set-aside round as redo_of and whose sealed verdicts judge its whole scope. The report, its trust table and DECISIONS.md's box list every
+human's (close --human), other -> one more cure attempt, logged. A stop opened in error (its fault's route is
+no stop, or it names the wrong check or round, so its check can never pass) is WITHDRAWN (`close --withdrawn`,
+_withdrawn_doc): release only, never a human stop, refused while the recorded check passes, while a set-aside, an
+open tool patch or a core-fault request names the stop, and past the budget without a classification `other`; the
+tally counts it as a failed cure, and RUN_RECORD.md lists it (not the summary page). A redo closes on the fresh
+round whose TARGET.json names its set-aside round as redo_of and whose sealed verdicts judge its whole scope. The report, its trust table and DECISIONS.md's box list every
 self-cure. Dev mode: every stop waits for the human (--human, or --delegated as the level allows).
 
 THREAT MODEL.  A careless or improvising operator, not a forger: `--human` cannot tell the human's
@@ -182,11 +191,22 @@ def causes(text):
     return out
 
 
-def only_left_out(doc, out):
-    """Does the re-run check fail only on the faults its stop left out (a PDF fault, a delivery precondition:
-    project.NEVER_STOP; attack 8)? Then the stop's own faults are cured."""
+# E2E-FIX2 L1: the codes whose only route is the next adjudication (Phase 0 shows them as PENDING[adjudication];
+# --commit-adjudication and --deliver refuse while one remains). A cure often creates one (a new hypothesis needs its
+# `## Hypotheses` row): when it is not among the stop's own causes, the cure is judged on the stop's own faults
+RESIDUAL_CODES = frozenset({"adj-record"})
+
+
+def only_left_out(doc, out, residue=True):
+    """Does the re-run check fail only on faults that are not the stop's to cure? Those are the faults it left out
+    (a PDF fault, a delivery precondition: project.NEVER_STOP; attack 8), and (E2E-FIX2 L1) RESIDUAL_CODES faults that
+    were not among its causes at open: a residue of the cure, which the next adjudication clears. Then the stop's own
+    faults are cured, and it closes with --cured (the e2e run withdrew a cured stop). `residue=False`: the left-out
+    faults only (a withdrawal is refused only on those, as before E2E-FIX2; on a residue it gets a NOTE)."""
     cs = causes(out)
-    return bool(doc.get("left_out")) and bool(cs) and all(c["code"] in project.NEVER_STOP for c in cs)
+    own = {c.get("code") for c in doc.get("causes") or [] if isinstance(c, dict)}
+    return bool(cs) and all((bool(doc.get("left_out")) and c["code"] in project.NEVER_STOP)
+                            or (residue and c["code"] in RESIDUAL_CODES and c["code"] not in own) for c in cs)
 
 
 def pdf_route(txt):
@@ -310,7 +330,7 @@ def finish_interrupted(cfg):
             else:
                 sdoc_ = load(os.path.join(sd, "STOP.json")) or {}
                 redo = (f"python3 audits/stops.py close --stop {s} --cured \"<what was done>\" (release: it re-runs the "
-                        f"recorded check)" if cure_plan(cfg, sdoc_) else
+                        f"recorded check; or --withdrawn \"<why>\" for a stop opened in error)" if cure_plan(cfg, sdoc_) else
                         f"python3 audits/stops.py close --stop {s} --human \"<the human's answer, verbatim>\""
                         + (" (or --delegated)" if project.mode(cfg) != "release" else ""))
             recover = f"Recover: rm {rel}" + (f" && rmdir {os.path.relpath(sd, audits)}" if step == "open" else "") + f", then {redo}"
@@ -326,11 +346,12 @@ def finish_interrupted(cfg):
                 else:
                     sdoc = load(os.path.join(sd, "STOP.json")) or {}
                     by = doc.get("by")
-                    if by not in ("human", "operator", "cure"):
+                    if by not in ("human", "operator", "cure", "withdrawn"):
                         raise Refused(f"its \"by\" is {by!r}")
                     want = _close_doc(cfg, s, sdoc, human=doc.get("text") if by == "human" else None,
                                       delegated=doc.get("text") if by == "operator" else None,
-                                      cured=doc.get("text") if by == "cure" else None)
+                                      cured=doc.get("text") if by == "cure" else None,
+                                      withdrawn=doc.get("text") if by == "withdrawn" else None)
             except Refused as e:
                 raise Refused(f"an uncommitted {s}/{f} (an interrupted `{step}`) is never committed as found, and "
                               f"it cannot be completed now: {e}. {recover}")
@@ -342,8 +363,9 @@ def finish_interrupted(cfg):
                               f"({', '.join(diff)}): it is never committed as found. {recover}")
             commit([p], f"stop {s} {step}")
             if step == "close":
-                project.log_append(cfg, "Stops", f"- stop {s} closed by {doc.get('by')}: {doc.get('text', '')} "
-                                                 f"(an interrupted close, completed)")
+                project.log_append(cfg, "Stops", (_close_line(cfg, s, doc) if doc.get("by") == "withdrawn" else
+                                                  f"- stop {s} closed by {doc.get('by')}: {doc.get('text', '')}")
+                                   + " (an interrupted close, completed)")
             done.append(f"committed {s}/{f} as \"stop {s} {step}\" (an interrupted `{step}`, completed)")
     return done
 
@@ -560,8 +582,9 @@ STOP_SUBJ = re.compile(r"^stop (S[1-9]\d*) (open|close|cure ([1-9]\d*))$")
 def tally_events(cfg, audits=None, rd=None):
     """[(event, stop, keys, round)] of the run, oldest first, read from the commits themselves (a deleted CURE
     file, a re-opened stop or a new stop id resets nothing): "open" (each "stop S<n> open" commit; round: the
-    newest round scoped before it, PRE_ROUND before any), "fail" (a failed cure attempt; keys: charged_keys) and
-    "pass" (a self-cure close). Refused when such a record cannot be read (fail closed: the human)."""
+    newest round scoped before it, PRE_ROUND before any), "fail" (a failed cure attempt; keys: charged_keys), "pass"
+    (a self-cure close) and "withdrawn" (a close --withdrawn, A2; keys: fault_keys; tally counts it as a failed
+    cure). A record that cannot be read is counted the conservative way (UNREADABLE_TALLY)."""
     audits = audits or project.AUDITS
     rd = rd or rounds_dir(cfg)
     rel = os.path.relpath(rd, audits)
@@ -596,9 +619,9 @@ def tally_events(cfg, audits=None, rd=None):
         srel = f"{pre}{STOPS}/{s}/"
         sdoc = _show_json(audits, h, srel + "STOP.json")
         rec = None if what == "open" else _show_json(audits, h, srel + (f"CURE{m.group(3)}.json" if m.group(3) else "CLOSED.json"))
-        if what == "close" and (rec or {}).get("by") not in (None, "cure"):
+        if what == "close" and (rec or {}).get("by") not in (None, "cure", "withdrawn"):
             continue
-        if sdoc is None or (what != "open" and (rec is None or rec.get("by") != "cure")):
+        if sdoc is None or (what != "open" and (rec is None or rec.get("by") not in ("cure", "withdrawn"))):
             # RELEASE-SWEEP S4: an unreadable committed record never makes the stop the human's. It is counted the
             # conservative way -- an opening, or a FAILED cure of that stop (it spends budget, never frees any) --
             # and trail_problems flags the record itself ([stop-trail]: the reviewed acknowledgment, integrity.py
@@ -615,6 +638,8 @@ def tally_events(cfg, audits=None, rd=None):
         if what == "open":
             at[s] = newest()
             out.append(("open", s, fault_keys(sdoc, at[s]), at[s]))
+        elif what == "close" and rec.get("by") == "withdrawn":
+            out.append(("withdrawn", s, fault_keys(sdoc, at.get(s, newest())), at.get(s, newest())))
         elif m.group(3) or not (rec.get("rerun") or {}).get("passes"):
             out.append(("fail", s, charged_keys(sdoc, rec, at.get(s, newest())), at.get(s, newest())))
         else:
@@ -640,8 +665,9 @@ def _label(k):
 
 def tally(events, s, keys=()):
     """(failed, why) for stop `s` after `events`: the failed cures of `s` itself (its attempt count, within the
-    per-stop cap), and [why the budget is spent] (empty: within the per-stop cap, the run-wide budget of each of its keys
-    -- its own keys, `keys`, and every key its own failed attempts were charged to -- and the openings ceiling)."""
+    per-stop cap; a withdrawal, A2, counts as one, on the stop and on its keys), and [why the budget is spent]
+    (empty: within the per-stop cap, the run-wide budget of each of its keys -- its own keys, `keys`, and every key
+    its own failed attempts were charged to -- and the openings ceiling)."""
     failed, failed_r, opened, bucket, mine, own = {}, {}, {}, PRE_ROUND, set(keys), 0
     for ev, s_, ks, r in events:
         if ev == "open":
@@ -651,7 +677,7 @@ def tally(events, s, keys=()):
             if s_ == s:
                 bucket = r
                 mine |= set(ks)
-        elif ev == "fail":
+        elif ev in ("fail", "withdrawn"):
             for k in ks:
                 failed[k] = failed.get(k, 0) + 1
                 failed_r[(k, r)] = failed_r.get((k, r), 0) + 1
@@ -1018,14 +1044,135 @@ def cure_attempts(cfg, s):
     return sorted(fs, key=lambda f: int(CURE_RE.match(f).group(1)))
 
 
-def _close_doc(cfg, s, doc, human=None, delegated=None, cured=None):
+WITHDRAW_TEXT = ("why it was opened in error (never a fault you cured: that is --cured), and the route the fault "
+                 "takes instead")
+
+
+def withdraw_blockers(cfg, doc, cmd, out):
+    """(tamper, human): the codes the re-run output `out` of stop record `doc`'s check `cmd` prints that a
+    withdrawal never passes. `tamper` (attack review of A2, HIGH-1; re-review R-M1): any code the re-run prints of
+    release kind redo or of class tamper -- recorded at open or first printed since -- while `cmd` is not bound to an old round
+    (_old_round: set aside or superseded) -- a lane's evidence changed after its seal, a changed scope, a moved HEAD:
+    its route is the cure of its kind (set the round aside and redo it; restore), never "opened in error". `human`
+    (LOW-1): any code of kind human -- a fault of the four release stops is the human's, whatever the stop was opened
+    as. Both empty: nothing blocks."""
+    got = {c["code"] for c in causes(out)}
+    tamper = sorted(c for c in got if project.release_kind(c) == "redo" or project.cause_class(c) == "tamper")
+    if tamper and _old_round(cfg, cmd):
+        tamper = []
+    return tamper, sorted(c for c in got if project.release_kind(c) == "human")
+
+
+def _tamper_route(cfg, s, doc, cmd, tamper):
+    """The route a withdrawal refused on `tamper` names (re-review R-L2): set the round aside (with --stop only
+    when STOP.json names that round: set_aside refuses it otherwise) for a redo code on a round not adjudicated;
+    else the cure the check's cause table prints (an adjudicated round is never set aside; a restore code)."""
+    rnd = _round_of(cmd)
+    adj = bool(rnd) and (os.path.exists(os.path.join(rounds_dir(cfg), rnd, "ADOPTED.md"))
+                         or committed(project.AUDITS, os.path.join(rounds_dir(cfg), rnd, "ADOPTED.md")))
+    if any(project.release_kind(c) == "redo" for c in tamper) and rnd and not adj:
+        stop_ = f" --stop {s}" if (doc or {}).get("round") == rnd else ""
+        return (f"Set the round aside (python3 audits/stops.py set-aside {rnd} --reason \"<why>\"{stop_}) and redo "
+                f"it; close --cured on the fresh round")
+    return (f"Apply the cure the check's cause table prints for {', '.join(tamper)} (restore the last trusted "
+            f"version, or redo what it names{'; ' + rnd + ' was adjudicated, so it is never set aside' if adj else ''}), "
+            f"then close --cured")
+
+
+def _withdrawn_doc(cfg, s, doc, text, rec):
+    """The CLOSED.json record of `close --withdrawn` (A2, Pisani S1): a release stop opened in error -- its fault's
+    route is no stop (a mechanical failure of a round: set it aside and redo it), or it names a check or round that
+    can never pass -- is closed as if it had never been opened, so one-stop-at-a-time cannot deadlock the run.
+    Whatever gate would have caught the fault without the stop still catches it (the math gate never depended on
+    stops). Each refusal is of the command only, never a stop, and names the route: dev mode (the human closes
+    it); a human stop of release (cure_plan None); a stop classified interference (stop 3); a set-aside naming the
+    stop (its redo closes it); an open tool patch (withdraw it first), or an applied one when the stop has no check
+    (close --cured "tool-patch TP<k>"); a core-fault request (that route is open); the cure budget spent with no
+    classification `other` after its failures (review MEDIUM-1: the interference judgement is never skipped);
+    the recorded check passing now (close --cured); the re-run still printing any redo or tamper code on the
+    current state, or any human code (withdraw_blockers: attack review HIGH-1, LOW-1); a STOP.json not
+    of release mode (compat L4); no text. Charged by the tally as a failed cure; listed in RUN_RECORD.md, never on
+    the summary page (a check still failing at delivery is said in README's delivery notes: attack MEDIUM-1)."""
+    if project.mode(cfg) != "release":
+        raise Refused("--withdrawn is release mode only; dev: the human closes it (--human), or --delegated where "
+                      "the level allows it")
+    if (doc or {}).get("mode") != "release":
+        # compat review L4: the trail's test (STOP.json's mode), at the close too
+        raise Refused(f"{s} was not opened in release mode (its STOP.json has mode {(doc or {}).get('mode')!r}): it "
+                      f"is never withdrawn; the human closes it (--human)")
+    words = " ".join(str(text or "").split())
+    if not words:
+        raise Refused(f"--withdrawn needs its text: {WITHDRAW_TEXT}")
+    plan = cure_plan(cfg, doc)
+    if plan is None:
+        raise Refused(f"{s} is a human stop of release mode ({human_stop_name([c.get('code') for c in doc.get('causes') or []])}"
+                      f" or a record with no read-only check): the human answers it (--human); it is never withdrawn")
+    cls = classifications(cfg, s)
+    if cls and cls[-1].get("as") == "interference":
+        raise Refused(f"{s} is classified as outside interference: stop 3, the human's (close --human)")
+    rd = rounds_dir(cfg)
+    for p_, rnd, lane in markers(rd):
+        if str((load(p_) or {}).get("stop")) == s:
+            raise Refused(f"the set-aside of {rnd}{' ' + lane if lane else ''} names {s}: its route is the fresh round "
+                          f"that redoes it (close --cured re-runs the check there), or the human")
+    if _core_requests(stop_dir(cfg, s)):
+        raise Refused(f"the core-fault route is open for {s} (a CORE-REQUEST): close it --core-fault <file>, or cure "
+                      f"it (--cured)")
+    import tool_patch
+    for tp in tool_patch.tps(rd):
+        if (tool_patch.load(os.path.join(tool_patch.tp_dir(rd, tp), "BEGIN.json")) or {}).get("stop") != s:
+            continue
+        st_ = tool_patch.tp_state(rd, tp)
+        if st_ == "open":
+            raise Refused(f"tool patch {tp} is open for {s}: withdraw {tp} first (tool_patch.py), then --withdrawn")
+        if st_ == "applied" and not cure_cmd(doc):
+            raise Refused(f"tool patch {tp} is applied for {s}: close it --cured \"tool-patch {tp}\"")
+    try:
+        own, why = cures_spent(cfg, doc)
+    except Refused as e:
+        raise Refused(f"{e}; nothing was withdrawn")
+    if why:
+        cl_ = [c for c in cls if c.get("after_fail") == own]
+        if not cl_ or cl_[-1].get("as") != "other":
+            raise Refused(f"the cure budget of {s} is spent ({'; '.join(why)}): it is withdrawn only once classified "
+                          f"`other` after those failures. " + CLASSIFY_HINT.format(s=s))
+    cmd = cure_cmd(doc)
+    rerun = None
+    if cmd:
+        rc, out = run_cmd(cmd.split())
+        if rc == 0 or only_left_out(doc, out, residue=False):
+            raise Refused(f"`{cmd}` passes now: close it --cured \"<what was done>\" (a withdrawal is never a way "
+                          f"around a pass that counts)")
+        if only_left_out(doc, out):
+            # REVIEW-E2E-FIX2 (owner's rule: a flag, never a new refusal): it passes but for a residue of a cure
+            rec["note"] = (f"`{cmd}` passes but for {', '.join(sorted({c['code'] for c in causes(out)}))} faults the "
+                           f"stop was not opened for (a residue of a cure): if the fault was cured, --cured was the "
+                           f"right close, not --withdrawn")
+            print(f"NOTE: {s}: {rec['note']}.")
+        tamper, human = withdraw_blockers(cfg, doc, cmd, out)
+        if human:
+            raise Refused(f"`{cmd}` prints {', '.join(human)} ({human_stop_name(human)}): a fault only the human can "
+                          f"answer is never withdrawn, whatever {s} was opened as. Show the human; close it --human "
+                          f"\"<their answer, verbatim>\"")
+        if tamper:
+            raise Refused(f"`{cmd}` still prints {', '.join(tamper)} on the current state: a changed or tampered "
+                          f"record is never withdrawn as opened in error. " + _tamper_route(cfg, s, doc, cmd, tamper))
+        rerun = {"exit": rc, "output_tail": out[-2000:], "passes": False}
+    rec.update(by="withdrawn", mode="release", text=words, check=" ".join(cmd.split()) if cmd else None, rerun=rerun)
+    return rec
+
+
+def _close_doc(cfg, s, doc, human=None, delegated=None, cured=None, withdrawn=None):
     """The CLOSED.json record of `close` for stop `s` (STOP.json `doc`), computed now: the recorded
-    check re-run, and every `--delegated` / `--cured` refusal. Refused as `close` refuses. A `--cured`
-    record whose re-run fails is returned as it is (the caller records it as a failed attempt)."""
-    if sum(map(bool, (human, delegated, cured))) != 1:
+    check re-run, and every `--delegated` / `--cured` / `--withdrawn` refusal. Refused as `close` refuses. A
+    `--cured` record whose re-run fails is returned as it is (the caller records it as a failed attempt)."""
+    if sum(map(bool, (human, delegated, cured))) + (withdrawn is not None) != 1:
         raise Refused("give exactly one of --human \"<the human's answer, verbatim>\", --delegated \"<what was "
-                      "done>\" or (release mode) --cured \"<what was done>\"")
+                      "done>\" or (release mode) --cured \"<what was done>\" or --withdrawn \"<why it was opened "
+                      "in error>\"")
     rec = {"stop": s, "date": today(), "involvement": project.involvement(cfg)}
+    if withdrawn is not None:
+        return _withdrawn_doc(cfg, s, doc, withdrawn, rec)
     if cured:
         if project.mode(cfg) != "release":
             raise Refused("--cured is release mode only; in dev mode a STOP class waits for the human (--human)")
@@ -1071,9 +1218,12 @@ def _close_doc(cfg, s, doc, human=None, delegated=None, cured=None):
         lc = redo_lanecheck(doc, rr_)
         if lc:      # the fresh round's own lanes must pass too: the stop's check does not look at them
             rec["redo_lanecheck"] = lc
-            if rc == 0:
-                rc, out = run_cmd(lc.split())
-                out = f"$ {lc}\n{out}"
+            # REVIEW-E2E-FIX2 L-3: also when the stop's check passes but for a residue (only_left_out); a failing
+            # lanecheck is then the record's output, a passing one keeps the check's (its residue shown)
+            if rc == 0 or only_left_out(doc, out):
+                lrc, lout = run_cmd(lc.split())
+                if lrc or rc == 0:
+                    rc, out = lrc, f"$ {lc}\n{lout}"
         rec.update(by="cure", mode="release", text=" ".join(str(cured).split()), attempt=k,
                    budget=project.CURE_BUDGET, cures=cure, codes=sorted({c.get("code") for c in doc["causes"]}),
                    check=" ".join(cmd.split()), rerun={"exit": rc, "output_tail": out[-2000:],
@@ -1206,13 +1356,63 @@ def _fail_lines(txt):
     return sorted({_run_free(c["line"]) for c in causes(txt)})
 
 
-def core_attribution(f, cmd, out):
+TOKEN_SORRY = re.compile(r"^\s*(HARD\[sorry\]|RED\[sorry\])")
+SWEEP_OK = re.compile(r"^\s*ok\s+axiom sweep.*\[exit 0\]\s*$")
+
+
+def _exemption_active(cfg):
+    """Is a `leave <decl> unproved` line or an open re-approval active? Then the sweep's sorryAx count passes
+    through tool logic (the exemption walk), so a core fault may still cover it. A failure to compute counts as
+    active: an honest run stays live (forgery review 2026-11 F3, DESIGN-E2 fix 4)."""
+    try:
+        import decisions
+        return bool(decisions.unproved(cfg)["decls"]) or bool(decisions.pending_reapproval(cfg))
+    except Exception:       # noqa: BLE001
+        return True
+
+
+def work_lines(cfg, out):
+    """The failure lines of `out` that are the work's own whatever a reviewer says, so never covered by a core
+    fault (forgery review 2026-11 F3, DESIGN-E2 fix 4): (1) the kernel sweep's "N declarations reach sorryAx" while no
+    exemption is active; (2) its "X carries [" (a non-standard axiom); (3) a token-scan `sorry` (HARD[sorry],
+    RED[sorry]) unless the same output's axiom sweep is clean (an `ok ... axiom sweep ... [exit 0]` line in the
+    Phase 0 result and no sweep error, "swept only" included). The sweep's patterns are the core's own
+    (axiom_sweep.SWEEP_ERROR, SWEPT_ONLY): "swept only", a goal named in a leave line, drift and every other line stay
+    coverable."""
+    import axiom_sweep
+    res, exempt, sweep_clean = [], None, None
+    for l in _fail_lines(out):
+        if axiom_sweep.SWEEP_ERROR.search(l):
+            msg = l[l.index("error: ") + len("error: "):]
+            if msg.startswith(axiom_sweep.SWEPT_ONLY):
+                continue
+            if re.match(r"\d+ declarations reach sorryAx", msg):
+                if exempt is None:
+                    exempt = _exemption_active(cfg)
+                if not exempt:
+                    res.append(l)
+            elif re.match(r"\S+ carries \[", msg):
+                res.append(l)
+        elif TOKEN_SORRY.match(l):
+            if sweep_clean is None:
+                tail = (out or "").split("PHASE 0 RESULT", 1)[1] if "PHASE 0 RESULT" in (out or "") else ""
+                sweep_clean = (any(SWEEP_OK.match(x) for x in tail.splitlines())
+                               and not axiom_sweep.sweep_errors(out or ""))
+            if not sweep_clean:
+                res.append(l)
+    return res
+
+
+def core_attribution(f, cmd, out, cfg=None):
     """(own lines, foreign lines) of the failure output `out` of standard check `cmd` for a fault in core file `f`:
     in Phase 0's output only the RED steps of `f` (OWN_STEPS) are its own (any other RED step makes every line
     foreign), a Phase 0 that crashed before its result is phase0.py's; fingerprint.py --check is the freeze files',
     integrity.py --check integrity.py's and tool_patch.py's. Mechanical only: whether those lines are really the
-    tool's fault is the fresh reviewer's judgement."""
+    tool's fault is the fresh reviewer's judgement. With `cfg`, any work line (work_lines: a real sorry or a
+    non-standard axiom) makes every line foreign (DESIGN-E2 fix 4)."""
     lines = _fail_lines(out)
+    if cfg is not None and work_lines(cfg, out):
+        return [], lines
     script = os.path.basename(next((x for x in cmd.split() if x.endswith(".py")), ""))
     own_cmd = _core_map(CORE_CHECK_CMD, f) or ""
     if script == "phase0.py":
@@ -1258,7 +1458,7 @@ def _core_failing(cfg, f, want):
     for c2 in standard_blocking(cfg):
         rc2, out2 = run_cmd(c2.split())
         if rc2:
-            own, other = core_attribution(f, c2, out2)
+            own, other = core_attribution(f, c2, out2, cfg)
             if other:
                 foreign += [f"`{c2}`: {l}" for l in other[:4]] or [f"`{c2}` exits {rc2}"]
             else:
@@ -1465,8 +1665,11 @@ def core_fault_rows(cfg, rd=None):
 def core_covered(cfg, cmd, txt):
     """Is the failure of delivery check `cmd` (its output `txt`) the one a core-fault close recorded: the same
     command, every failure line now exactly one the reviewer judged? Anything else (a real sorry, a drift, another
-    declaration) is never covered."""
+    declaration) is never covered; nor is a work line (work_lines: a real sorry or non-standard axiom), whatever a
+    close record says (DESIGN-E2 fix 4)."""
     name = cfg.get("name")
+    if work_lines(cfg, txt):
+        return False
     now = set(_fail_lines(txt))
     for c in core_fault_rows(cfg):
         for c_cmd, lines in c.get("failing") or []:
@@ -1483,6 +1686,10 @@ def _close_line(cfg, s, rec):
     if rec.get("by") == "cure":
         return (f"- stop {s} self-cured (release mode, not a human stop; attempt {rec.get('attempt')} of "
                 f"{project.CURE_BUDGET}; {', '.join(rec.get('cures') or [])}; `{rec.get('check')}` passes): {rec.get('text')}")
+    if rec.get("by") == "withdrawn":
+        return (f"- stop {s} withdrawn (release mode, opened in error; "
+                + (f"`{rec.get('check')}` still fails" if rec.get("check") else "no check to re-run")
+                + f"; counted as a failed cure): {rec.get('text')}")
     if rec.get("by") == "operator":
         return f"- {tag(cfg)} stop {s} closed: {rec.get('text')}"
     return f"- stop {s} ({rec.get('date')}, the human's answer, verbatim: \"{' '.join(str(rec.get('text')).split())}\")"
@@ -1496,18 +1703,19 @@ def import_log(cfg):
         return ""
 
 
-def close_stop(cfg, s, human=None, delegated=None, cured=None, check=None, core_fault=None, diagnosis=None):
-    if sum(map(bool, (human, delegated, cured, core_fault))) != 1:
+def close_stop(cfg, s, human=None, delegated=None, cured=None, check=None, core_fault=None, diagnosis=None,
+               withdrawn=None):
+    if sum(map(bool, (human, delegated, cured, core_fault, withdrawn is not None))) != 1:
         raise Refused("give exactly one of --human \"<the human's answer, verbatim>\", --delegated \"<what was "
                       "done>\" or (release mode) --cured \"<what was done>\" or --core-fault <core file> --diagnosis "
-                      "\"<why>\"")
+                      "\"<why>\" or --withdrawn \"<why it was opened in error, and the route instead>\"")
     if check:
         raise Refused("close takes no --check: a self-cure re-runs exactly the command the stop recorded at open "
                       "(--cmd, or open --note ... --check)")
     # trial #11: the text goes into RUN_LOG.md's ## Stops, where make_report --check (Phase 0) lints tags; a
     # text the lint would refuse is refused here, before anything is written, not after a round started
     import decisions
-    words = " ".join(str(cured or delegated or diagnosis or "").split())
+    words = " ".join(str(cured or delegated or diagnosis or withdrawn or "").split())
     bad = decisions.tag_problems(f"## Stops\n- stop {s} self-cured (text; `x` passes): {words}\n") if words else []
     if bad:
         raise Refused(f"the text would put a non-canonical tag into RUN_LOG.md ## Stops: {bad[0]}")
@@ -1527,7 +1735,15 @@ def close_stop(cfg, s, human=None, delegated=None, cured=None, check=None, core_
         raise Refused("close --core-fault takes no --diagnosis: it is the request's (stops.py core-fault), which the "
                       "fresh reviewer judged")
     rec = (_core_fault_doc(cfg, s, doc, core_fault) if core_fault
-           else _close_doc(cfg, s, doc, human, delegated, cured))
+           else _close_doc(cfg, s, doc, human, delegated, cured, withdrawn))
+    if rec.get("by") == "withdrawn" and rec.get("rerun"):
+        own = sorted({c.get("code") for c in doc.get("causes") or [] if isinstance(c, dict)} - {None})
+        now = {c["code"] for c in causes(rec["rerun"].get("output_tail") or "")}
+        if own and not set(own) & now:     # E2E-FIX2 L1: a flag, not a refusal
+            print(f"NOTE: {s} was opened for {', '.join(own)}, which its check no longer prints (it prints "
+                  f"{', '.join(sorted(now)) or 'no code'}): if your cure fixed that fault, the stop was not opened in "
+                  f"error. A withdrawal is only for a stop opened in error; a cured stop closes with --cured. Say "
+                  f"which in RUN_RECORD.md.")
     if rec["by"] == "cure" and not rec["rerun"]["passes"]:
         j = 1 + sum(1 for ev, x, _k, _r in tally_events(cfg) if x == s and ev == "fail")
         p = os.path.join(sd, f"CURE{j}.json")
@@ -1627,9 +1843,15 @@ def stop_rows(cfg, rd=None, phase=None):
                    else (f"the operator (release self-cure, attempt {c.get('attempt')} of {c.get('budget')}; "
                          f"{', '.join(c.get('cures') or [])}; {cure_done(c.get('cures'))}): "
                          + c.get("text", "")) if c.get("by") == "cure"
+                   else ("the operator (release, withdrawn as opened in error, not cured; "
+                         + (f"`{c.get('check')}` still failed at the withdrawal" if c.get("check") else
+                            "no check to re-run") + "; counted as a failed cure): " + c.get("text", "")
+                         + (f" [NOTE: {c['note']}]" if c.get("note") else ""))
+                   if c.get("by") == "withdrawn"
                    else "the operator (delegated): " + c.get("text", ""))
             rr = c.get("rerun")
-            done = "closed" + (f"; the check {'passes' if rr.get('passes') else 'still fails'} at the close" if rr else "")
+            done = ("withdrawn" if c.get("by") == "withdrawn" else
+                    "closed" + (f"; the check {'passes' if rr.get('passes') else 'still fails'} at the close" if rr else ""))
         else:
             who, done = "nobody yet", ("OPEN: the run waits for the human" if not cure_plan(cfg, d)
                                        else "OPEN: the operator is curing it")
@@ -1638,6 +1860,7 @@ def stop_rows(cfg, rd=None, phase=None):
         out.append({"stop": s, "date": d.get("date"), "round": d.get("round"), "what": what, "what_full": what_full,
                     "classes": sorted({x["class"] for x in d.get("causes") or []}), "by": who, "done": done,
                     "human": bool(c and c.get("by") == "human"), "cured": bool(c and c.get("by") == "cure"),
+                    "withdrawn": bool(c and c.get("by") == "withdrawn"),
                     "answer": c.get("text", "") if c and c.get("by") == "human" else "",
                     "core": core_fault_marker(c) if c and c.get("by") == "core-fault" else "",
                     "attempts": len(cure_attempts(cfg, s)) if rd == rounds_dir(cfg) else 0})
@@ -2350,6 +2573,27 @@ def trail_problems(cfg, audits=None, rd=None):
                     sorted(map(tuple, map(lambda x: (x[0], tuple(x[1])), c.get("failing") or []))):
                 probs.append(f"stop trail: {s}'s core-fault close does not stand on a fresh reviewer's sealed approval "
                              f"of its request ({why_ or 'the request names other lines or another file'})")
+        elif c.get("by") == "withdrawn":
+            # A2: withdrawn as opened in error -- release only, never a human stop, with its text, its check (when
+            # it has one) shown failing at the withdrawal; the budget loop below charges it like a failed cure
+            rp_ = c.get("rerun")
+            if project.mode(cfg) != "release" or c.get("mode") != "release" or d.get("mode") != "release":
+                probs.append(f"stop trail: {s} was withdrawn in a run, or opened, in a mode other than release: "
+                             f"only a release stop is withdrawn")
+            elif not recorded_plan(cfg, s, d, rd, audits):
+                probs.append(f"stop trail: {s} was withdrawn although it is a human stop of release mode")
+            if not str(c.get("text") or "").strip():
+                probs.append(f"stop trail: {s} was withdrawn without its reason")
+            if (c.get("check") or None) != (" ".join(cure_cmd(d).split()) if cure_cmd(d) else None) \
+                    or (rp_ is not None and (not isinstance(rp_, dict) or rp_.get("passes") is not False)) \
+                    or (rp_ is None) != (not cure_cmd(d)):
+                probs.append(f"stop trail: {s}'s withdrawal does not show its recorded check failing at the withdrawal")
+            elif isinstance(rp_, dict) and any(withdraw_blockers(cfg, d, c.get("check"), str(rp_.get("output_tail") or ""))):
+                # attack review HIGH-1, LOW-1, R-M1: the recorded re-run printed a redo/tamper code on the
+                # current state, or a human code -- the close refuses it (withdraw_blockers)
+                probs.append(f"stop trail: {s} was withdrawn while its check printed "
+                             + ", ".join(sum(withdraw_blockers(cfg, d, c.get("check"), str(rp_.get("output_tail") or "")), []))
+                             + ": a tampered round or a human stop is never withdrawn as opened in error")
         elif c.get("by") == "human":
             if not str(c.get("text") or "").strip():
                 probs.append(f"stop trail: {s} was closed for the human without their answer")
@@ -2361,6 +2605,13 @@ def trail_problems(cfg, audits=None, rd=None):
         hist = tally_events(cfg, audits, rd)
         probs += [f"stop trail: {w}" for w in UNREADABLE_TALLY.get(os.path.abspath(rd), [])]
         for i, (ev, s, _k, _r) in enumerate(hist):
+            if ev == "withdrawn":
+                # review MEDIUM-1: past the budget a withdrawal needs a classification `other` made after the failures
+                own_, why = tally(hist[:i], s)
+                cl_ = [x for x in classifications(cfg, s, rd) if x.get("after_fail") == own_]
+                if why and not (cl_ and cl_[-1].get("as") == "other"):
+                    probs.append(f"stop trail: {s} was withdrawn past its ceilings ({'; '.join(why)}) without a "
+                                 f"classification `other` made after those failures (stops.py classify)")
             if ev in ("fail", "pass"):
                 own_, why = tally(hist[:i], s)
                 # approver 2026-10-24: past the budget an attempt needs the operator's classification made after
@@ -2697,6 +2948,22 @@ def integrity_blocks(cfg, line):
     return False
 
 
+def withdrawn_failing(cfg):
+    """[(stop, check, exit)] of every withdrawn stop whose recorded check, not bound to an old round (_old_round),
+    fails now: math_gate's note, and the sentence README's delivery notes carry for it (attack review MEDIUM-1:
+    a withdrawn stop is on no page the author reads)."""
+    out = []
+    for s_ in stops(cfg):
+        c_ = load(os.path.join(stop_dir(cfg, s_), "CLOSED.json")) or {}
+        cmd = c_.get("check") if c_.get("by") == "withdrawn" else None
+        if not cmd or _old_round(cfg, cmd) or command_problem(cmd, cfg):
+            continue
+        rc, _txt = run_cmd(cmd.split())
+        if rc:
+            out.append((s_, cmd, rc))
+    return out
+
+
 def math_gate(cfg):
     """(block, notes): the math gate's refusals, and what the gate's checks found that does not refuse (NOTEs for the
     main agent). Runs standard_blocking (integrity, Phase 0 read-only, the freeze); in release a failure a core-fault
@@ -2737,6 +3004,10 @@ def math_gate(cfg):
             if rc:
                 notes.append(f"a self-cured stop's recorded check `{cmd}` fails now (exit {rc}){': ' + why if why else ''}")
 
+    def withdrawn():
+        # A2 step 5 (a note, never a refusal): a withdrawn stop's check that is not bound to an old round, failing now
+        notes.extend(f"withdrawn stop {s_}'s check `{cmd}` fails now (exit {rc})" for s_, cmd, rc in withdrawn_failing(cfg))
+
     def disclosures():
         live = list(phase0_lines(cfg))
         rows = [load(f) or {} for f in glob.glob(os.path.join(rounds_dir(cfg), STOPS, DISCLOSED, "D*.json"))]
@@ -2748,6 +3019,8 @@ def math_gate(cfg):
         for doc, gone in unnamed(cfg).items():
             notes.append(f"{doc} does not name {'; '.join(sorted(gone))}")
     noted("the self-cured stops' checks", self_cures)
+    if rel:
+        noted("the withdrawn stops' checks", withdrawn)
     if rel:
         noted("phase0's disclosures", disclosures)
     noted("what the prepared documents name", named)
@@ -2772,7 +3045,7 @@ def unnamed(cfg):
     closed = [r for r in stop_rows(cfg, phase="run") if r["by"] != "nobody yet"]
     want = {"REPORT.md": [(r["stop"], rf"\bstop {re.escape(r['stop'])} \(") for r in closed if r.get("human")],
             "DECISIONS.md": [(r["stop"], rf"(?m)^> - stop {re.escape(r['stop'])} \(") for r in closed
-                             if not r.get("cured") and not r.get("core")]}
+                             if not r.get("cured") and not r.get("core") and not r.get("withdrawn")]}
     # C2-FIX 5b: a check not established by a core fault is said on SUMMARY page 1 and in the report (its marker), and
     # the diagnosis is in the run record
     for c in core_fault_rows(cfg, rd):
@@ -2839,10 +3112,13 @@ def main(argv=None):
     ap.add_argument("--cmd"); ap.add_argument("--note"); ap.add_argument("--cause"); ap.add_argument("--round")
     ap.add_argument("--stop"); ap.add_argument("--human"); ap.add_argument("--delegated")
     ap.add_argument("--cured", help="close (release mode): the self-cure done"); ap.add_argument("--check")
+    ap.add_argument("--withdrawn", help="close (release mode): why the stop was opened in error, and the route the "
+                                        "fault takes instead (counted as a failed cure)")
     ap.add_argument("--core-fault", dest="core_fault", help="close (release mode): the proof-validity core file at fault")
     ap.add_argument("--diagnosis", help="core-fault: the fault, and why no Lean-side workaround works")
     ap.add_argument("--lane"); ap.add_argument("--reason"); ap.add_argument("--unsealable", default="")
     ap.add_argument("--project"); ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--floor", action="store_true", help="with --selftest: the math gate's floor controls only")
     ap.add_argument("--script", help="disclose --note: the registry name of the script that crashed")
     ap.add_argument("--commit", help="revert (release self-cure): the commit the stop's integrity FAIL names")
     ap.add_argument("--as", dest="as_", choices=CLASSES_AT_BUDGET,
@@ -2850,7 +3126,7 @@ def main(argv=None):
     ap.add_argument("--evidence", help="classify: why (the tool's fault, the recurring events, the different cure)")
     a = ap.parse_args(argv)
     if a.selftest:
-        return selftest()
+        return selftest_floor() if a.floor else selftest()
     if not a.command:
         ap.error("give a command")
     try:
@@ -2872,7 +3148,8 @@ def main(argv=None):
                   f"python3 audits/stops.py close --stop {a.stop} --core-fault {a.core_fault} (a rejection: revise and "
                   f"request again, or the ordinary cure; never a stop)")
         elif a.command == "close":
-            rec = close_stop(cfg, a.stop, a.human, a.delegated, a.cured, a.check, a.core_fault, a.diagnosis)
+            rec = close_stop(cfg, a.stop, a.human, a.delegated, a.cured, a.check, a.core_fault, a.diagnosis,
+                             withdrawn=a.withdrawn)
             rr = rec.get("rerun")
             print(f"closed {a.stop} ({rec['by']})" + (f"; the check exits {rr['exit']} now" if rr else ""))
         elif a.command == "list":
@@ -2911,6 +3188,9 @@ def pre_config_main(a):
                   f"wait; record their answer with python3 audits/stops.py close --stop {sid} --human \"<their answer, "
                   f"verbatim>\". Stage 1 step 5 (project.py --intake-move) moves it under RUN_LOG.md's ## Stops")
         elif a.command == "close":
+            if a.withdrawn is not None:
+                raise ValueError("before the config exists there is no run mode: --withdrawn is a release stop's; "
+                                 "a pre-config stop is the human's (--human)")
             r = project.pre_config_close(a.stop, a.human)
             print(f"closed {r['stop']} (human)")
         else:
@@ -2929,6 +3209,93 @@ def selftest():
     # ("release-cure M4", polish 2026-10-24; project.steady_git_clock)
     with project.steady_git_clock():
         return _selftest()
+
+
+def selftest_floor():
+    """`stops.py --selftest --floor` (DESIGN-FLOOR, 2026-11-10): the math gate's floor controls only (no git, no Lean,
+    a few seconds). The floor mutants MG3, MG4 and MG6-MG9 (tests/mutant_list.py) name this entry; the full
+    selftest runs the same controls."""
+    res = _floor_controls(tb=True)
+    print("selftest:", "ok" if res and all(res) else "FAILED")
+    return 0 if res and all(res) else 1
+
+
+def _floor_controls(tb=False):
+    """The math gate's floor controls: integrity_blocks on the lines DESIGN-E2 named (forgery review rec. 6), and
+    math_gate with its checks run by stand-ins (RUNNER, PHASE0_LINES) -- passing checks deliver, a RED Phase 0 and a
+    core or unknown integrity FAIL and a failing freeze refuse, in both modes and at every involvement level
+    (REVIEW-FLOOR MEDIUM-1: a gate refusing nothing when `involved` passed every selftest), a reader record's
+    ownership FAIL alone is a note. Any exception is a failed control; with tb (the --floor entry) it also prints
+    its traceback (REVIEW-FLOOR LOW-2: the floor then counts a mutant that raises here as crashed, a hit, never as
+    killed; the full selftest keeps its earlier output, so mutants.py's verdicts on it do not move)."""
+    import shutil, tempfile, traceback
+    import integrity
+    res = []
+
+    def say(name, ok):
+        res.append(bool(ok)); print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
+
+    global RUNNER, PHASE0_LINES
+    saved = (project.REPO, project.AUDITS, RUNNER, PHASE0_LINES)
+    base = tempfile.mkdtemp(prefix="stops-floor-")
+    try:
+        os.makedirs(os.path.join(base, "P"))
+        json.dump({"ownership": integrity.OWNERSHIP}, open(os.path.join(base, "P", integrity.PIN), "w"))
+        project.REPO = project.AUDITS = base
+        cfg = {"name": "P", "rounds_dir": "P", "involvement": "hands-off", "build_cmds": ["lake build P"]}
+        F_ = "FAIL"     # built, not written out: the cause-code lint reads every FAIL[<code>] literal in this file
+        try:
+            ib = {F_ + l_: integrity_blocks(cfg, F_ + l_) for l_ in (
+                "[seal] x", '[ownership] VACUOUS.md was committed by "Merge branch side" (abc1234); only a '
+                '"adjudicate …" commit may change it', "[tooling] audits/fingerprint.py changed since the pin",
+                "[tooling] 2026-01-01-full-abc1234/correspondence.json changed", "[newcode-qz] x",
+                "[tooling] audits/run/stage5-delivery.md changed since the pin",
+                '[ownership] hand-edits/HE1.json was committed by "x" (abc1234); only a "hand-edit …" commit may change it',
+                '[ownership] stops/S1/CLOSED.json was committed by "x" (abc1234); only a "stop …" commit may change it')}
+            ib_ok = list(ib.values()) == [True, True, True, True, True, False, False, True]
+        except Exception as e:      # noqa: BLE001 -- a failed control
+            print(f"  (integrity_blocks raised {type(e).__name__}: {e})\n{traceback.format_exc() if tb else ''}"); ib_ok = False
+        say("E2 floor: integrity_blocks -- a seal FAIL, a judgement record's ownership FAIL, a core file, a round's file and "
+            "an unknown code block the math gate, and so does a stop record's ownership FAIL (a judgement record outside "
+            "NEVER_ACK_RE); a delivery-side tooling file and a hand-edit record's ownership are notes", ib_ok)
+        PHASE0_LINES = lambda c_: []
+        outs = {}
+        RUNNER = lambda argv: outs.get(os.path.basename(next((x for x in argv if x.endswith(".py")), "b"))[:-3], (0, "ok\n"))
+
+        def gate(mode, lv, **o):
+            outs.clear(); outs.update(o)
+            try:
+                return math_gate(dict(cfg, mode=mode, involvement=lv))
+            except Exception as e:      # noqa: BLE001 -- a failed control
+                print(f"  (math_gate raised {type(e).__name__}: {e})\n{traceback.format_exc() if tb else ''}")
+                return None, None
+        # something approved, so the gate runs the freeze (fingerprint.py --check) too
+        json.dump({"round": "2026-01-01-full-abc1234"}, open(os.path.join(base, "P", "APPROVED_FINGERPRINTS.json"), "w"))
+        red = (1, "HARD[sorry] sorry: A.lean:3: sorry\nPHASE 0: RED\n")
+        core = (1, F_ + "[tooling] tooling changed since the pin: phase0.py\nintegrity: 1 FAIL(s)\n")
+        unknown = (1, F_ + "[newcode-qz] something new\nintegrity: 1 FAIL(s)\n")
+        reader = (1, F_ + '[ownership] readers/summary-1.md was committed by "x" (abc1234); only a reader\n')
+        frozen = (1, "FROZENQZ P.thm changed since the approval\n")
+        r = {(m_, lv_): (gate(m_, lv_), gate(m_, lv_, phase0=red), gate(m_, lv_, integrity=core),
+                         gate(m_, lv_, integrity=unknown), gate(m_, lv_, integrity=reader), gate(m_, lv_, fingerprint=frozen))
+             for m_ in project.MODES for lv_ in project.INVOLVEMENT_LEVELS}
+        each = "in dev and release, at every involvement level"
+        say(f"floor: the math gate refuses nothing when its checks pass, {each}",
+            len(r) == 6 and all(v[0][0] == [] for v in r.values()))
+        say(f"floor: a RED Phase 0 (a sorry) refuses, {each}",
+            all(v[1][0] and any("phase0.py" in b and "HARD[sorry]" in b for b in v[1][0]) for v in r.values()))
+        say(f"floor: an integrity FAIL on a core file refuses, {each}",
+            all(v[2][0] and any("proof-validity core" in b and "phase0.py" in b for b in v[2][0]) for v in r.values()))
+        say(f"floor: an integrity FAIL of an unknown code refuses (fail closed), {each}",
+            all(v[3][0] and any("newcode-qz" in b for b in v[3][0]) for v in r.values()))
+        say(f"floor: an integrity FAIL on a reader record alone is a note, not a refusal, {each}",
+            all(v[4][0] == [] and any("readers/summary-1.md" in n for n in v[4][1] or []) for v in r.values()))
+        say(f"floor: a failing freeze (fingerprint.py --check) refuses, {each}",
+            all(v[5][0] and any("fingerprint.py" in b and "FROZENQZ" in b for b in v[5][0]) for v in r.values()))
+    finally:
+        project.REPO, project.AUDITS, RUNNER, PHASE0_LINES = saved
+        shutil.rmtree(base, ignore_errors=True)
+    return res
 
 
 # every self-cure open message ends "...; then classify it)" (48917d2), so a spent budget is told by the classify
@@ -3089,12 +3456,79 @@ def _selftest_core_fault(cfg, cfg_r, d, rd, outs, refused, strail):
         say("C2-FIX 5b review: delivery requires the marker on SUMMARY's page 1 (its head, before the results), not "
             "anywhere in it",
             f"{sc_} (marker)" in un_.get("SUMMARY.md", []) and f"{sc_} (marker)" not in un2_.get("SUMMARY.md", []))
+        res += _selftest_work_lines(cfg_r, sc_)
     finally:
         for k, v in keep_.items():
             if v is None:
                 outs.pop(k, None)
             else:
                 outs[k] = v
+    return res
+
+
+def _selftest_work_lines(cfg_r, sc_):
+    """DESIGN-E2 fix 4 (forgery review 2026-11 F3): a real sorry or non-standard axiom is never a core fault's, under
+    any core file, and no close record covers it; "swept only", an exempted sorryAx, drift, a crash and a Lean API
+    error stay coverable; a token-scan sorry under a clean kernel sweep stays coverable (a scanner false positive)."""
+    import decisions
+    res = []
+
+    def say(name, ok):
+        res.append(bool(ok)); print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
+
+    lean = os.path.join(tempfile.gettempdir(), "tmpw1x2y3z4.lean")
+
+    def p0o(body, *result):
+        return (body + "\n" + "=" * 78 + "\nPHASE 0 RESULT (computed by phase0.py from the exit codes above)\n"
+                + "".join(f"  {r}\n" for r in result) + "PHASE 0: RED (1 check(s))\n")
+    sorry_ = "HARD[sorry] P/Main.lean:40: `P.lem` contains sorry\n"
+    work = {"sorry, sweep RED": p0o(sorry_, "ok      build  [exit 0]", "RED[axiom] axiom sweep  [exit 1]",
+                                    "RED[sorry] token scan: sorry  [exit 1]"),
+            "sorry, no sweep": p0o(sorry_, "RED[sorry] token scan: sorry  [exit 1]"),
+            "sorryAx": p0o(f"{lean}:3:0: error: 3 declarations reach sorryAx\n", "RED[axiom] axiom sweep  [exit 1]"),
+            "carries": p0o(f"{lean}:3:0: error: P.x carries [Lean.ofReduceBool]\n", "RED[axiom] axiom sweep  [exit 1]")}
+    cover = {"sorry, sweep clean": p0o(sorry_, "ok      axiom sweep  [exit 0]", "RED[sorry] token scan: sorry  [exit 1]"),
+             "swept only": p0o(f"{lean}:3:0: error: swept only 3 declarations — namespace filter is wrong\n",
+                               "RED[axiom] axiom sweep  [exit 1]"),
+             "drift": "DRIFT P.thm: approved 1a2b3c4d, now 5e6f7a8b\nFAIL[drift] P.thm changed\n",
+             "traceback": "Traceback (most recent call last):\n  File x\nERROR: phase0.py crashed\n",
+             "api error": p0o(f"{lean}:41:2: error: unknown constant 'Lean.Elab.Command.liftTermElabM'\n",
+                              "RED[axiom] axiom sweep  [exit 1]")}
+    keep = (decisions.unproved, decisions.pending_reapproval)
+    cpath = os.path.join(stop_dir(cfg_r, sc_), "CLOSED.json")
+    craw = open(cpath, encoding="utf-8").read()
+    try:
+        decisions.unproved = lambda *a, **k: {"decls": {}, "lines": {}, "goal": [], "problems": []}
+        decisions.pending_reapproval = lambda *a, **k: []
+        p0c, fpc = "python3 audits/phase0.py --readonly", "python3 audits/fingerprint.py --check"
+        attr = {(f_, k_): core_attribution(f_, fpc if f_ == "fingerprint.py" else p0c, t_, cfg_r)
+                for f_ in ("phase0.py", "axiom_sweep.py", "fingerprint.py") for k_, t_ in work.items()}
+        w_all = all(o_ == [] and th_ == _fail_lines(work[k_]) for (f_, k_), (o_, th_) in attr.items())
+        w_each = {k_: bool(work_lines(cfg_r, t_)) for k_, t_ in work.items()}
+        c_each = {k_: work_lines(cfg_r, t_) for k_, t_ in cover.items()}
+        # a forged close that lists exactly the work lines (and the api-error lines) as judged
+        rec_ = json.loads(craw)
+        rec_["failing"] = [[p0c, sorted({l for t_ in list(work.values()) + [cover["api error"]] for l in _fail_lines(t_)})]]
+        json.dump(rec_, open(cpath, "w"))
+        cov_w = {k_: core_covered(cfg_r, p0c, t_) for k_, t_ in work.items()}
+        cov_api = core_covered(cfg_r, p0c, cover["api error"])
+        decisions.unproved = lambda *a, **k: {"decls": {"P.y": "[DELEGATED]"}, "lines": {}, "goal": [], "problems": []}
+        ex_on = work_lines(cfg_r, work["sorryAx"])
+        decisions.unproved = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x"))
+        ex_err = work_lines(cfg_r, work["sorryAx"])
+    finally:
+        decisions.unproved, decisions.pending_reapproval = keep
+        open(cpath, "w").write(craw)
+    say("E2 fix 4: a real sorry (token scan under a sweep that is not clean), a kernel sorryAx with no exemption and a "
+        "non-standard axiom are the work's own under every core file: the request and close see every line foreign",
+        w_all and all(w_each.values()))
+    say("E2 fix 4: a close record listing a real sorry, sorryAx or non-standard axiom line never covers it (the same "
+        "forged record still covers a Lean API error)",
+        not any(cov_w.values()) and cov_api)
+    say("E2 fix 4: stay coverable -- a token-scan sorry under a clean sweep, \"swept only\", drift, a crash, a Lean API "
+        "error, a sorryAx while a leave line is active or while the exemptions cannot be computed",
+        not any(c_each.values()) and ex_on == [] and ex_err == [])
+    # the DESIGN-E2 integrity_blocks controls moved to _floor_controls (the full selftest runs them too)
     return res
 
 
@@ -4120,6 +4554,26 @@ def _selftest():
             and (load(os.path.join(rd, STOPS, s_, "STOP.json")) or {}).get("check") == lc_)
         say("re-check V3/V6: the closer may carry -B and --project <this project>, never --project <another one>",
             not h1v3 and "closed by exactly `" + lc_ in h1v6)
+        # A1 (STATUS A1, De Medts lie9): --note with no --check and no --round, of a code whose own closer has no
+        # {R}, records that closer (it raised a TypeError in project.closer before)
+        a1_bad = []
+        for code in sorted(c for c in project.CLOSER if _specific_closer(c) and "{R}" not in project.CLOSER[c]
+                           and c not in project.NEVER_STOP):
+            G("reset", "-q", "--hard", h_h1)
+            scr = project.closer(code).split()[1].split("/")[-1][:-3]
+            prev_ = outs.get(scr)
+            outs[scr] = (1, f"FAIL[{code}] x\n")
+            try:
+                sa1, _m = open_stop(c_, note=f"x ({code})", cause=code)
+                da1 = load(os.path.join(rd, STOPS, sa1, "STOP.json")) or {}
+                if da1.get("check") != project.closer(code) or da1.get("round") is not None:
+                    a1_bad.append(f"{code}: recorded {da1.get('check')!r}, round {da1.get('round')!r}")
+            except Exception as e:      # a TypeError (the A1 bug) as much as a refusal
+                a1_bad.append(f"{code}: {type(e).__name__}: {e}")
+            finally:
+                outs.pop(scr, None) if prev_ is None else outs.update({scr: prev_})
+        say(f"A1: release --note with no --check and no --round records its code's own closer ({len(a1_bad)} "
+            f"failing{': ' + '; '.join(a1_bad[:3]) if a1_bad else ''})", not a1_bad)
         G("reset", "-q", "--hard", h_h1)
         bad_ = {"command": None, "check": "python3 audits/make_report.py --check", "round": R_, "stop": "S1",
                 "causes": [{"code": "independence", "class": "tamper", "line": "(operator's note)"}]}
@@ -4600,7 +5054,19 @@ def _selftest():
         lanes_(F3_)
         outs["lanecheck"] = (1, "PROBLEM[unauthenticated] correspondence.json\n")
         c12c = refused(close_stop, c_, s12, cured="redone")
+        # REVIEW-E2E-FIX2 L-3: a check that passes but for an adj-record residue (only_left_out) still needs the
+        # fresh round's lanecheck: computed by _close_doc only (nothing written, no attempt recorded)
+        outs["integrity"] = (1, "FAIL[adj-record] hypothesis `H` has no row in a `## Hypotheses` table\n")
+        d12_ = load(os.path.join(rd, STOPS, s12, "STOP.json"))
+        r12r = _close_doc(c_, s12, d12_, cured="redone, a residue only")
         outs["lanecheck"] = (0, "ok\n")
+        r12k = _close_doc(c_, s12, d12_, cured="redone, a residue only")
+        outs["integrity"] = (0, "ok\n")
+        say("REVIEW-E2E-FIX2 L-3: a redo cure whose check passes but for an adj-record residue still runs the fresh "
+            "round's lanecheck: its failure fails the cure; once it passes, the cure passes, the residue shown",
+            r12r["rerun"]["passes"] is False and "unauthenticated" in r12r["rerun"]["output_tail"]
+            and r12k["rerun"]["passes"] is True and "adj-record" in r12k["rerun"]["output_tail"]
+            and r12k.get("redo_lanecheck") == py + f"lanecheck.py --round {F3_}")
         c12d = close_stop(c_, s12, cured="redone, lanes clean")
         db12 = deliver_blocking(c_)
         cl12 = os.path.join(rd, STOPS, s12, "CLOSED.json")
@@ -4697,8 +5163,309 @@ def _selftest():
         project.REPO, project.AUDITS, RUNNER = saved
         shutil.rmtree(base, ignore_errors=True)
     _pre_config_controls(say)
+    res += _selftest_withdrawn()
+    fc_ = _floor_controls()
+    res += fc_
+    # REVIEW-FLOOR LOW-1: the full selftest still runs every fast floor control (S' within S), so a mutant the fast
+    # floor kills is killed by the full selftest too
+    say("DESIGN-FLOOR: the full selftest ran the fast floor's controls (stops.py --selftest --floor), all 7", len(fc_) == 7)
     print("selftest:", "ok" if all(res) else "FAILED")
     return 0 if all(res) else 1
+
+
+def _selftest_withdrawn():
+    """A2 (Pisani S1) and its design review: `close --withdrawn` frees the one-stop slot of a release stop opened in
+    error, is refused in dev, for a human stop, an interference classification, a set-aside, an open tool patch or
+    a core-fault request naming the stop, past the budget without `other`, while the check passes and without text;
+    the tally charges it like a failed cure; the trail accepts it and flags the forged variants; it reaches
+    RUN_RECORD.md's rows, never the summary page or DECISIONS.md's box. Its own fixture (the RUNNER faked)."""
+    import shutil, integrity
+    import decisions as _dc, make_report as _mr
+    global RUNNER
+    res = []
+
+    def say(name, ok):
+        res.append(bool(ok)); print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
+
+    def refused(f, *x, **k):
+        try:
+            f(*x, **k)
+        except Refused as e:
+            return str(e)
+        return ""
+    saved = (project.REPO, project.AUDITS, RUNNER)
+    base = tempfile.mkdtemp(prefix="stops-wd-")
+    try:
+        d = os.path.join(base, "rec")
+        rd = os.path.join(d, "P")
+        os.makedirs(rd)
+        G = lambda *a: subprocess.run(["git", "-C", d, *a], capture_output=True, text=True).stdout.strip()
+        G("init", "-q"); G("config", "user.email", "t@t"); G("config", "user.name", "t")
+        open(os.path.join(d, ".gitignore"), "w").write("__pycache__/\n")
+        open(os.path.join(rd, "RUN_LOG.md"), "w").write("# Run log\n")
+        G("add", "-A"); G("commit", "-qm", "setup")
+        project.REPO = project.AUDITS = d
+        cfg = {"name": "P", "rounds_dir": "P", "involvement": "hands-off", "build_cmds": ["lake build P"]}
+        cfg_r, cfg_d = dict(cfg, mode="release"), dict(cfg, mode="dev")
+        agent = os.path.join(base, "agent.md")
+        open(agent, "w").write("auditor\n")
+        integrity.pin(d, cfg_r, agent_file=agent, rounds_dir=rd)
+        G("add", "--", "P/" + integrity.PIN); G("commit", "-qm", "pin")
+        outs = {}
+        RUNNER = lambda argv: outs.get(os.path.basename(next((x for x in argv if x.endswith(".py")), "b"))[:-3], (0, ""))
+        fail = (1, "FAIL[uncommitted-record] P/tool-patches/TP1/A1/DIAGNOSIS.md is not committed\nintegrity: 1 FAIL(s)\n")
+        chk = "python3 audits/integrity.py --check"
+        trail = lambda s_: [p for p in trail_problems(cfg_r, d, rd) if re.search(rf"\b{s_}\b", p)]
+        cpath = lambda s_: os.path.join(rd, STOPS, s_, "CLOSED.json")
+        # dev: refused, nothing left behind
+        outs["integrity"] = fail
+        s1, _m = open_stop(cfg_d, cmd=chk)
+        h_ = G("rev-parse", "HEAD")
+        r_dev = refused(close_stop, cfg_d, s1, withdrawn="opened in error")
+        say("A2: dev mode refuses --withdrawn (the human closes it) and leaves no file or commit behind",
+            "release mode only" in r_dev and "--human" in r_dev and not os.path.exists(cpath(s1))
+            and G("rev-parse", "HEAD") == h_ and not G("status", "--porcelain"))
+        close_stop(cfg_d, s1, human="go on")
+        # a human stop of release; empty text
+        s2, _m = open_stop(cfg_r, note="lake: permission denied on the cache", cause="env-unknown")
+        r_hum = refused(close_stop, cfg_r, s2, withdrawn="opened in error")
+        close_stop(cfg_r, s2, human="fixed it")
+        s3, _m = open_stop(cfg_r, cmd=chk)
+        r_empty = refused(close_stop, cfg_r, s3, withdrawn=" ")
+        outs["integrity"] = (0, "integrity: OK\n")
+        r_pass = refused(close_stop, cfg_r, s3, withdrawn="opened in error")
+        outs["integrity"] = fail
+        # what names the stop: a set-aside, an open tool patch, a core-fault request
+        rnd = "2026-10-19-full-1a2b3c4"
+        os.makedirs(os.path.join(rd, rnd))
+        json.dump({"stop": s3, "round": rnd}, open(os.path.join(rd, rnd, project.ABANDONED), "w"))
+        r_sa = refused(close_stop, cfg_r, s3, withdrawn="opened in error")
+        shutil.rmtree(os.path.join(rd, rnd))
+        import tool_patch
+        tpd = os.path.join(rd, tool_patch.TP_DIR, "TP1")
+        os.makedirs(tpd)
+        json.dump({"stop": s3}, open(os.path.join(tpd, "BEGIN.json"), "w"))
+        r_tp = refused(close_stop, cfg_r, s3, withdrawn="opened in error")
+        shutil.rmtree(os.path.join(rd, tool_patch.TP_DIR))
+        open(os.path.join(rd, STOPS, s3, "CORE-REQUEST1.json"), "w").write("{}\n")
+        r_core = refused(close_stop, cfg_r, s3, withdrawn="opened in error")
+        os.remove(os.path.join(rd, STOPS, s3, "CORE-REQUEST1.json"))
+        say("A2: refused for a human stop of release (the human answers it), without text, while the check passes "
+            "(close --cured), and while a set-aside, an open tool patch or a core-fault request names the stop "
+            "(review MEDIUM-2); nothing written",
+            "the human answers it" in r_hum and "needs its text" in r_empty and "passes now" in r_pass
+            and "--cured" in r_pass and "set-aside" in r_sa and "withdraw TP1 first" in r_tp
+            and "core-fault route is open" in r_core and not os.path.exists(cpath(s3)))
+        # accepted: the slot is free, the record and the log line say what it was
+        rec = close_stop(cfg_r, s3, withdrawn="opened in error: a mechanical failure of the round; set it aside")
+        line = open(os.path.join(rd, "RUN_LOG.md")).read()
+        s4, _m = open_stop(cfg_r, cmd=chk)       # no deadlock: the next fault opens
+        row = next(r for r in stop_rows(cfg_r) if r["stop"] == s3)
+        say("A2: an accepted withdrawal records by withdrawn, release, its text and its check failing; logs it; the "
+            "next stop opens (no deadlock); the trail accepts it and reads its tally (no UNREADABLE_TALLY, review L-a)",
+            rec["by"] == "withdrawn" and rec["mode"] == "release" and rec["check"] == chk
+            and rec["rerun"]["passes"] is False and rec["rerun"]["exit"] == 1
+            and G("log", "-1", "--format=%s", "--", os.path.relpath(cpath(s3), d)) == f"stop {s3} close"
+            and f"- stop {s3} withdrawn (release mode, opened in error; `{chk}` still fails; counted as a failed "
+                f"cure)" in line and s4 and not trail(s3)
+            and not UNREADABLE_TALLY.get(os.path.abspath(rd)))
+        say("A2: the stop row says withdrawn (not cured); the summary page and DECISIONS.md's box leave it out "
+            "(review HIGH-1: never 'closed by the operator (delegated)'); RUN_RECORD's 'cleared without you' takes it",
+            row["withdrawn"] and not row["cured"] and row["done"] == "withdrawn"
+            and row["by"].startswith("the operator (release, withdrawn as opened in error, not cured")
+            and next(r_[4] for r_ in _mr.resolved_stops(cfg_r) if r_[0] == s3).startswith("opened in error")
+            and _mr.page_stops([row]) == [] and not any(f"stop {s3} " in x for x in _dc.box_lines(cfg_r))
+            and any(r_[0] == s3 for r_ in _mr.resolved_stops(cfg_r)))
+        open(os.path.join(rd, "DECISIONS.md"), "w").write("# Decisions\n")
+        un_ = unnamed(cfg_r)
+        os.remove(os.path.join(rd, "DECISIONS.md"))
+        say("A2: DECISIONS.md need not name a withdrawn stop (stops.unnamed)", s3 not in un_.get("DECISIONS.md", []))
+        # L3: two withdraw/re-open cycles and one failed cure on the same key spend KEY_BUDGET (no reset)
+        close_stop(cfg_r, s4, withdrawn="opened in error again")
+        s5, _m = open_stop(cfg_r, cmd=chk)
+        r_cure = refused(close_stop, cfg_r, s5, cured="re-ran it")
+        own5, why5 = cures_spent(cfg_r, load(os.path.join(rd, STOPS, s5, "STOP.json")))
+        ev_ = [e for e in tally_events(cfg_r) if e[0] == "withdrawn"]
+        say(f"A2 (L3): two withdrawals and one failed cure of the same fault spend its run-wide budget "
+            f"({project.KEY_BUDGET}); the withdrawal is an event of its own, charged like a failed cure",
+            "still fails" in r_cure and own5 == 1 and any("retry budget" in w for w in why5)
+            and [e[1] for e in ev_] == [s3, s4] and all(("integrity", "uncommitted-record") in e[2] for e in ev_))
+        # review MEDIUM-1: past the budget, only a classification `other` allows a withdrawal; interference never
+        r_spent = refused(close_stop, cfg_r, s5, withdrawn="opened in error")
+        classify(cfg_r, s5, "interference", "a sync client rewrites the files")
+        r_int = refused(close_stop, cfg_r, s5, withdrawn="opened in error")
+        close_stop(cfg_r, s5, human="stopped the sync client")
+        s6, _m = open_stop(cfg_r, cmd=chk)
+        r6 = refused(close_stop, cfg_r, s6, withdrawn="opened in error")
+        classify(cfg_r, s6, "other", "the stop names the wrong check")
+        rec6 = close_stop(cfg_r, s6, withdrawn="opened in error: the wrong check")
+        say("A2 (review MEDIUM-1): with the budget spent a withdrawal is refused until classified (classify it); "
+            "classified interference it is stop 3, the human's; classified other it is accepted, and the trail agrees",
+            "classify it" in r_spent and "stop 3" in r_int and "classify it" in r6 and rec6["by"] == "withdrawn"
+            and not trail(s6) and not trail(s5))
+        # the trail flags forged withdrawals (each committed as its close, then undone)
+        h_ok = G("rev-parse", "HEAD")
+        s7, _m = open_stop(cfg_r, cmd=chk)
+        h7o = G("rev-parse", "HEAD")
+        classify_ok = None
+        try:
+            classify(cfg_r, s7, "other", "x"); classify_ok = True
+        except Refused:
+            classify_ok = False
+        h7 = G("rev-parse", "HEAD")
+        good = _close_doc(cfg_r, s7, load(os.path.join(rd, STOPS, s7, "STOP.json")), withdrawn="opened in error")
+        forged = {"dev": dict(good, mode="dev"), "empty": dict(good, text=""),
+                  "passes": dict(good, rerun=dict(good["rerun"], passes=True)), "other check": dict(good, check="x")}
+        flagged = {}
+        for k_, f_ in forged.items():
+            G("reset", "-q", "--hard", h7)
+            json.dump(f_, open(cpath(s7), "w"), indent=1, sort_keys=True)
+            G("add", "-A"); G("commit", "-qm", f"stop {s7} close")
+            flagged[k_] = bool(trail(s7))
+        G("reset", "-q", "--hard", h7o)       # the budget spent and no classification `other` (review MEDIUM-1)
+        json.dump(good, open(cpath(s7), "w"), indent=1, sort_keys=True)
+        G("add", "-A"); G("commit", "-qm", f"stop {s7} close")
+        flagged["unclassified"] = any("withdrawn past its ceilings" in p for p in trail(s7))
+        G("reset", "-q", "--hard", h7)
+        json.dump(good, open(cpath(s7), "w"), indent=1, sort_keys=True)
+        G("add", "-A"); G("commit", "-qm", f"stop {s7} close")
+        say("A2: the trail flags a forged withdrawal (dev mode, empty text, a check shown passing, another check, past "
+            "the budget unclassified) and passes the real one",
+            classify_ok is True and all(flagged.values()) and len(flagged) == 5 and not trail(s7))
+        # an interrupted withdrawal (written, not committed) is completed by the next command
+        G("reset", "-q", "--hard", h7)
+        json.dump(good, open(cpath(s7), "w"), indent=1, sort_keys=True)
+        done_ = finish_interrupted(cfg_r)
+        say("A2: an interrupted withdrawal is recomputed and committed by finish_interrupted, with its log line",
+            any(f"committed {s7}/CLOSED.json" in x for x in done_)
+            and G("log", "-1", "--format=%s") == f"stop {s7} close"
+            and f"- stop {s7} withdrawn (release mode" in open(os.path.join(rd, "RUN_LOG.md")).read()
+            and not trail(s7))
+        G("reset", "-q", "--hard", h_ok)
+        # attack review HIGH-1 (its T1): a seal mismatch on the current round is never withdrawn as "spurious"
+        # (the round would be adopted with a changed verdict); the trail flags a forged one; once the round is old
+        # (a newer round exists), the check bound to it no longer blocks (Pisani S1's case)
+        rT = "2026-10-20-full-2b3c4d5"
+        os.makedirs(os.path.join(rd, rT))
+        json.dump({"_meta": {"kind": "full"}, "correspondence": ["Theorem 1.1"]}, open(os.path.join(rd, rT, "TARGET.json"), "w"))
+        G("add", "-A"); G("commit", "-qm", f"scope {rT}")
+        lck = f"python3 audits/lanecheck.py --round {rT}"
+        outs["lanecheck"] = (1, f"FAIL[seal-mismatch] {rT}/correspondence.json: verdict differs from its completion seal\n")
+        s8, _m = open_stop(cfg_r, cmd=lck)
+        r_t1 = refused(close_stop, cfg_r, s8, withdrawn="opened in error: the seal mismatch is spurious")
+        h8 = G("rev-parse", "HEAD")
+        forged8 = {"stop": s8, "date": today(), "involvement": "hands-off", "by": "withdrawn", "mode": "release",
+                   "text": "opened in error", "check": lck,
+                   "rerun": {"exit": 1, "output_tail": outs["lanecheck"][1], "passes": False}}
+        json.dump(forged8, open(cpath(s8), "w"), indent=1, sort_keys=True)
+        G("add", "-A"); G("commit", "-qm", f"stop {s8} close")
+        t8 = trail(s8)
+        G("reset", "-q", "--hard", h8)
+        rT2 = "2026-10-21-full-3c4d5e6"
+        os.makedirs(os.path.join(rd, rT2))
+        json.dump({"_meta": {"kind": "full"}, "correspondence": ["Theorem 1.1"]}, open(os.path.join(rd, rT2, "TARGET.json"), "w"))
+        G("add", "-A"); G("commit", "-qm", f"scope {rT2}")
+        rec8 = close_stop(cfg_r, s8, withdrawn="opened in error: the check names the superseded round")
+        say("A2 (attack HIGH-1): a stop whose check still prints its own seal-mismatch on the current round is not "
+            "withdrawn (set the round aside and redo it; nothing written); the trail flags a forged withdrawal of it; "
+            "bound to a round no longer current it is withdrawn",
+            "seal-mismatch" in r_t1 and f"set-aside {rT}" in r_t1 and "--stop" not in r_t1 and "--cured" in r_t1
+            and any("printed seal-mismatch" in p for p in t8) and rec8["by"] == "withdrawn" and not trail(s8))
+        lck2 = f"python3 audits/lanecheck.py --round {rT2}"
+        # re-review R-M1: a stop opened on a rerun code (unsealed) whose check later prints seal-mismatch on the
+        # current round is refused too (any redo/tamper code, not only those recorded at open); with STOP.json naming
+        # the round the route carries --stop (R-L2); once the round is adjudicated the route is the cure, never a
+        # set-aside
+        outs["lanecheck"] = (1, f"FAIL[unsealed] {rT2}/correspondence.json: returned, not sealed\n")
+        s8b, _m = open_stop(cfg_r, cmd=lck2, round_name=rT2)
+        outs["lanecheck"] = (1, f"FAIL[seal-mismatch] {rT2}/correspondence.json: verdict differs from its completion seal\n")
+        r_m1 = refused(close_stop, cfg_r, s8b, withdrawn="opened in error: the seal mismatch is spurious")
+        open(os.path.join(rd, rT2, "ADOPTED.md"), "w").write("x\n")
+        r_adj = refused(close_stop, cfg_r, s8b, withdrawn="opened in error: the seal mismatch is spurious")
+        os.remove(os.path.join(rd, rT2, "ADOPTED.md"))
+        say("A2 (re-review R-M1, R-L2): a seal-mismatch first printed after the stop opened (on unsealed) still "
+            "refuses the withdrawal on the current round; the route names set-aside --stop when STOP.json names the "
+            "round, and the cure (never a set-aside) once the round is adjudicated; nothing written",
+            "seal-mismatch" in r_m1 and f"set-aside {rT2}" in r_m1 and f"--stop {s8b}" in r_m1
+            and "set-aside" not in r_adj and "was adjudicated" in r_adj and "--cured" in r_adj
+            and not os.path.exists(cpath(s8b)))
+        close_stop(cfg_r, s8b, human="set the round aside")
+        # attack review LOW-1 (its T3): a --note stop whose check prints a human code is never withdrawn
+        outs["tree_state"] = (1, "FAIL[tree-changed] x\nFAIL[interference] a sync client rewrote P/RUN_LOG.md\n")
+        s9, _m = open_stop(cfg_r, note="a tool call failed", cause="tool-call", check="python3 audits/tree_state.py --check")
+        r_t3 = refused(close_stop, cfg_r, s9, withdrawn="opened in error")
+        say("A2 (attack LOW-1): a stop opened under a non-human cause whose check prints a human code is the "
+            "human's, never withdrawn",
+            "interference" in r_t3 and "stop 3" in r_t3 and "--human" in r_t3 and not os.path.exists(cpath(s9)))
+        doc9 = load(os.path.join(rd, STOPS, s9, "STOP.json"))
+        r_l4 = refused(_close_doc, cfg_r, s9, {k: v for k, v in doc9.items() if k != "mode"}, withdrawn="opened in error")
+        say("A2 (compat L4): the close tests STOP.json's mode as the trail does (a record with no mode is refused)",
+            "not opened in release mode" in r_l4)
+        close_stop(cfg_r, s9, human="stopped the sync client")
+        outs["tree_state"] = (0, "")
+        # E2E-FIX2 L1 (the e2e run withdrew a stop whose missing-theory fault it had cured: the check still printed only
+        # the adj-record fault the cure created): that residue counts as passing, so the cured stop closes --cured and
+        # is never withdrawn; a residue the stop was opened for still fails
+        mrc = "python3 audits/make_report.py --check"
+        outs["make_report"] = (1, "FAIL[missing-theory] RUN_LOG.md: a missing-theory decision not in the canonical "
+                                  "form\nreport check FAILED: 1 problem(s)\n")
+        s10, _m = open_stop(cfg_r, cmd=mrc)
+        outs["make_report"] = (1, "FAIL[adj-record] hypothesis `H` has no row in a `## Hypotheses` table\n"
+                                  "report check FAILED: 1 problem(s)\n")
+        # owner's rule (no new refusal): the withdrawal of such a stop goes through, with a NOTE in its close record
+        # and in the stop table that --cured was the right close
+        import io as _iow
+        _bw = _iow.StringIO()
+        with contextlib.redirect_stdout(_bw):
+            r10 = refused(close_stop, cfg_r, s10, withdrawn="opened in error")
+        c10 = load(os.path.join(rd, STOPS, s10, "CLOSED.json")) or {}
+        row10 = next((r for r in stop_rows(cfg_r) if r["stop"] == s10), {})
+        say("E2E-FIX2 L1 (owner's rule): withdrawing a stop that passes but for an adj-record residue is not refused: "
+            "it is withdrawn, with a NOTE (printed, in CLOSED.json and in the stop table) that --cured was the right "
+            "close", r10 == "" and c10.get("by") == "withdrawn" and "--cured was the right close" in c10.get("note", "")
+            and "--cured was the right close" in _bw.getvalue() and "--cured was the right close" in row10.get("by", ""))
+        outs["make_report"] = (1, "FAIL[missing-theory] RUN_LOG.md: a missing-theory decision not in the canonical "
+                                  "form\nreport check FAILED: 1 problem(s)\n")
+        s10, _m = open_stop(cfg_r, cmd=mrc)
+        outs["make_report"] = (1, "FAIL[adj-record] hypothesis `H` has no row in a `## Hypotheses` table\n"
+                                  "report check FAILED: 1 problem(s)\n")
+        # REVIEW-E2E-FIX2 L-4: a cure refused here fails this named check (E2F2-15), not the block's catch-all
+        r10c = ""
+        try:
+            rec10 = close_stop(cfg_r, s10, cured="logged the canonical missing-theory line")
+        except Refused as e:
+            r10c, rec10 = str(e), {}
+        say("E2E-FIX2 L1 (REVIEW-E2E-FIX2 L-4): a cured stop whose check prints only an adj-record residue closes "
+            "--cured", not r10c and rec10.get("by") == "cure")
+        d10 = load(os.path.join(rd, STOPS, s10, "STOP.json"))
+        say("E2E-FIX2 L1: a cure whose re-run prints only an adj-record fault the stop was not opened for passes "
+            "(--cured closes it; --withdrawn gets a NOTE naming --cured); one it was opened for, or beside its own "
+            "code, still fails",
+            rec10.get("by") == "cure"
+            and (rec10.get("rerun") or {}).get("passes") is True
+            and not trail(s10)
+            and not only_left_out(dict(d10, causes=[{"code": "adj-record"}]), outs["make_report"][1])
+            and not only_left_out(d10, outs["make_report"][1] + "FAIL[missing-theory] again\n"))
+        # a withdrawal whose check no longer prints the stop's own code gets a NOTE (a flag, never a refusal)
+        outs["make_report"] = (1, "FAIL[missing-theory] RUN_LOG.md: not canonical\nreport check FAILED: 1 problem(s)\n")
+        s11, _m = open_stop(cfg_r, cmd=mrc)
+        outs["make_report"] = (1, "FAIL[report] Theorem 2.1: not formalized by the index\nreport check FAILED: 1 problem(s)\n")
+        import io as _io
+        _bn = _io.StringIO()
+        with contextlib.redirect_stdout(_bn):
+            rec11 = close_stop(cfg_r, s11, withdrawn="opened in error: the wrong check")
+        say("E2E-FIX2 L1: a withdrawal whose check no longer prints the stop's own code is accepted with a NOTE "
+            "that a cured stop closes --cured",
+            rec11["by"] == "withdrawn" and "NOTE: " in _bn.getvalue() and "a cured stop closes with --cured"
+            in _bn.getvalue())
+        outs["make_report"] = (0, "")
+        G("reset", "-q", "--hard", h_ok)
+    except Refused as e:
+        say(f"A2: no unexpected refusal ({e})", False)
+    finally:
+        project.REPO, project.AUDITS, RUNNER = saved
+        shutil.rmtree(base, ignore_errors=True)
+    return res
 
 
 def _pre_config_controls(say):
@@ -4733,6 +5500,7 @@ def _pre_config_controls(say):
             project.intake_move(cfg); moved_open = "moved"
         except ValueError as e:
             moved_open = str(e)
+        cw = run("close", "--stop", "P1", "--withdrawn", "opened in error")     # A2 review L-e: no mode yet
         c1 = run("close", "--stop", "P1", "--human", "fixed the proxy; go on")
         try:
             msg = project.intake_move(cfg)
@@ -4750,6 +5518,8 @@ def _pre_config_controls(say):
                        and "pre-config stop(s) moved" in msg and "## Stops" in log
                        and "P1 (" in log and "fixed the proxy; go on" in log
                        and not os.path.exists(project.pre_config_path()))
+        say("A2 (review L-e): before the config exists, close --withdrawn is refused (no run mode; the human's stop)",
+            cw[0] == 1 and "no run mode" in cw[1])
     finally:
         project.REPO, project.PROJECTS = keep
         shutil.rmtree(d, ignore_errors=True)

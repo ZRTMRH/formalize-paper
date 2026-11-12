@@ -44,8 +44,11 @@ F1 -- a result is faithful only if (all from the records, never from the operato
 A NotDoneYet is not a verdict: the latest real verdict counts, if it is still fresh.
 
 ROUTING of "not established" (U2 §1; `routes`): a missing or stale verdict -> `unverified`; an
-outstanding Fail or Ambiguous, or an unclassified/unrecorded assumption -> the adjudicator
-(`adj-record`) -- except a finding the statement-round cap left open in a release run (scope.cap_record,
+outstanding Fail or Ambiguous with no decision row, or an unclassified/unrecorded assumption -> the adjudicator
+(`adjudicator`, code `adj-record`: the next round's adjudicator decides it); one its round's adjudicator already
+decided (ADOPT, DEFER, a QUESTION since answered; every item of the verdict, no re-vote open; a `## Hypotheses` row
+saying `no`) -> `decided` (code `adj-record` too, but no round can clear it, so it never scopes one:
+make_report.pending_adjudication; B1, MAINTAINING L5) -- except a finding the statement-round cap left open in a release run (scope.cap_record,
 project.round_cap_route): "not established: open faithfulness finding: ..." -> `round-cap`, disclosed on the
 summary's first page and never a delivery block (approver 2026-10-24); fingerprint drift -> `drift`; anything this module cannot map -> `status-unmapped`
 (disclosed in release, a stop in dev). An open question is status 3 (the human; delivery waits).
@@ -248,8 +251,8 @@ def context(cfg, live_fps=None):
     if c["snaps"] and c["snaps"][-1][2] is None:
         c["deps"] = None
     known = set(c["cur"] or {})
-    idx = make_report.table_rows(os.path.join(project.REPO, project.index_file(cfg) or ""))
-    c["index"] = [r for r in idx if r and make_report.RESULT.match(r[0])]
+    # E2E-FIX2 M1: the index's result rows as the freeze reads them, whatever their label word
+    c["index"] = make_report.index_cells(os.path.join(project.REPO, project.index_file(cfg) or ""))
     c["known"] = known
     # every Definition, Notation or Construction row of the index (a Notation row is no numbered result)
     try:
@@ -271,9 +274,11 @@ def context(cfg, live_fps=None):
     c["hist"] = _history(rd, ns, known)
     c["dec"] = _decisions(rd)
     c["capped"] = _capped(rd)
-    # the QUESTION rows and RUN_LOG.md: an answered question that keeps the reading the Lean takes (kept_reading)
+    # the QUESTION rows and RUN_LOG.md: an answered question that keeps the reading the Lean takes (kept_reading);
+    # A5: both cells of each row (a row may write everything in its decision cell), never decisions.question_rows'
+    # value (review M6: that feeds DECISIONS.md)
     try:
-        c["qrows"] = decisions.question_rows(project.rounds(cfg))
+        c["qrows"] = question_texts(project.rounds(cfg))
     except Exception:          # noqa: BLE001 -- no question is then read as settled
         c["qrows"] = {}
     try:
@@ -297,11 +302,21 @@ def context(cfg, live_fps=None):
     except Exception as e:     # noqa: BLE001 -- said, never dropped
         c["unproved"] = {}
         c["problems"].append(f"the 'leave unproved' lines could not be read ({e})")
+    c["problems_q"] = False
     try:
         c["questions"] = make_report.open_questions(cfg)
     except Exception as e:     # noqa: BLE001
         c["questions"] = []
         c["problems"].append(f"the open questions could not be read ({e})")
+        c["problems_q"] = True      # B1: no QUESTION is then read as answered, so none as decided
+    # B1 (review M2): a REVOTE NEEDED row no later row of its round decides is no decision, whatever another row of
+    # the same base lane and item says (read_adopted keys by base lane and skips REVOTE NEEDED rows)
+    try:
+        import audit_coverage as ac, lanecheck
+        c["revotes"] = {(r, f"{lanecheck.lane_base(l)} :: {ac.norm_item(i)}")
+                        for r, l, i, _w, _a in decisions.open_revotes(project.rounds(cfg))}
+    except Exception:          # noqa: BLE001 -- fail towards the round: nothing reads as decided
+        c["revotes"] = None
     doc, why = hypotheses.walk(cfg, rd)
     c["walk"], c["walk_why"] = doc, why
     c["assumed"] = hypotheses.assumed(doc) if doc else {}
@@ -401,21 +416,187 @@ def _answered(c, label, names):
     return not any(mentions(item, label, names) for _r, _l, item, _why, _n in c["questions"])
 
 
-LEAN_TAKES = re.compile(r"(?i)\bthe lean takes (?:reading )?\(([a-z]|[ivx]+)\)")
-READING = re.compile(r"(?i)\breading \(([a-z]|[ivx]+)\)")
+DECIDED = ("ADOPT", "DEFER", "QUESTION")
 
 
-def kept_reading(c, rnd, lane, item):
-    """(reading, who) when a final answer to the QUESTION row of round `rnd` on (lane, item) took the reading that
-    row says the Lean takes (AUDIT_PROTOCOL C: the row names "the one the Lean takes"); else None. The Ambiguous is
-    then settled by the Lean as it stands (a benchmark run: a non-vacuity Ambiguous, answered "reading (a)", read
-    "not established" though nothing was left to settle). The caller has checked that no open question names the
-    result. The answer: the [DELEGATED] lines naming that round's QUESTION row on the item, else the latest
-    `question:<item>` answer line; every reading it names must be the Lean's."""
+def _nonpass_items(c, rnd, lane, keys):
+    """The raw items of every non-Pass verdict of round `rnd` on any of `keys` (review MEDIUM-3: latest() returns only
+    the worst verdict's items; an Ambiguous on (b) beside a Fail on (a) must be decided too)."""
+    out = []
+    for k in keys:
+        for e in c["hist"].get((lane, k), []):
+            if e[0] == rnd and e[1] != "Pass" and e[2] not in out:
+                out.append(e[2])
+    return out
+
+
+def _part_decided(c, rnd, lane, item):
+    """Review MEDIUM-3: decision() compares items by audit_coverage.norm_item, which drops a part ("Lemma 1.2 (a)" and
+    "(b)" are one key), so a row on (a) would decide (b). A paper-faithfulness item with a part is decided only by a
+    row of round `rnd` naming that part or the label without a part. Unreadable rows: not decided."""
+    if lane != "paper-faithfulness" or "rd" not in c:
+        return True
+    k = norm_label(item)
+    core = label_core(k)
+    if k == core:
+        return True
+    cache = c.setdefault("_pf_rows", {})
+    if rnd not in cache:
+        import lanecheck
+        try:
+            # every row, as read_adopted (decision()'s reader) reads them; only the part is added here
+            cache[rnd] = {norm_label(r.item) for r in lanecheck.decision_rows(os.path.join(c["rd"], rnd))
+                          if r.base == "paper-faithfulness" and r.decision}
+        except Exception:       # noqa: BLE001 -- fails towards `adjudicator` (a round)
+            cache[rnd] = set()
+    return k in cache[rnd] or core in cache[rnd]
+
+
+def _route(c, rnd, lane, items, label, names, dec, keys=()):
+    """B1 (MAINTAINING L5): the route of a non-Pass verdict of round `rnd` that no record settles. `question` while
+    its QUESTION is unanswered (the human's; `dec` is the first item's decision, as the status text names it);
+    `decided` when round `rnd`'s adjudicator decided EVERY item of it (ADOPT, DEFER, or a QUESTION since answered)
+    and no re-vote of it is open: no round can clear it, and its status still says what holds ("not established:
+    ... decision: X"), so it never scopes a round (make_report.pending_adjudication); else `adjudicator` (a verdict
+    with no decision row: the next adjudicator decides it). Fails towards `adjudicator` (a round). `keys`: the verdict's
+    keys; every non-Pass verdict of round `rnd` on them must be decided, not only the worst one's items (review
+    MEDIUM-3)."""
+    if dec == "QUESTION" and not _answered(c, label, names):
+        return "question"
+    import audit_coverage as ac
+    items = list(dict.fromkeys(list(items) + _nonpass_items(c, rnd, lane, keys)))
+    if not items or c.get("revotes") is None:
+        return "adjudicator"
+    for i in items:
+        d = decision(c, rnd, lane, i)
+        if d not in DECIDED or (rnd, f"{lane} :: {ac.norm_item(i)}") in c["revotes"]:
+            return "adjudicator"
+        if not _part_decided(c, rnd, lane, i):
+            return "adjudicator"
+        if d == "QUESTION" and (c.get("problems_q") or not _answered(c, label, names)):
+            return "adjudicator"
+    return "decided"
+
+
+def question_texts(rounds):
+    """{item: [(round name, lane, text)]} for every QUESTION row of any round's ADOPTED.md (THE reader,
+    lanecheck.decision_rows), `text` the decision cell and the reason cell, `**` removed (A5)."""
+    import lanecheck
+    out = {}
+    for d in rounds:
+        for r in lanecheck.decision_rows(d):
+            if r.decision.startswith("QUESTION"):
+                # one cell per line: a bare label ending the decision cell still ends its clause (LBL_T's `$`)
+                t = (str(r.text or "") + "\n" + str(r.reason or "")).replace("**", "")
+                out.setdefault(r.item, []).append((os.path.basename(d), r.lane, t))
+    return out
+
+
+# A5: which reading of an Ambiguous the QUESTION row says the Lean takes, and which one the answer took.
+# The prescribed token (AUDIT_PROTOCOL C): the row ends with `[Lean: (a); recommended: (b)]` -- read in either cell,
+# any case, `;` or `,`, the labels with or without parentheses; when a row has one, only it is read.
+_LAB = r"[A-Za-z]|[ivxIVX]+|\d+"
+TOKEN = re.compile(r"(?i)\[\s*lean\s*:\s*\(?(" + _LAB + r")\)?\s*[;,]\s*recommended\s*:\s*\(?(" + _LAB + r")\)?\s*\]")
+# The legacy wordings (records written before the token). A label is `(a)`, `(A)`, `(ii)`, `(1)`, or a bare capital
+# or number; never a word ("takes a stronger ...") nor a section number ("reading A.5"). After "takes" without the
+# word "reading" a bare label must end its clause (review H2: "takes A arbitrary", "takes 2 ≤ d", "takes K as a
+# parameter" name objects, not readings).
+LBL_R = r"(?:\((" + _LAB + r")\)|([A-Z]|\d+)(?!\w|\.\d))"
+LBL_T = r"(?:\((" + _LAB + r")\)|([A-Z]|\d+)(?!\w|\.\d)(?=\s*(?:[.,;:)]|\(|$)))"
+_LEAN_SUBJ = (r"(?<![\w-])(?:[Tt]he\s+)?Lean(?:'s)?(?:\s+(?:statement|type|declaration|definition|version))?"
+              r"(?:\s*`[^`\n]*`)?(?:\s*\((?:[^()\n]|\([^()\n]*\))*\))?\s+takes\s+")
+LEAN_TAKES = re.compile(_LEAN_SUBJ + r"(?:(?:[Rr]eading\s+)" + LBL_R + r"|" + LBL_T + r")", re.M)
+READING = re.compile(r"(?<![\w-])[Rr]eading\s+" + LBL_R)
+LEANS_READING = re.compile(r"(?i)\b(?:keep|keeps|kept|take)\s+the lean'?s reading\b(?!s)")
+# Review HIGH-1, L2: a label in a negated or interrogative clause names no reading -- "do not keep the Lean's
+# reading", "Keep the Lean's reading? No: ...", "not reading (a)", "Neither the paper nor the Lean takes (a)". A clause
+# ends at ; ! ? [ ] a newline, a full stop or colon before a space, or a dash between spaces; code spans are not read.
+# Fails towards "no reading named" (the status then reads "not established").
+NEG = re.compile(r"(?i)\b(?:not|never|no|neither|nor|instead|rather\s+than|reject(?:s|ed)?|refuse[sd]?)\b|n['\u2019]t\b")
+_CLAUSE_END = re.compile(r"[;!?\[\]\n]|[.:](?=\s|$)|\s(?:\u2014|\u2013|--)\s")
+
+
+def _negated(text, m):
+    """Is match `m` of `text` in a negated or interrogative clause (NEG, _CLAUSE_END)?"""
+    t = re.sub(r"`[^`\n]*`", lambda x: " " * len(x.group(0)), str(text))
+    start = max((e.end() for e in _CLAUSE_END.finditer(t, 0, m.start())), default=0)
+    end_m = _CLAUSE_END.search(t, m.end())
+    end = end_m.start() if end_m else len(t)
+    return bool(NEG.search(t, start, end)) or bool(end_m and end_m.group(0) == "?")
+
+
+def _labels(rx, text, guard=True):
+    """The labels `rx` reads in `text`; `guard`: none from a negated or interrogative clause (_negated)."""
+    t = str(text)
+    return {next(g for g in m.groups() if g).lower() for m in rx.finditer(t) if not (guard and _negated(t, m))}
+
+
+def _lean_takes(text):
+    """The legacy reading of which label the Lean takes. A bare label after "takes" (no "reading" before it) counts
+    only when the row names it as a reading ("Reading A: ..."; review L1: "takes 1, i.e.", "takes C," name objects)."""
+    t = str(text).replace("**", "")
+    named = _labels(READING, t, guard=False)
+    out = set()
+    for m in LEAN_TAKES.finditer(t):
+        if _negated(t, m):
+            continue
+        lab = next(g for g in m.groups() if g).lower()
+        if m.group(4) and lab not in named:
+            continue
+        out.add(lab)
+    return out
+
+
+def _tokens(text):
+    return {(m.group(1).lower(), m.group(2).lower()) for m in TOKEN.finditer(str(text))}
+
+
+def token_conflict(text):
+    """Review MEDIUM-1: the row's token names one Lean label and its prose (the legacy wordings) another."""
+    toks = _tokens(text)
+    if len(toks) != 1:
+        return False
+    legacy = _lean_takes(text)
+    return bool(legacy) and legacy != {next(iter(toks))[0]}
+
+
+def lean_labels(text):
+    """(set of labels the row says the Lean takes, the recommended label or None) of one QUESTION row's text: the
+    token's when it has one (two different tokens, or a token its own prose contradicts: nothing), else the legacy
+    wordings'."""
+    toks = _tokens(text)
+    if toks:
+        if len(toks) != 1 or token_conflict(text):
+            return set(), None
+        return {next(iter(toks))[0]}, next(iter(toks))[1]
+    return _lean_takes(text), None
+
+
+def reading_answer(c, rnd, lane, item):
+    """("kept", reading, who) when a final answer to the QUESTION row of round `rnd` on (lane, item) took the reading
+    that row says the Lean takes (AUDIT_PROTOCOL C: the row names "the one the Lean takes"); ("other", taken, lean,
+    who) when it took exactly one other reading; else None. The answer: the [DELEGATED] lines naming that round's
+    QUESTION row on the item, else the latest `question:<item>` answer line; every reading it names counts ("keep
+    the Lean's reading" names the row's). The caller has checked that no open question names the result."""
     import audit_coverage as ac, decisions
     key = ac.norm_item(item)
-    takes = {m.group(1).lower() for it, asks in (c.get("qrows") or {}).items() if ac.norm_item(it) == key
-             for r, l, why in asks if r == rnd and l == lane for m in LEAN_TAKES.finditer(str(why))}
+    takes, recs = set(), set()
+    for it, asks in (c.get("qrows") or {}).items():
+        if ac.norm_item(it) != key:
+            continue
+        for r, l, why in asks:
+            if r == rnd and l == lane:
+                if token_conflict(why):
+                    # review MEDIUM-1: settles nothing, and a delivery note names the row (make_report.decided_notes)
+                    c.setdefault("token_conflict", {})[(rnd, lane, key)] = (
+                        f"the {lane} QUESTION row of round {rnd} on {it}: its [Lean: ...] token names reading "
+                        f"({next(iter(_tokens(why)))[0]}) but its text says the Lean takes "
+                        + ", ".join(f"({x})" for x in sorted(_lean_takes(why))) + ": the reading is not read from it "
+                        "(its result reads not established); correct the row or say which holds in the summary")
+                t_, rec = lean_labels(why)
+                takes |= t_
+                if t_ and rec:
+                    recs.add(rec)
     if len(takes) != 1:
         return None
     anchor = re.compile(re.escape(decisions.anchor_id("question", str(item).strip().strip("`"))) + r"(?![\w.])", re.I)
@@ -431,24 +612,88 @@ def kept_reading(c, rnd, lane, item):
         elif anchor.match(re.sub(r"^\s*[-*]\s*(?:answered\s+)?", "", ln, flags=re.I)):
             anchored.append(ln)
     lines = exact or anchored[-1:]
-    said = {m.group(1).lower() for ln in lines for m in READING.finditer(ln)}
-    if not lines or said != takes:
+    if not lines:
         return None
+    said = set()
+    for ln in lines:
+        ln_ = ln.replace("**", "")
+        got = _labels(READING, ln_)
+        if not got and any(not _negated(ln_, m) for m in LEANS_READING.finditer(ln_)):
+            got = set(takes)
+        said |= got
     who = ("a delegated decision of the operator" if all(decisions.DELEGATED_TAG_RE.search(ln) for ln in lines)
            else "the human's answer")
-    return next(iter(takes)), who
+    if said == takes:
+        return "kept", next(iter(takes)), who
+    if len(said) == 1 and _same_scheme(next(iter(said)), next(iter(takes))):
+        return "other", next(iter(said)), next(iter(takes)), who
+    return None
+
+
+def _same_scheme(a, b):
+    """Two labels of one labelling scheme: digits, letters, roman numerals (a lone i, v or x may be either of the
+    last two). Labels of different schemes are never compared ((b) and (ii) say nothing about each other)."""
+    kinds = lambda x: {"digit"} if x.isdigit() else ({"letter", "roman"} if x in ("i", "v", "x") else
+                                                     {"roman"} if re.fullmatch(r"[ivx]+", x) else {"letter"})
+    return bool(kinds(a) & kinds(b))
+
+
+def kept_reading(c, rnd, lane, item):
+    """(reading, who) when the answer kept the reading the Lean takes (reading_answer), else None."""
+    r = reading_answer(c, rnd, lane, item)
+    return (r[1], r[2]) if r and r[0] == "kept" else None
 
 
 def _capped_or(reason, c, lane, items):
     """`reason`, or -- when the statement-round cap left this (lane, item) open (c["capped"]) -- the open
-    faithfulness finding it is (route round-cap: disclosed, never a delivery block)."""
+    faithfulness finding it is (route round-cap: disclosed, never a delivery block). An unanswered QUESTION (route
+    `question`) stays the human's, as a result's own does."""
     import audit_coverage as ac
+    if reason[1] == "question":
+        return reason
     cap = next((c.get("capped", {})[f"{lane} :: {ac.norm_item(i)}"] for i in items
                 if f"{lane} :: {ac.norm_item(i)}" in c.get("capped", {})), None)
     if not cap:
         return reason
     return (f"open faithfulness finding: {reason[0]} (the statement-round cap was reached at round {cap} with it "
             f"open)", "round-cap")
+
+
+def _def_route(c, lt, lane, dl, dn, keys=()):
+    """B1: the route of a non-Pass verdict on a Definition row the result uses (R3: its status names it whatever the
+    records say), by the same rule as a result's own verdict (_route), the question read for the definition's own
+    label and names: `question` while its QUESTION is unanswered (the human's, as the definition's own row is),
+    `decided` once decided, else `adjudicator`. Before B1 every one was `adjudicator`, so a round no adjudicator
+    could clear it in was scoped for it."""
+    r = _route(c, lt[0], lane, lt[2], dl, dn, decision(c, lt[0], lane, lt[2][0]) if lt[2] else None, keys)
+    if r == "decided":
+        _note_decided(c, lt[0], lane, list(dict.fromkeys(list(lt[2]) + _nonpass_items(c, lt[0], lane, keys))), dl, dn)
+    return r
+
+
+def _def_kept(c, lt, lane, dl, dn, subject, kept):
+    """A5b: True when the verdict `lt` on a Definition row the result uses is an Ambiguous whose QUESTION a final
+    answer settled by the reading the row says the Lean takes (reading_answer, read for the definition's own label
+    and names, as for a result's own verdict); `kept` then gets its "faithful under reading" status (never the plain
+    "faithful": the reading is disclosed)."""
+    rnd, v, items = lt
+    if v != "Ambiguous" or not items or decision(c, rnd, lane, items[0]) != "QUESTION" or not _answered(c, dl, dn):
+        return False
+    ks = [reading_answer(c, rnd, lane, i) for i in items]
+    if not (ks and all(k and k[0] == "kept" for k in ks)):
+        return False
+    if kept is not None:
+        kept.append(f"faithful under reading ({ks[0][1]}) of the {lane} question on {subject} (round {rnd}): the "
+                    f"reading the Lean takes, kept by {ks[0][2]}")
+    return True
+
+
+def _note_decided(c, rnd, lane, items, label, names):
+    """Remember a `decided` verdict for make_report.decided_notes (review M1: an ADOPT with no OUTCOMES.md row, or
+    "implemented" with no Lean commit behind it, is a delivery note: the forced round that used to re-check it is
+    gone). Keyed so that repeated analyses of one context record it once."""
+    c.setdefault("decided_rows", {})[(rnd, lane, tuple(items))] = {
+        "result": label, "names": list(names), "decs": [decision(c, rnd, lane, i) for i in items]}
 
 
 def verdict_reasons(c, label, names, records, is_def, kept=None):
@@ -476,24 +721,38 @@ def verdict_reasons(c, label, names, records, is_def, kept=None):
             return
         if dec in ("ADOPT", "DEFER", "QUESTION") and record_ok(v):
             return
+        other = None
         if dec == "QUESTION" and v == "Ambiguous" and _answered(c, label, names):
-            ks = [kept_reading(c, rnd, lane, i) for i in items]
-            if ks and all(ks):
+            ks = [reading_answer(c, rnd, lane, i) for i in items]
+            if ks and all(k and k[0] == "kept" for k in ks):
                 if kept is not None:
-                    kept.append(f"faithful under reading ({ks[0][0]}) of the {lane} question on {subject} (round "
-                                f"{rnd}): the reading the Lean takes, kept by {ks[0][1]}")
+                    kept.append(f"faithful under reading ({ks[0][1]}) of the {lane} question on {subject} (round "
+                                f"{rnd}): the reading the Lean takes, kept by {ks[0][2]}")
                 return
-        route = "question" if dec == "QUESTION" and not _answered(c, label, names) else "adjudicator"
+            other = next((k for k in ks if k and k[0] == "other"), None)
+        route = _route(c, rnd, lane, items, label, names, dec, keys)
+        why_ = f"{lane} {v} on {subject} (round {rnd}; decision: {dec or 'none recorded'})"
+        if other:
+            # A5 (review M3): the answer took another reading than the Lean's: the Lean must change (re-approval) or
+            # the answer be revised -- said in the status and as a delivery note (make_report.decided_notes)
+            why_ = why_[:-1] + f"; the answer took reading ({other[1]}), the Lean takes ({other[2]}))"
+            c.setdefault("reading_mismatch", {})[(rnd, lane, label)] = (
+                f"{label}: the answer to the {lane} QUESTION of round {rnd} on {subject} ({other[3]}) took reading "
+                f"({other[1]}), but the row says the Lean takes ({other[2]}): change the Lean (by re-approval) or "
+                f"revise the answer (stage5-delivery.md step 7), and say which holds in the summary")
+        if route == "decided":
+            _note_decided(c, rnd, lane, list(dict.fromkeys(list(items) + _nonpass_items(c, rnd, lane, keys))), label,
+                          decls)
         import audit_coverage as ac
         cap = next((c.get("capped", {})[f"{lane} :: {ac.norm_item(i)}"] for i in items
                     if f"{lane} :: {ac.norm_item(i)}" in c.get("capped", {})), None)
-        if route == "adjudicator" and cap:
+        if route in ("adjudicator", "decided") and cap:
             # approver 2026-10-24 (decision 3): the statement-round cap was reached with this finding open and the
             # run went on (project.round_cap_route): disclosed on the summary's first page, never a delivery block
             out.append((f"open faithfulness finding: {lane} {v} on {subject} (round {rnd}; the statement-round cap "
                         f"was reached at round {cap} with it open)", "round-cap"))
             return
-        out.append((f"{lane} {v} on {subject} (round {rnd}; decision: {dec or 'none recorded'})", route))
+        out.append((why_, route))
 
     def rec_ok(lane):
         def ok(v):
@@ -540,8 +799,10 @@ def verdict_reasons(c, label, names, records, is_def, kept=None):
                         sub.append((f"the correspondence verdict on `{d}` ({dl}, used by it) is out of date: "
                                     f"{fresh(c, lt_[0], [d])}", "unverified"))
                     elif lt_[1] != "Pass" and decision(c, lt_[0], lane, lt_[2][0]) != "REJECT":
-                        sub.append(_capped_or((f"correspondence {lt_[1]} on `{d}` ({dl}, used by it)", "adjudicator"),
-                                              c, lane, lt_[2]))
+                        if _def_kept(c, lt_, lane, dl, dn, f"`{d}` ({dl}, used by it)", kept):
+                            continue
+                        sub.append(_capped_or((f"correspondence {lt_[1]} on `{d}` ({dl}, used by it)",
+                                               _def_route(c, lt_, lane, dl, dn, [d])), c, lane, lt_[2]))
                 continue
             if lt is None:
                 sub.append((f"no paper-faithfulness verdict on {dl} (used by it)", "unverified"))
@@ -549,8 +810,10 @@ def verdict_reasons(c, label, names, records, is_def, kept=None):
                 sub.append((f"the paper-faithfulness verdict on {dl} (used by it) is out of date: "
                             f"{fresh(c, lt[0], about)}", "unverified"))
             elif lt[1] != "Pass" and decision(c, lt[0], lane, lt[2][0]) != "REJECT":
-                sub.append(_capped_or((f"paper-faithfulness {lt[1]} on {dl} (used by it)", "adjudicator"),
-                                      c, lane, lt[2]))
+                if _def_kept(c, lt, lane, dl, dn, f"{dl} (used by it)", kept):
+                    continue
+                sub.append(_capped_or((f"paper-faithfulness {lt[1]} on {dl} (used by it)",
+                                       _def_route(c, lt, lane, dl, dn, [norm_label(dl)])), c, lane, lt[2]))
         out += sub
     # drift: the approved version is not the audited one
     appr = (c["approval"] or {}).get("fingerprints") or {}
@@ -612,7 +875,8 @@ def _assumption_statuses(c, names, stated, cfg):
             continue
         w = hypotheses.match_word(row[2].get("matches source", ""))
         if w == "no":
-            out.append((f"not established: the hypothesis `{short}` does not match its source", "adjudicator"))
+            # B1: the adjudicator's `## Hypotheses` row says `no`: a decision, so no round can clear it (`decided`)
+            out.append((f"not established: the hypothesis `{short}` does not match its source", "decided"))
             continue
         if kind.startswith("inline") and w == "yes":
             continue        # B5: a flagged binder confirmed as the paper's own printed hypothesis assumes nothing more
@@ -752,7 +1016,8 @@ def analyse(cfg, row, c):
 
 
 def _code(route):
-    return {"unverified": "unverified", "adjudicator": "adj-record", "drift": "drift", "question": "question",
+    return {"unverified": "unverified", "adjudicator": "adj-record", "decided": "adj-record", "drift": "drift",
+            "question": "question",
             "unmapped": UNMAPPED_CODE, "round-cap": "round-cap"}.get(route, UNMAPPED_CODE)
 
 
@@ -859,6 +1124,22 @@ def selftest():
             say("a conjecture reads 'stated only', with its statement checked faithful, never plain faithful",
                 s["Conjecture 3.1"] == ["stated only (a conjecture: stated as a proposition, asserted nowhere; its "
                                         "statement checked faithful)"])
+            # E2E-FIX2 M1 (the e2e run's "Problem 6.4" row had no status at all): a Problem row gets a status from
+            # its own verdicts, like any result -- faithful on fresh Passes, never by default
+            open(os.path.join(tmp, "P", "Main.lean"), "w").write(INDEX.replace("-/\n", "| Problem 6.4 | `P.conj_3_1` |\n-/\n"))
+            _v = allpass()
+            _v["paper-faithfulness"].append(("Problem 6.4", "Pass"))
+            reset()
+            mkround("2026-01-01-aaaaaaa", fp0, _v)
+            s_p = ST()
+            reset()
+            mkround("2026-01-01-aaaaaaa", fp0, allpass())
+            s_q = ST()
+            open(os.path.join(tmp, "P", "Main.lean"), "w").write(INDEX)
+            say("E2E-FIX2 M1: a Problem row has a status: faithful on fresh Passes, not established with no "
+                "paper-faithfulness verdict on it",
+                s_p.get("Problem 6.4") == [FAITHFUL] and "Problem 6.4" in s_q
+                and any("no paper-faithfulness verdict on Problem 6.4" in x for x in s_q["Problem 6.4"]))
             # mutant target: faithful by default -- no verdict at all
             reset()
             mkround("2026-01-01-aaaaaaa", fp0, {"correspondence": [(d, "Pass") for d in decls]})
@@ -1032,6 +1313,326 @@ def selftest():
                 and s_b[0].startswith("not established: non-vacuity Ambiguous") and r_b == {"adj-record"}
                 and s_n[0].startswith("not established: non-vacuity Ambiguous") and r_n == {"adj-record"})
             os.remove(os.path.join(rd, "RUN_LOG.md"))
+            # B1 (MAINTAINING L5): a row its round's adjudicator decided never scopes a round (route `decided`, code
+            # adj-record, the status text unchanged, nothing in make_report.pending_adjudication); a verdict with no
+            # decision row, or one item of it undecided, or an open re-vote of it, stays the adjudicator's (pending)
+            pf_, ar_, rc_ = decisions.pending_refusal, make_report.adjudication_findings, make_report.route_changes_pending
+            decisions.pending_refusal = lambda cfg_: None
+            make_report.adjudication_findings = lambda cfg_, *a, **k: []
+            make_report.route_changes_pending = lambda cfg_: []
+            orv = decisions.open_revotes
+            try:
+                def RT(label):
+                    return sorted((r.route, r.code) for r in routes(cfg) if r.result == label)
+
+                def PEND():
+                    return [t for _c, t in make_report.pending_adjudication(cfg)]
+                reset()
+                mkround("2026-01-01-aaaaaaa", fp0, allpass([("correspondence", "P.lemma_1_2", "Fail")]),
+                        "| correspondence | P.lemma_1_2 | Fail | **ADOPT** — fix the docstring | x |\n")
+                s1, r1, p1 = ST()["Lemma 1.2"], RT("Lemma 1.2"), PEND()
+                say("B1 u1: an ADOPTed Fail with no record: route `decided` (code adj-record), the status exactly as "
+                    "before, and nothing pending the next adjudication",
+                    s1 == ["not established: correspondence Fail on `P.lemma_1_2` (round 2026-01-01-aaaaaaa; decision: "
+                           "ADOPT)"] and r1 == [("decided", "adj-record")] and p1 == [])
+                # review M1/L4: decided ADOPTs are delivery notes (never refusals): one line naming the results, and
+                # an ADOPT with no OUTCOMES row or "implemented" with no Lean commit behind it
+                n_none = [t for _c, t in make_report.decided_notes(cfg)]
+                open(os.path.join(tmp, "P", "Main.lean"), "a").write("namespace P\ntheorem lemma_1_2 : True := trivial\nend P\n")
+                subprocess.run(["git", "-C", tmp, "add", "-A", "P"], capture_output=True)
+                subprocess.run(["git", "-C", tmp, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "decl"],
+                               capture_output=True)
+                h0 = subprocess.run(["git", "-C", tmp, "rev-parse", "--short=7", "HEAD"], capture_output=True,
+                                    text=True).stdout.strip()
+                reset()
+                rn = f"2026-01-01-{h0}"
+                mkround(rn, fp0, allpass([("correspondence", "P.lemma_1_2", "Fail")]),
+                        "| correspondence | P.lemma_1_2 | Fail | **ADOPT** — fix the docstring | x |\n")
+                open(os.path.join(rd, rn, "OUTCOMES.md"), "w").write(
+                    "| lane | item | outcome | note |\n|---|---|---|---|\n"
+                    "| correspondence@3 | `P.lemma_1_2` | implemented as described | docstring |\n")
+                n_nocommit = [t for _c, t in make_report.decided_notes(cfg)]
+                open(os.path.join(tmp, "P", "Main.lean"), "a").write("-- docstring fix\n")
+                subprocess.run(["git", "-C", tmp, "add", "-A", "P"], capture_output=True)
+                subprocess.run(["git", "-C", tmp, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "doc"],
+                               capture_output=True)
+                n_commit = [t for _c, t in make_report.decided_notes(cfg)]
+                say("B1 (review M1, L4): a decided ADOPT gives notes only: the results line always; no OUTCOMES row -> "
+                    "a note; 'implemented' with no Lean commit after its round -> a note; with one -> none",
+                    any("no OUTCOMES.md row" in t for t in n_none) and any("only because of rows" in t and "Lemma 1.2" in t
+                                                                           for t in n_none)
+                    and any("no Lean commit after round" in t for t in n_nocommit)
+                    and not any("no Lean commit" in t or "no OUTCOMES" in t for t in n_commit)
+                    and any("only because of rows" in t for t in n_commit)
+                    and all(c_ == "deliver" for c_, _t in make_report.decided_notes(cfg)))
+                # review M9 3: a decided ADOPT, then a real statement change (a new snapshot, its fingerprint changed):
+                # the verdict is out of date (`unverified`, never `decided`) -- delivery and scope see it as unreviewed
+                mkround("2026-01-03-ccccccc", dict(fp0, **{"P.lemma_1_2": "changed"}), {})
+                r_ch = RT("Lemma 1.2")
+                say("B1 (review M9 3): a decided ADOPT followed by a statement change is `unverified`, not `decided`",
+                    ("unverified", "unverified") in r_ch and not any(r_[0] == "decided" for r_ in r_ch))
+                for dw in ("DEFER", "QUESTION"):
+                    reset()
+                    mkround("2026-01-01-aaaaaaa", fp0, allpass([("correspondence", "P.lemma_1_2", "Fail")]),
+                            f"| correspondence | P.lemma_1_2 | Fail | **{dw}** — x | x |\n")
+                    say(f"B1 u1: a {dw} row (answered) decides it too: route `decided`, nothing pending",
+                        RT("Lemma 1.2") == [("decided", "adj-record")] and PEND() == [])
+                    if dw == "QUESTION":
+                        # attack review L4: an answered QUESTION with no Lean commit after its round is a note; the
+                        # delivery check prints the decided rows' notes as NOTE lines, never "NOT deliverable"
+                        # (compatibility review L3)
+                        import io, contextlib
+                        n_q = [t for _c, t in make_report.decided_notes(cfg)]
+                        dp_ = make_report.delivery_problems
+                        make_report.delivery_problems = lambda cfg_, inp_=None: make_report.decided_notes(cfg_, inp_)
+                        buf = io.StringIO()
+                        try:
+                            with contextlib.redirect_stdout(buf):
+                                rc_dc = make_report.delivery_check(cfg)
+                        finally:
+                            make_report.delivery_problems = dp_
+                        say("B1 (attack review L4, compatibility review L3): an answered QUESTION with no Lean commit "
+                            "after its round gives a note; the delivery check prints decided rows' notes as NOTE and "
+                            "exits 0",
+                            any("was answered, and no Lean commit after round" in t for t in n_q) and rc_dc == 0
+                            and "NOT deliverable" not in buf.getvalue() and "NOTE[deliver]" in buf.getvalue()
+                            and "RED[" not in buf.getvalue())
+                reset()
+                mkround("2026-01-01-aaaaaaa", fp0, allpass([("correspondence", "P.lemma_1_2", "Fail")]))
+                say("B1 u2: a Fail with no decision row stays the adjudicator's, and pending_adjudication lists it",
+                    RT("Lemma 1.2") == [("adjudicator", "adj-record")] and len(PEND()) == 1
+                    and "decision: none recorded" in PEND()[0])
+                # review MEDIUM-3: a decided Fail on part (a) does not hide an undecided Ambiguous on part (b) of the
+                # same round: the adjudicator's (pending); with both decided, `decided`
+                for rows_, want in (("| paper-faithfulness | Lemma 1.2 (a) | Fail | **ADOPT** — x | x |\n", "adjudicator"),
+                                    ("| paper-faithfulness | Lemma 1.2 (a) | Fail | **ADOPT** — x | x |\n"
+                                     "| paper-faithfulness | Lemma 1.2 (b) | Ambiguous | **DEFER** — x | x |\n", "decided")):
+                    reset()
+                    _v = allpass()
+                    _v["paper-faithfulness"] = [x for x in _v["paper-faithfulness"] if x[0] != "Lemma 1.2"] + [
+                        ("Lemma 1.2 (a)", "Fail"), ("Lemma 1.2 (b)", "Ambiguous")]
+                    mkround("2026-01-01-aaaaaaa", fp0, _v, rows_)
+                    r_p, p_p = RT("Lemma 1.2"), PEND()
+                    say(f"B1 (review MEDIUM-3): Fail on (a) ADOPTed, Ambiguous on (b) "
+                        f"{'undecided' if want == 'adjudicator' else 'DEFERred'}: route `{want}`",
+                        r_p == [(want, "adj-record")] and (len(p_p) == 1) == (want == "adjudicator"))
+                # M2: one item of the verdict undecided -> the adjudicator's (_route reads every item, not the first)
+                c_ = {"dec": {"R": {"correspondence :: x": "ADOPT"}}, "revotes": set(), "questions": [],
+                      "problems_q": False}
+                r_one = _route(c_, "R", "correspondence", ["x", "y"], "Lemma 9.9", ["P.x"], "ADOPT")
+                c_["dec"]["R"]["correspondence :: y"] = "DEFER"
+                r_both = _route(c_, "R", "correspondence", ["x", "y"], "Lemma 9.9", ["P.x"], "ADOPT")
+                say("B1 (review M2): a verdict with two items, one undecided, stays `adjudicator`; with both decided "
+                    "it is `decided`", r_one == "adjudicator" and r_both == "decided")
+                # M2: an open re-vote of the item (correspondence@2 REVOTE NEEDED beside correspondence@7 ADOPT)
+                reset()
+                mkround("2026-01-01-aaaaaaa", fp0, allpass([("correspondence", "P.lemma_1_2", "Fail")]),
+                        "| correspondence | P.lemma_1_2 | Fail | **ADOPT** — x | x |\n")
+                decisions.open_revotes = lambda rounds_: [("2026-01-01-aaaaaaa", "correspondence@2", "P.lemma_1_2",
+                                                           "a second look", False)]
+                r_rv, p_rv = RT("Lemma 1.2"), PEND()
+                decisions.open_revotes = lambda rounds_: 1 / 0
+                r_err = RT("Lemma 1.2")
+                decisions.open_revotes = orv
+                say("B1 (review M2): an open re-vote of the item keeps it the adjudicator's (pending), whatever the "
+                    "other row says; the re-votes unreadable: the adjudicator's too",
+                    r_rv == [("adjudicator", "adj-record")] and len(p_rv) == 1 and r_err == [("adjudicator", "adj-record")])
+                # u3: an Ambiguous QUESTION: unanswered -> question; answered (a reading kept_reading cannot read) ->
+                # decided; the open questions unreadable -> never decided
+                reset()
+                mkround("2026-01-01-aaaaaaa", fp0, allpass([("paper-faithfulness", "Lemma 1.2", "Ambiguous")]),
+                        "| paper-faithfulness | Lemma 1.2 | Ambiguous | **QUESTION** | which reading |\n")
+                make_report.open_questions = lambda cfg_: [("2026-01-01-aaaaaaa", "paper-faithfulness", "Lemma 1.2",
+                                                            "which reading", "")]
+                r_open = {r.route for r in routes(cfg) if r.result == "Lemma 1.2"}
+                make_report.open_questions = lambda cfg_: []
+                r_ans, p_ans = RT("Lemma 1.2"), PEND()
+
+                def boom(cfg_):
+                    raise OSError("unreadable")
+                make_report.open_questions = boom
+                r_boom = {r.route for r in routes(cfg) if r.result == "Lemma 1.2"}
+                make_report.open_questions = lambda cfg_: []
+                say("B1 u3: an unanswered QUESTION is the human's (`question`), answered it is `decided` (nothing "
+                    "pending); with the open questions unreadable it is never `decided` (the adjudicator's, plus "
+                    "status-unmapped)", r_open == {"question"} and r_ans == [("decided", "adj-record")] and p_ans == []
+                    and "decided" not in r_boom and "adjudicator" in r_boom and "unmapped" in r_boom)
+                # u4: Definition rows the result uses follow the same rule; a REJECT still gives nothing
+                for dw, want in (("ADOPT", "decided"), ("", "adjudicator"), ("REJECT", None)):
+                    reset()
+                    mkround("2026-01-01-aaaaaaa", fp0, allpass([("paper-faithfulness", "Definition 1.1", "Fail")]),
+                            f"| paper-faithfulness | Definition 1.1 | Fail | **{dw}** — x | x |\n" if dw else "")
+                    got_ = {r.route for r in routes(cfg) if r.result == "Theorem 2.1"}
+                    say(f"B1 u4: a Definition row's Fail decided {dw or 'by no row'}: its users' route is {want}",
+                        got_ == ({want} if want else set()))
+                reset()
+                mkround("2026-01-01-aaaaaaa", fp0, allpass([("paper-faithfulness", "Definition 1.1", "Ambiguous")]),
+                        "| paper-faithfulness | Definition 1.1 | Ambiguous | **QUESTION** | which reading |\n")
+                make_report.open_questions = lambda cfg_: [("2026-01-01-aaaaaaa", "paper-faithfulness",
+                                                            "Definition 1.1", "which reading", "")]
+                r_dq = {r.route for r in routes(cfg) if r.result == "Theorem 2.1"}
+                make_report.open_questions = lambda cfg_: []
+                r_da = {r.route for r in routes(cfg) if r.result == "Theorem 2.1"}
+                say("B1 u4: a Definition's QUESTION unanswered gives its users `question` (the human's, as the "
+                    "definition's own row; no round); answered, `decided`", r_dq == {"question"} and r_da == {"decided"})
+                # u6: a `## Hypotheses` row saying `no` is a decision; a missing row is the adjudicator's
+                reset()
+                mkround("2026-01-01-aaaaaaa", fp0, allpass())
+                WALK["assumes"] = {"P.thm_2_1": [{"name": "P.H", "binder": "hH", "kind": "prop", "type_pp": "P.H n",
+                                                  "embedded": False}]}
+                cfg["literature_hypotheses"] = [{"lean": "P.H", "paper": "[K, Thm 1]"}]
+                hl_ = hypotheses.latest
+                try:
+                    r_none = RT("Theorem 2.1")
+                    hypotheses.latest = lambda cfg_, rd_=None: {"P.H": ("r", 1, {"matches source": "no"}, None)}
+                    r_no, p_no = RT("Theorem 2.1"), PEND()
+                finally:
+                    hypotheses.latest = hl_
+                    del cfg["literature_hypotheses"]
+                    WALK["assumes"] = {}
+                say("B1 u6: a hypothesis row saying `no` is `decided` (nothing pending); no valid row is the "
+                    "adjudicator's", r_no == [("decided", "adj-record")] and p_no == []
+                    and r_none == [("adjudicator", "adj-record")])
+            finally:
+                decisions.pending_refusal, make_report.adjudication_findings = pf_, ar_
+                make_report.route_changes_pending, decisions.open_revotes = rc_, orv
+                make_report.open_questions = lambda cfg_: []
+            # A5: the reading decision, end to end. A row writing everything in its decision cell (a real run did), a
+            # bare label after the Lean's code span and file range (a Mac run), the prescribed token, "keep the Lean's
+            # reading", and an answer taking the other reading (a status reason and a delivery note, review M3)
+            def a5(dcell, rcell, words):
+                reset()
+                mkround("2026-01-01-aaaaaaa", fp0, allpass([("non-vacuity", "P.lemma_1_2", "Ambiguous")]),
+                        f"| non-vacuity | P.lemma_1_2 | Ambiguous | {dcell} | {rcell} |\n")
+                open(os.path.join(rd, "RUN_LOG.md"), "w").write(
+                    "# Run log\n\n## Open questions\n\n- [DELEGATED 2026-01-01, operator under hands-off (intake); "
+                    f"reversal: none] keep lemma_1_2 as stated ({words}) (QUESTION row on P.lemma_1_2, round "
+                    "2026-01-01-aaaaaaa) -- follows the adjudicator's recommendation.\n")
+                st_ = ST()["Lemma 1.2"]
+                notes_ = [t for _c, t in make_report.decided_notes(cfg)]
+                os.remove(os.path.join(rd, "RUN_LOG.md"))
+                return st_, notes_
+            F = "faithful under reading ({}) of the non-vacuity question on `P.lemma_1_2` (round 2026-01-01-aaaaaaa)"
+            s_dc, _n = a5("**QUESTION** — Source: either. The Lean (`lemma_1_2`, Main.lean:3, `sInf` for min) takes (a). "
+                          "Recommended: (a).", "see the decision", "keep reading (a)")
+            s_mac, _n = a5("**QUESTION**", "Reading A: sufficiency; reading B: necessity. The Lean `P.lemma_1_2` "
+                           "(Main.lean:3-5) takes A", "reading A (sufficiency)")
+            s_tok, _n = a5("**QUESTION**", "Reading (a) the paper's; (b) a stand-in. [Lean: (A), Recommended: (B)]",
+                           "keep the Lean's reading")
+            s_oth, n_oth = a5("**QUESTION**", "Two readings. [Lean: (a); recommended: (b)]", "take reading (b)")
+            s_sch, _n = a5("**QUESTION**", "The Lean takes (b).", "keep reading (ii)")
+            s_h2, _n = a5("**QUESTION**", "Readings: (a) A finite; (b) A arbitrary. The Lean takes A arbitrary, i.e. (b). "
+                          "Recommended: (a).", "keep reading (a)")
+            s_nl, _n = a5("**QUESTION**", "The Lean takes (a).", "keep it as stated")
+            say("A5: the Lean's reading read from the decision cell, after a code span and file range, from the token "
+                "(any case, a comma), and 'keep the Lean's reading' with a one-label row: 'faithful under reading'",
+                s_dc == [F.format("a") + ": the reading the Lean takes, kept by a delegated decision of the operator"]
+                and s_mac == [F.format("a") + ": the reading the Lean takes, kept by a delegated decision of the operator"]
+                and s_tok == [F.format("a") + ": the reading the Lean takes, kept by a delegated decision of the operator"])
+            say("A5 (review M3): an answer taking the other reading: 'not established ... the answer took reading (b), the "
+                "Lean takes (a)' and a delivery note; labels of different schemes, or a bare label naming an object "
+                "(review H2), settle nothing",
+                s_oth == ["not established: non-vacuity Ambiguous on `P.lemma_1_2` (round 2026-01-01-aaaaaaa; decision: "
+                          "QUESTION; the answer took reading (b), the Lean takes (a))"]
+                and any("took reading (b), but the row says the Lean takes (a)" in t for t in n_oth)
+                and s_sch == ["not established: non-vacuity Ambiguous on `P.lemma_1_2` (round 2026-01-01-aaaaaaa; "
+                              "decision: QUESTION)"]
+                and s_h2 == ["not established: non-vacuity Ambiguous on `P.lemma_1_2` (round 2026-01-01-aaaaaaa; "
+                             "decision: QUESTION)"] and s_nl == s_h2)
+            # review HIGH-1, L1, L2, MEDIUM-1: a negated or interrogative answer, a negated row, a bare label the row
+            # does not name as a reading, a token its own prose contradicts: each settles nothing (not established);
+            # the contradicting token is also a delivery note
+            NE = s_h2
+            ATT = [("Two readings: (a) the paper's, (b) a stand-in. The Lean takes (b). Recommended: (a).",
+                    "do not keep the Lean's reading; take the paper's"),
+                   ("The Lean takes (b). Recommended: (a).", "Keep the Lean's reading? No: use the paper's"),
+                   ("The Lean takes (b). Recommended: (a).", "don't keep the Lean's reading"),
+                   ("The Lean takes (b). Recommended: (a).", "do not take reading (b)"),
+                   ("Neither the paper nor the Lean takes (a); both take (b).", "keep reading (a)"),
+                   ("Readings (1) k=1 and (2) k=2. The Lean takes 1, i.e. one vertex, so reading 2.", "keep reading 1"),
+                   ("The Lean takes C, the constant.", "keep reading C"),
+                   ("The Lean takes (a).", "not reading (a)"),
+                   ("The Lean takes (b), i.e. the stand-in. [Lean: (a); recommended: (b)]", "keep the Lean's reading"),
+                   ("The Lean takes (b). [Lean: (a); recommended: (a)]", "take reading (a)")]
+            att = [(r_, w_, a5("**QUESTION**", r_, w_)) for r_, w_ in ATT]
+            bad_att = [(r_, w_, st_) for r_, w_, (st_, _n) in att if st_ != NE]
+            say("A5 (review HIGH-1, L1, L2, MEDIUM-1): a negated or interrogative answer, a negated row, a bare label "
+                "the row does not name as a reading, a token its prose contradicts: not established; the "
+                "contradicting token is a delivery note naming the row",
+                not bad_att and all(any("[Lean: ...] token names reading (a)" in t for t in n_) for _r, _w, (_s, n_)
+                                    in att[-2:]))
+            if bad_att:
+                print("   A5 attack misses:", bad_att)
+            s_ok, _n = a5("**QUESTION**", "The Lean takes (b). Recommended: (a).", "keep the Lean's reading, as stated")
+            say("A5: 'keep the Lean's reading' without a negation still keeps it",
+                s_ok == [F.format("b") + ": the reading the Lean takes, kept by a delegated decision of the operator"])
+            # A5b: a kept reading of a Definition row the result uses reads "faithful under reading" for its users too;
+            # an answer taking the other reading, or none, settles nothing
+            def a5b(words):
+                reset()
+                mkround("2026-01-01-aaaaaaa", fp0, allpass([("paper-faithfulness", "Definition 1.1", "Ambiguous")]),
+                        "| paper-faithfulness | Definition 1.1 | Ambiguous | **QUESTION** | Two readings. "
+                        "[Lean: (a); recommended: (a)] |\n")
+                open(os.path.join(rd, "RUN_LOG.md"), "w").write(
+                    "# Run log\n\n## Open questions\n\n" + (f"- [DELEGATED 2026-01-01, operator under hands-off "
+                    f"(intake); reversal: none] keep D ({words}) (QUESTION row on Definition 1.1, round "
+                    "2026-01-01-aaaaaaa) -- follows the adjudicator's recommendation.\n" if words else ""))
+                st_, rt_ = ST(), {r.route for r in routes(cfg) if r.result == "Theorem 2.1"}
+                os.remove(os.path.join(rd, "RUN_LOG.md"))
+                return st_["Theorem 2.1"], st_["Lemma 1.3 (a)"], rt_
+            k_t, k_l, k_r = a5b("take reading (a)")
+            o_t, _l, o_r = a5b("take reading (b)")
+            say("A5b: a Definition's Ambiguous answered with the Lean's reading: its users read 'faithful under reading "
+                "(a) ... (used by it)' (no route); another reading: not established; a result not using it: faithful",
+                k_t == ["faithful under reading (a) of the paper-faithfulness question on Definition 1.1 (used by it) "
+                        "(round 2026-01-01-aaaaaaa): the reading the Lean takes, kept by a delegated decision of the operator"]
+                and k_r == set() and k_l == [FAITHFUL] and o_t[0].startswith("not established: paper-faithfulness "
+                                                                            "Ambiguous on Definition 1.1 (used by it)")
+                and o_r == {"decided"})
+            LT = [("The Lean takes (a).", {"a"}), ("The Lean takes reading (i)", {"i"}), ("The Lean** takes reading (i)", {"i"}),
+                  ("The Lean takes reading A", {"a"}), ("The Lean takes reading 2: the weak form", {"2"}),
+                  ("Reading A: x. The Lean takes A.", {"a"}), ("Reading A: x. The Lean takes A, and the paper", {"a"}),
+                  ("Reading B: y. The Lean takes B (x)", {"b"}), ("Reading A is x. The Lean `eq` (S.lean:167-173) takes A",
+                                                                  {"a"}),
+                  ("The Lean takes A.", set()), ("The Lean takes B (x)", set()), ("The Lean takes 1, i.e. one", set()),
+                  ("The Lean takes C, the constant", set()), ("The Lean takes I (the identity)", set()),
+                  ("The Lean takes X;", set()), ("Neither the paper nor the Lean takes (a); both take (b)", set()),
+                  ("Which one? The Lean takes (a)?", set()), ("The Lean takes (a) as a hypothesis", {"a"}),
+                  ("Lean (`p_A_5`, S.lean:3) takes reading 2", {"2"}),
+                  ("The Lean (`l_2_3`, B.lean:31, `sInf` for min) takes (a). Recommended: (a).", {"a"}),
+                  ("The Lean (E.lean:12) takes reading A", {"a"}), ("The Lean type takes reading 1", {"1"}),
+                  ("reading A\nThe Lean takes A\nshort reason", {"a"}),
+                  ("The Lean takes the stronger hypothesis", set()), ("The Lean takes `X` as a hypothesis", set()),
+                  ("the lane takes (a)", set()), ("take reading (b); the rest of the docstring takes (a)", set()),
+                  ("Readings: (a) A finite; (b) A arbitrary. The Lean takes A arbitrary, i.e. (b).", set()),
+                  ("The Lean takes 2 ≤ d (a bound)", set()), ("The Lean takes K as a parameter", set()),
+                  # review H2 with the label named as a reading elsewhere: only the clause end rules it out (A5-1)
+                  ("Reading A: x finite. The Lean takes A arbitrary, i.e. the stand-in", set()),
+                  ("Reading 2: d = 2. The Lean takes 2 ≤ d (a bound)", set()),
+                  ("The Lean takes a stronger form", set()), ("The Lean takes reading A.5 of x", set()),
+                  ("The Lean takes (a). The Lean takes (b).", {"a", "b"})]
+            bad_lt = [t for t, w in LT if lean_labels(t)[0] != w]
+            TK = [("[Lean: (a); recommended: (b)]", ({"a"}, "b")), ("[Lean: (A); recommended: (B)]", ({"a"}, "b")),
+                  ("[lean: a, Recommended: b]", ({"a"}, "b")), ("The Lean takes (b). [Lean: (a); recommended: (a)]", (set(), None)),
+                  ("The Lean takes (a). [Lean: (a); recommended: (b)]", ({"a"}, "b")),
+                  ("[Lean: (a); recommended: (a)] [Lean: (b); recommended: (b)]", (set(), None))]
+            bad_tk = [t for t, w in TK if lean_labels(t) != w]
+            RD = [("keep reading (a)", {"a"}), ("reading A (sufficiency)", {"a"}), ("keep reading 1 (the weak one)", {"1"}),
+                  ("keep reading B", {"b"}), ("keep reading 2 of Proposition A.5", {"2"}),
+                  ("keep S7 with d ≥ 2 (reading A)", {"a"}), ("(reading 1)", {"1"}), ("after re-reading A, keep it", set()),
+                  ("keep reading B and note that x uses reading A", {"a", "b"}), ("reading A.5", set()),
+                  ("do not take reading (a)", set()), ("not reading (a)", set()), ("keep reading (a)? no", set()),
+                  ("[DELEGATED x; reversal: not before y] keep reading (a) (QUESTION row on P.x, round r)", {"a"}),
+                  ("keep reading 1 -- the paper's (not the stronger one)", {"1"}),
+                  ("keep `not_x` (reading 2)", {"2"})]
+            bad_rd = [t for t, w in RD if _labels(READING, t) != w]
+            say("A5 unit table: the Lean's reading (legacy wordings, review H2 negatives, a bare label only when the row "
+                "names it as a reading, no negated clause), the token (review M5: case, comma, A/B; two tokens, or prose "
+                "naming another label, give nothing), the answer's readings (no 're-reading', no negated clause)",
+                not bad_lt and not bad_tk and not bad_rd and _same_scheme("b", "a") and not _same_scheme("b", "ii")
+                and _same_scheme("i", "ii") and not _same_scheme("1", "a"))
+            if bad_lt or bad_tk or bad_rd:
+                print("   A5 misses:", bad_lt, bad_tk, bad_rd)
             # B9 (a benchmark run): a cited result stated as the named literature hypothesis, with a false row and a
             # repair: "assumed as a corrected hypothesis (not proved)", never "proved as repaired"; without a defect
             # it reads "assumed, not proved", never faithful

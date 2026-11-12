@@ -1,5 +1,535 @@
 # Changelog
 
+## Unreleased
+
+### In short
+
+- **Index rows labelled Problem or Question are results** (E2E fix 2, M1 of the audit of a real hands-off run;
+  narrowed in E2E fix 2c). The index was read through a closed, case-sensitive list of twelve words (Lemma,
+  Theorem, ...). The run's "Problem 1.1" and "Problem 6.4" rows were dropped without a warning: they were not
+  frozen, not on the sign-off sheet, not reviewed and had no status. The same line reader now also reads Problem
+  and Question rows. `project.index_table` is the one reader of the index, for the freeze, the scope, the sheet,
+  the index check, the coverage table, the statuses and the README. Every other `|…|…|` line that is not a
+  separator or a header is named in one NOTE of the index check, never dropped without a word and never a
+  failure. This covers an empty label, a lower-case label, a glossary table and a docstring formula such as
+  `|f x - f y| ≤ C * |x - y|`. On 51 past runs' index files and 27 git versions of them (read-only), every row
+  the old reader read reads the same. Only the e2e run gains rows (its two Problem rows), and only demedts-codex
+  gets the NOTE (Equation 2.1, 4.3). "Problem 6.4" is counted as a numbered result. The prose word list gains
+  Problem, Question, Open problem, Open question, Exercise, Algorithm and Axiom; it is used for finding labels
+  in records, not for the index. It leaves out Hypothesis, Assumption and Condition on purpose, because records
+  use those words for Lean hypotheses. decisions uses it instead of its own drifted copy; signoff's label words
+  for defect and vacuous cells are 99d928e's plus Problem and Question (E2E fix 2d). The report's coverage table
+  and statuses read the index as 99d928e did (indented rows, any case), plus Problem and Question. In the
+  statements bundle, an unresolved name in a Problem or Question row is a NOTE, not a problem.
+- **A run started before this version and resumed on it** may see a freeze-check DRIFT for an index row that the
+  old reader skipped (a Problem or Question row): rerun the statement round (E2E fix 2c; the skip-and-compare
+  NOTE of fix 2b was removed).
+- **README "What the checking code found": no plain "faithful" for a result the sheet flags CHECK, and the
+  summary's table is paired by its header** (E2E fix 2, M2).
+  - A result rated *faithful* by the review records that the approved sign-off sheet flags CHECK (a reading
+    choice, a generalization, a partial skip) now carries † and the sheet's reason. Its computed status is not
+    changed.
+  - The summary's status table is found by its header: a "Status" column and a "Result" column, in any order,
+    under any heading. A table with a Status column but no Result column (a stops table) is not taken for it.
+    "Lemma 2.2, Proposition 2.3" in a cell is two results.
+- **The sign-off sheet no longer says what the state no longer is** (E2E fix 2, M4).
+  - Its sentence about the proofs is read from the Lean at the sheet's commit. "`sorry` by design" appears
+    only when a `sorry` is there; otherwise the sheet says no proof uses `sorry`.
+  - Every sheet says that the texts under each result were written when the round's sheet was made: a word
+    such as "open" or "not yet audited" says how things stood then.
+  - A re-approval's sheet says, from its approval, whether the re-approval is closed. This is an
+    approval-stamp pair, so the reader's hash does not change at the approval.
+  - `--prepare-delivery` prints a NOTE for each approved-sheet row that calls a closed re-approval open.
+- **A cured stop closes `--cured`, also when the cure leaves an adjudication fault behind; a withdrawal is only
+  for a stop opened in error** (E2E fix 2, L1).
+  - A self-cure's re-run that prints only `adj-record` faults the stop was not opened for now passes. The next
+    adjudication clears those faults, and Phase 0, `--commit-adjudication` and `--deliver` still hold them.
+  - A withdrawal of such a stop goes through with a NOTE that `--cured` was the right close (E2E fix 2b).
+  - `close --withdrawn` prints a NOTE when the stop's own codes no longer print.
+  - RUN.md and stops-and-set-asides.md say so.
+- **A logged decision is never reworded** (E2E fix 2, L2). RUN.md's missing-theory text, its failure table, the
+  check's message and the cure text invited rewording a logged line in place, which stage5 forbids. All of them
+  now say: log the corrected line after it. The check is unchanged (a reworded line is still read).
+- **Three surviving mutants killed** (DF14, DF30, DF31). Their delivery scenarios were removed with the
+  hand-edit route (approver 2026-10-28), so `tests/delivery.py` no longer reached them. They now run
+  `run_record.py`'s selftest (a new check: the run record lists live hand edits and the dismissed reader
+  findings) and `readers.py`'s selftest (its existing MISMATCH-refusal check).
+- **Fixes after the review of E2E fix 2** (REVIEW-E2E-FIX2; E2E fix 2b).
+  - A re-approval's sign-off sheet at a commit with some `sorry` says "some or all of the proofs there are
+    `sorry`". It no longer says that every proof is `sorry` by design (L-2).
+  - A redo cure whose check passes except for an `adj-record` residue still runs the fresh round's lanecheck. A
+    failing lanecheck fails the cure (L-3).
+  - The README marks fewer statuses as worded differently (L-5). A summary cell is not marked when it keeps the
+    status's words in order, leaves out only filler words ("a", "under", "as") and adds no negation. Example:
+    "proved; faithful (recorded as a reading choice)" against "faithful under a reading choice". A `| Paper |
+    Status |` summary table is still not paired; that is a missed pairing, never a false mark.
+  - E2E fix 2 adds no refusal and no stop (the owner's rule: flags, not hard checks).
+    - `close --withdrawn` of a stop whose check passes except for an `adj-record` residue is no longer refused.
+      The stop is withdrawn, with a NOTE that `--cured` was the right close. The NOTE is printed, kept in the
+      close record and shown in the run record's stop table. The older withdrawal refusals are unchanged: a
+      check that passes, a redo or tamper code on the current round, a human stop.
+    - A Problem or Question index row (a label word the old reader skipped) gets a NOTE, not a failure, when it
+      has a dangling name, cites no declaration, lacks a SKIPPED.md row or cites an undeclared name. Rows of the
+      old label words are checked as before.
+  - The README no longer says a result is "Not found in the summary's table" when only the label matching failed
+    (AUDIT-P3 D1: a label with nested parentheses, "b(G,H) ≥ 51 > 50 = Q(78)", was not matched once the header
+    pairing read three-column tables). Such a result is now "Not paired with a row of the summary's table … a row
+    may name them in other words" (E2E fix 2e).
+  - The fresh-round lanecheck of L-3 also runs when a redo cure's check fails only on left-out (NEVER_STOP)
+    faults, as for a residue (E2E fix 2c, a note of REVIEW-E2E-FIX2b).
+
+- **A tool patch's facts no longer wait half an hour for the math gate's floor** (E2E finding #2, a real release
+  run: 39 minutes for one patch; design DESIGN-FLOOR). The floor mutants on the math gate (MG2-MG4, MG6-MG8) ran
+  the whole `stops.py` and `project.py` selftests (minutes each), and `tool_patch.py`'s own selftest, which a
+  real floor runs once per tool-patch mutant, ran them all again inside. Now `stops.py --selftest --floor` and
+  `project.py --selftest --floor` run only the gate's controls (`integrity_blocks`, `math_gate` with stand-in
+  checks, `--deliver` refusing on the gate; well under a second each; the full selftests run the same
+  controls), and `tests/mutant_list.py` judges those six mutants by them (MG3 by `stops.py --floor`, no longer
+  `project.py`'s whole selftest). `tool_patch.py`'s M1/M6 scenario runs the real floor on the two mutants it
+  checks (TPC2, LA1) only. Same rule as before: a mutant whose pattern is gone, whose floor selftest fails on
+  the patched tools unmutated, or which survives, is a hit and needs two approvals; no new stop or refusal; the
+  full selftests still run in fact (b). New runs only (the floor is read from the first pin). A new
+  `tool_patch.py` selftest scenario checks, with real runs, that a patch weakening the gate (patterns kept) or
+  the fast controls makes every MG mutant a hit. The floor is not skipped for patches that touch no floor file:
+  the floor's selftests reach nearly the whole apparatus, so that is not provably safe.
+- **The math gate's fast floor now tests every involvement level and both modes** (review REVIEW-FLOOR, its
+  MEDIUM-1 and LOWs). The reviewer found a patch that made the gate refuse nothing at involvement `involved` and
+  passed the fast floor and both full selftests (the gate was tested hands-off only; not new with the fast floor).
+  `stops.py --selftest --floor` now runs the gate's controls in dev and release at each of `involved`,
+  `statements-only` and `hands-off`, and checks that a failing freeze (`fingerprint.py --check`) refuses;
+  `project.py --selftest --floor` checks `--deliver`'s refusal in both modes at every level (a drop in release
+  only also passed before). New floor mutant MG9 (that `involved` patch) is in `FLOOR` (new runs). With `--floor`,
+  an exception inside the controls prints its traceback, so the floor counts that mutant as crashed (a hit), not
+  killed. The full selftests check that they ran the fast controls. A baseline floor hit now names the selftest as
+  it ran (e.g. `` `stops.py --selftest --floor` ``). `tool_patch.py`'s fast-floor scenario runs the reviewer's two
+  attacks as real floor judgements, and fails, instead of skipping silently, when its anchors drift (it still
+  skips, saying so, on a patched apparatus that changed an MG line itself: that is a floor hit already). The C3
+  check that `--adjudicator-checks` returns at once now tests that the log has no END line when the start
+  returns, not a 1.4 s wall-time bound (a flake under load). Not changed: the delivery-time re-check of the
+  tooling (`verify_delivery`, notes only) runs the same floor, so it now re-runs the fast controls, not the whole
+  `stops.py`/`project.py` selftests: every applied patch passed the full selftests at prepare (fact (b)).
+- **A reviewer's Fail no longer stops the adjudicator at its first step** (E2E fix 1, a real release run). The
+  background check of the adjudicator's two read-only checks (`project.py --wait-adjudicator-checks`, batch C3)
+  called every coverage roll-up exit other than 0 a crash. But `audit_coverage.py` exits 1 by design after its
+  full report when a Fail is outstanding (or a scope drifted), which is exactly what the adjudicator is there to
+  decide; the run had to open a tool-bug stop and patch the tool. Each check is now judged by its own documented
+  exits (`audit_coverage.finished`, beside the code that prints them): coverage exit 0, or 1 after its summary
+  line with findings, is a finished roll-up, and the wait reports what it found; a traceback, a missing summary
+  line, a signal, exit 2, any other code, or a summary that disagrees with the exit code is still a crash.
+  Phase 0 keeps its rule (GREEN 0, RED 1, a verdict line required); its own crash line is now read too.
+  `AUDIT_PROTOCOL.md` step A says so.
+- **A timed-out Lean comparison no longer leaves Lean running, and is no longer remembered as a refusal**
+  (REREVIEW-M7 NEW-1, NEW-2). The comment-only check's Lean calls (compile, `olean_parts`, the O1 diagnostic)
+  run in a process group of their own, and a timeout kills the whole group: `lake env` starts `lean` as a
+  child, which before kept running beside the next comparison (memory on a small host). O1 failing, timing out
+  or running out of budget is no longer cached as a refusal (only definite results are), so a docstring change
+  refused once on a busy host is compared again next time; a refusal of that kind an older cache holds is not
+  read back. `phase0.strip_comments`'s remaining divergences on literals are listed in KNOWN_LIMITATIONS (Phase 0
+  is in the core: not changed).
+- **A change to comments and docstrings only no longer costs a review round when Lean finds only a byte-layout
+  difference** (M7, post-paper; design DESIGN-M7 and its review). Before, a commit after the last round whose
+  code was unchanged was still refused as comment-only when Lean compiled both versions, found every
+  declaration, type, value and attribute the same, but the compiled bytes differed (a long confidential run spent a
+  4-lane round on this). Now the source is compared with a stricter lexer that follows Lean's tokenizer; when it
+  says the code with comments removed is identical and Lean's only finding is the byte difference, the change is
+  comment-only, and the report, the summary's facts, the decisions document, the `NEXT[no-round]` line and
+  `RUN_RECORD.md` say "checked on the source" (with Lean's comparison), never "verified mechanically". Lean
+  still vetoes: any difference in a declaration, a type or value, an attribute or other extension, a field
+  O1 names that identical source cannot produce (imports, universe names, the kind, reducibility hints,
+  safety, binder annotations, and the rest), O1 not running, failing or timing out, a version that does not
+  compile, a failed build, and Verso docstrings all refuse as before. No new stop.
+- **A hole in the comment check, older than M7, is closed** (review of the M7 build, H1). Lean reads the
+  character right after an opening `/-` without looking at it, so `/-/- -/` is one closed comment and what
+  follows it is code. The tool's comment readers (the comment-only lexer, and `phase0.strip_comments`, which
+  the Stage 4 diff-round skip and the `sorry` scan use) read `/-/-` as two nested openers and took the code
+  after it, up to a later `-/`, for a comment. A change there could pass as comment-only (on the compiled basis
+  when it was in an `example`, before M7 too), and a `sorry` there could go unseen by Phase 0's text scan. No Mathlib file and none of the 36 local run histories contains
+  `/-/-`. Both readers now follow Lean.
+- **A stop opened in error can be withdrawn** (release mode): `stops.py close --stop S<n> --withdrawn
+  "<why, and the route instead>"`. Before, a stop whose check could never pass (for example one bound to a
+  set-aside round) blocked every later stop, because only one stop is open at a time (Pisani run, S1). It is
+  never allowed for one of the four human stops, it is refused while the stop's check passes or still shows a
+  tampered or changed round, it counts as a failed cure, and `RUN_RECORD.md` lists it (and README's delivery
+  notes, when its check still fails at delivery).
+- **Fixes:** a `--note` stop opened without `--round` or `--check` no longer crashes; the setup step that
+  writes the run log creates the rounds directory if it is missing; the sign-off check accepts blind-reading
+  keys written as `## <heading>`; an encoding-error line in `PAPER_DEFECTS.md` is judged by the F10 item of the
+  refutation it names; the sign-off sheet and its messages count numbered results, other rows and definitions
+  apart instead of calling every row a "result".
+- **A paper that may not be redistributed is left out of the push** (batch C): Stage 5 prints a second
+  one-command push that builds the tree without the paper's files, refuses a mistyped path or an unchanged
+  tree, and pushes a commit with no parent to a new branch. Both push commands add a line to
+  `deliverables/README.md` that maps the Lean commit the documents cite to the pushed commit. Fix round 1:
+  a later push whose parent's history holds the paper, or a tree missing a Lean or build file, is refused;
+  the commands work from any directory, add the line once, and keep their index in `.git`; a push the
+  permission layer denies is handed to the person, never a stop.
+- **Long checks run in the background** (Phase 0, the selftests, the approval, a tool patch's facts), so
+  a slow machine no longer cuts them after about 20 minutes. Before an adjudicator starts, the operator runs
+  its Phase 0 and coverage checks in the background and the adjudicator reads their log. No new stop. Fix
+  round 1: two plain commands, `project.py --adjudicator-checks --round <R>` and
+  `project.py --wait-adjudicator-checks --round <R>`, which the permission rules already allow; the wait
+  accepts the log only if both HEADs are unchanged from start to end, the mode matches TARGET.json and no
+  check crashed; two Phase 0 runs never run at once.
+- **Wording:** copy hashes, tokens and agent ids from the output, never retype them; the blind reader knows
+  that an index row titled "Definition ..." is a row; a stronger reading that the paper's own proof proves
+  may be recommended; each reading choice nobody answered becomes a question to the authors in SUMMARY;
+  INSTALL warns about a stray `ANTHROPIC_API_KEY`.
+- **Tool patches touching code the core relies on are flagged** for the reviewer (FACTS `core_reachable`),
+  never refused.
+- **A row the adjudicator already decided never starts another review round** (batch B): it still reads "not
+  established", a delivery note names it, and a declined ADOPT is a decisions item; the reading a QUESTION's
+  answer takes is read from a `[Lean: (a); recommended: (b)]` token or the older wordings, and a negated
+  answer names no reading; the comment-only refusal names the first differing field.
+- **The delivered README has a section the checking program writes** (batch E, forgery review 2026-11):
+  "What the checking code found", before section A, gives each result's status as computed from the review
+  records (a † where the summary words it differently, with the agent's reason from `JUDGEMENT.md`'s new
+  `## Status wording`), the proof checks, the run settings fixed at the start, whether the checking software
+  changed since the run started, the answers recorded as yours at every level, the reviews on record, and what
+  the checks noticed, counted by kind. Every note is also in the delivered `RUN_RECORD.md`, word for word, and
+  `--check-delivered` now checks every delivered file, README.md included. Nothing new refuses or waits.
+- **The math gate never skips a real `sorry` or a non-standard axiom** through a core-fault close; **the
+  involvement level, mode and ownership version are the first pin's** even after a config or pin edit; **a merge
+  commit's changes to records are judged** like any other commit's.
+
+### Details (batch C, post-paper; design DESIGN-C and its review)
+
+- **C1** `run/stage0-intake.md`: an answer (1b, 1c or 7) that the paper's text may not be redistributed is
+  logged as an intake constraint and named at Checkpoint A. `run/stage5-delivery.md`: the push comes after
+  the last `--deliver`, from the project root, and both commands are printed in full (review C1-2). Without
+  the paper: a temporary index in the operator's scratch directory, `git rm -r --cached` **without**
+  `--ignore-unmatch`, so a mistyped path fails (review C1-1), and `test "$T" != HEAD^{tree}`. The first such
+  push always has no parent and goes to a new branch (review C1-3; on an existing branch it is refused as
+  not a fast-forward, never forced). A full-history request for such a paper pushes the clean commit, said
+  in the completion message. The Lean docstrings and the audit record (6d) still quote the paper; the
+  completion message says so (review C1-5). A parent git no longer has: `git fetch` restores it (C1-6).
+  `run/codex.md`: the push before the copy, an absolute scratch path, run from the project root (C1-4).
+  Tested in a toy repository with a local bare remote (right path, mistyped, empty and untracked paths,
+  a base that holds the paper, a parentless push onto an existing branch, a later push with a parent, an
+  unknown parent, a full-history push, the redistributable command): 23 checks.
+- **C2** The push command appends `Pushed to <remote>, branch <b>, as commit <C>: the tree of Lean HEAD <H>`
+  to `deliverables/README.md` (via `tee`, which also prints it; the operator copies it into `RUN_LOG.md`). `--check-delivered` reads
+  only the fingerprint lines, so nothing it checks changes. After a later `--deliver`, the line is copied
+  back from `RUN_LOG.md` (review C2-2). SUMMARY and REPORT cite the last commit that changed Lean files;
+  the text says the pushed tree holds those files (C2-1). The copy to another destination follows the push.
+- **C3** `RUN.md` rule 9 is now "Long commands in the background; tag every monitor you start": a command
+  that can run past 10 minutes runs plainly with `run_in_background` (Codex: one long call); nothing in
+  either repository changes until it finishes (review C3-2; the harness gives each run a fresh output file).
+  The adjudicator's checks (review C3-1, no new stop): the operator starts `phase0.py --readonly` and
+  `audit_coverage.py` in the background into `.formalization-work/adjudicator-<R>.log`, which starts with
+  the Lean and audits HEADs and ends with `END` (Stage 2 step 4, Stage 4 steps 4 and 5). The adjudicator
+  checks both HEADs, waits for `END` with a tagged wait, and never ends its turn before then (C3-3). With no
+  log, a stale one, or under Codex it runs the same command itself, or the two plain commands if a
+  permission prompt refuses it. Lane rule 9 keeps the ban on background processes: a probe still cut at
+  the longest timeout is NotDoneYet. The guarded tool-patch reviewer prompt gets the same background
+  sentence (a maintainer change; a tool patch still cannot touch it). `lanecheck.stray_loops` docstring only.
+  Not run: the design's 15-minute subagent wait test (the operator-log design does not depend on it).
+- **C4** `RUN.md` rule 11 and `run/spawn-and-seal.md`: copy every hash, token, digest and agent id from the
+  output that printed it.
+- **C5** Informalizer prompt: the sections above `# Definitions these statements use` are `rows`, even one
+  whose heading begins "Definition"; those below are `definitions`.
+- **C7** Adjudicator rule C: the weaker reading, unless the paper's own proof proves the stronger or a later
+  proof needs it; cite the proof's lines; for an approved statement, recommending the stronger reading is a
+  statement change. Lane rule 6: a `question` says which reading the paper's proof proves; lane C's
+  `too-strong` pattern sends such a reading to Ambiguous. The design's change to RUN.md's conservative
+  rule is **not** made (review C7-1): the operator alone never takes the stronger reading.
+- **C8** A reading choice whose QUESTION no person answered (DECISIONS.md says who decided; review C8-1)
+  is asked of the authors: its one SUMMARY line is phrased as a short question (review C8-2: no second
+  line). The DECISIONS delivery reviewer checks it.
+- **C9** `INSTALL.md`: `ANTHROPIC_API_KEY` in the shell bills the API account; how to check with `/status`.
+- **D2** `tool_patch.core_reachable` (FACTS key `core_reachable`, always present): the patch's hunks mapped
+  to top-level Python spans (decorators included) of the code the core relies on. That code is
+  `core_reachable_map`, derived one hop from the first pin's core files (every `module.name` a core file
+  reads, and the whole of every script a core file runs as `{PY} audits/<x>.py`: make_report, unused_args,
+  dependencies, tree_state), plus `CORE_REACHABLE` by hand (stops.py and lane_auth.py whole; named functions
+  and assignments of project, decisions, signoff and dependencies, including `project.RELEASE` and `CAUSES`)
+  (review D2-1). Each entry says why it is listed; "<module level>" and "<unparsed>" cover the rest. The
+  output is sorted, and any exception gives "<unparsed>" (D2-2). It never refuses and never changes
+  `required_approvals`. Reviewer question 12; the RUN_RECORD and `prepare` lines show it.
+- Tests: `tool_patch.py --selftest` (four D2 cases), mutants `ppC-D2a`-`ppC-D2c`.
+
+### Details (batch C, fix round 1; ATTACK-C, COMPAT-C)
+
+- **C3** (COMPAT-C H1, ATTACK-C M1, M2, L2, L4, L5) `project.py --adjudicator-checks --round <R> [--own]
+  [--foreground]` starts Phase 0 read-only (`--statements` taken from the round's TARGET.json `_meta.kind`,
+  not typed) and `audit_coverage.py <rounds_dir>` in a detached worker, and returns once the worker holds
+  the lock `.formalization-work/adjudicator-checks.lock` and the new log's header is in place (written
+  to a temporary file and renamed, so an adjudicator never reads an older log). The log records the round,
+  the run (operator or own), both HEADs, the kind, the exact commands, each exit code, both HEADs again,
+  then `END`; a worker crash is recorded with its own exit line. A second start while a run holds the lock
+  is refused (any round): two Phase 0 runs of this mechanism never run at once. `--wait-adjudicator-checks
+  --round <R> [--own] [--timeout S]` (default 540 s) waits for `END`, then verifies: exit 0 current, 1 stale
+  (no log; another round's log; no `END` and no live writer; a HEAD or AUDITS line, at the start or the
+  end, that is not current; a KIND, command or Phase 0 `mode:` line that differs from TARGET.json; no
+  `PHASE 0: GREEN|RED` verdict that matches the exit code; a coverage exit other than 0), 3 still running.
+  The adjudicator's own run (`--own`) writes `adjudicator-<R>-own.log`. Both commands are plain `python3
+  audits/project.py ...` forms: no `bash -c`, no `until tail` loop, no `git -C audits rev-parse`.
+  `AUDIT_PROTOCOL.md` step 4, `run/stage4-rounds.md` steps 4 and 5, `run/stage2-statements.md` step 4, RUN.md
+  rule 9. The adjudicator reads no finding until it has the result (COMPAT-C M2: "read the verdicts
+  meanwhile" is dropped); a second crash of its own run is a STOP. Under Codex the adjudicator runs `--own
+  --foreground` in one long call. A test hook (`FORMALIZE_ADJ_CHECKS_TEST`) is honoured only by a
+  `--selftest` process, and a real verify expects the real commands.
+- **C1** (ATTACK-C M3, L1, L2, L3; COMPAT-C M1, L1, L3) The no-paper push takes `P=` (empty for the first
+  push) and refuses unless `git rev-list -1 "$P" -- <paper paths>` is empty, so a wrong parent cannot carry
+  the paper through history; it also refuses a tree without a Lean or build file HEAD has (`.` or the Lean
+  directory given as the paper's path). Both commands `cd` to the repository's top level first, append
+  the `Pushed to` line only if it is not there yet, and the no-paper one keeps its temporary index in
+  `.git/formalize-push.index` (it still works when the person runs it later under Codex). A push the
+  permission prompt or classifier denies is put in the completion message for the person, never a stop.
+  The check after a push compares with the Lean HEAD named in the line, not the current HEAD.
+- **C8** (COMPAT-C L4) On a full SUMMARY page reading choices are reduced to a count only with the most
+  important kinds (`make_report.COLLAPSE_EVEN`), not among the first.
+- **D2** (ATTACK-C L10) A data file that a whole-file entry names (`dependencies_tail.lean`, read by
+  `dependencies.py`) is listed whole. The code comment names what the flag still misses: helpers, a module
+  two hops away, an import-time patch from a module outside the map.
+- Tests: `project.py --selftest` (12 C3 cases, scripts stubbed, no Lean, including the allow-rule check of
+  every documented command); `tool_patch.py --selftest` (the data-file hop); mutants `ppC1-C3a`-`ppC1-C3g`,
+  `ppC1-D2d`; the push commands, extracted verbatim, in toy repositories with local bare remotes (20 checks).
+
+### Details (batch A, post-paper; design DESIGN-A and its review)
+
+- **A1** `project.closer(code, None)` raised a TypeError, so `stops.py open --note --cause <code>` with no
+  `--check` and no `--round`, for a code whose own closer has no `{R}` (`drift`, `tree-changed`, ...),
+  crashed (Codex De Medts run). `closer` now reads a None round as `"<R>"`; no output changes.
+- **A2** `stops.py close --withdrawn` (release only; `_withdrawn_doc`). Refused (a refusal of the command,
+  never a stop, each naming the route) in dev mode, for a human stop of release, for a stop classified
+  `interference`, while a set-aside names the stop, while a tool patch for it is open (or applied, when the
+  stop has no check), while a core-fault request exists for it, past the cure budget unless classified
+  `other` after those failures, while its check passes, and without text. The tally counts a withdrawal like
+  a failed cure (on the stop and its keys), so withdraw/re-open never resets a budget; `trail_problems`
+  checks the record and the budget rule. It is process record: `RUN_RECORD.md` lists it under "Stops
+  cleared without you"; the summary page (`make_report.page_stops`) and DECISIONS.md's box leave it out (it
+  is no delegated decision). The math gate notes a withdrawn stop's check that fails at delivery (a note,
+  never a refusal). Refused before the config exists. Not done: a refusal tied to an integrity
+  acknowledgment request (review LOW), because those records do not name a stop.
+- **A3a** `signoff.informal_key`: INFORMAL.json keys written `## <heading>` (b1v and b2v runs, each a
+  stop and a tool patch) are read as the heading. The regex needs whitespace after the `#`s (`##Lemma 1.2`
+  stays "no entry"); the duplicate check runs on the normalized keys; SIGNOFF.json keys are not normalized
+  (that record is not write-once). The informalizer prompt is unchanged here.
+- **A3b** `make_report.f10_verdict_for`: an encoding-error line is judged by the F10 item the cited round
+  scheduled for the refutation it names, not by the record's last F10 item (b2v run, round e5f2d954d5f).
+  **Difference from the run's reviewed patch (b2v TP1 A2), disclosed:** b2v fell back to the record's last
+  F10 item whenever the cited round scheduled no item for the name. Here that fallback is kept only for a
+  round with no `_meta.f10` key at all (from before F10 scheduling); a round with a schedule, even an empty
+  one (`f10: {}`), but no item for the name, or an unreadable TARGET.json, gives "not judged", i.e.
+  PENDING[adj-record] for the next adjudicator, never a stop. A correct line cites the round that scheduled
+  and decided the item, so this rejects only citations of the wrong record.
+- **A4** `project.log_append` creates a missing rounds directory when it lies under the project's
+  `audits/` (Stage 1 step 5, `--intake-move`, failed in four runs); a missing one outside `audits/` is
+  refused and nothing is written.
+- **C6** `signoff.row_count` reuses `make_report.count_text`: the sheet header and `signoff.py
+  bundle`/`check` say "161 index rows (67 numbered results plus ...)" and "N Lean definitions in the
+  bundle"; `approve` says "N sheet row(s) approved"; the facts draft's trust row says "N of M statements on
+  the sign-off sheet approved". An old sheet re-rendered takes its restatement split from today's index.
+- **A6** (tool patches of PORTING.md and project_template.json): no change.
+- Tests: selftest cases in `project.py`, `stops.py`, `signoff.py`, `make_report.py` and
+  `tests/delivery.py`; mutants `ppA-*`; the stale mutants rsc-1i, FF3a and RUNREC6 (their text no longer
+  occurred) brought up to date.
+
+### Details (batch A, fix round 1: attack review ATTACK-A, compatibility review COMPAT-A)
+
+- **A2, tampered rounds (attack HIGH-1).** `close --withdrawn` is refused while the re-run check still
+  prints one of the stop's own codes of release kind `redo` or of class `tamper` (`seal-mismatch`,
+  `evidence-after-seal`, `scope-changed`, `head-moved`, ...) on the current state; the refusal names the route
+  (set the round aside, `set-aside R --stop S<n>`, redo it, `close --cured` on the fresh round; or the restore
+  cure). A check bound to a round that is no longer current (set aside or superseded) does not block, so the
+  Pisani case is unchanged. `trail_problems` flags a withdrawal whose recorded re-run shows such a code.
+  `stops.withdraw_blockers`.
+- **A2, human codes (attack LOW-1).** A withdrawal is refused while the re-run check prints any code of the
+  four human stops, whatever cause the stop was opened under; the human closes it. RUN.md says a withdrawal
+  never re-labels a fault.
+- **A2, still failing at delivery (attack MEDIUM-1).** When a withdrawn stop's check (not bound to an old round)
+  still fails at delivery, README's delivery notes (section D) say so in plain words. A note, never a refusal.
+- **A2, smaller fixes (compat L1, L2, L4).** RUN_RECORD's "Stops cleared without you" intro adds one sentence on
+  withdrawals, only when the table has one; the "what was done" cell of a withdrawn row no longer starts inside
+  the parenthesis; the close tests STOP.json's mode as the trail does. RUN.md and
+  `run/stops-and-set-asides.md` now say that a withdrawal past the budget needs `classify --as other` first.
+- **A3a (attack LOW-4, compat L6).** `signoff.check` looks index labels and definition names up through
+  `informal_key` as well, so both sides are read the same way. The sign-off writer's prompt
+  (AUDIT_PROTOCOL.md) asks for the heading's text without its `## `. SIGNOFF.json keys are still not
+  normalized.
+- **A4 (compat L5).** `log_append` creates a missing rounds directory only when it is `audits/<name>`, the
+  form `project_template.json` gives. A misspelt `rounds_dir` under `audits/` is refused as before, and no new
+  empty log is written.
+- Tests: `stops.py`, `signoff.py`, `project.py` and `tests/delivery.py` selftest cases; mutants `ppA-F1a`-`j`;
+  the mutants R3c-3b, b1b-2a and c2-39 (dead since batch A) and G4, G6, G7 (moved by the LOW-4 change)
+  retargeted.
+
+### Details (batch A, fix round 2: re-review REREVIEW-A)
+
+- **A2, codes that appear later (R-M1).** The withdrawal refusal no longer looks only at the stop's own codes:
+  any code of release kind `redo` or class `tamper` that the re-run prints on a round that is still current
+  blocks it, including one first printed after the stop was opened (a stop opened on `unsealed`, whose check
+  now prints `seal-mismatch`). The trail check follows. The Pisani case is unchanged (its check is bound to an
+  old round).
+- **A2, the route named (R-L2).** The refusal names `set-aside R --stop S<n>` only when STOP.json names that
+  round (otherwise `set-aside R` without `--stop`, which `set_aside` accepts); for an adjudicated round or a
+  check bound to no round it names the cure the check's cause table prints, never a set-aside.
+- **Docs (R-L3).** RUN.md and `run/stops-and-set-asides.md` name restoring as well as the redo.
+- Tests: a `stops.py` selftest case; mutants `ppA-F2a`-`c`; `ppA-F1a` retargeted.
+- Residual (R-L1, accepted): the old-round exemption is read when the withdrawal runs, so a round superseded
+  by a newer one (not set aside) exempts its check; if the newer round is later set aside, the trail flags the
+  withdrawal (fail-closed). Not changed.
+
+### Details (batch B, post-paper; design DESIGN-B and its review): no review round for rows already decided
+
+- **A decided row never scopes a round** (MAINTAINING L5). A Fail or Ambiguous whose round's adjudicator
+  already decided it (ADOPT, DEFER, a QUESTION since answered; every item of the verdict, no re-vote open; a
+  `## Hypotheses` row saying `no`) is routed `decided`: its result still reads "not established: ... decision:
+  X", but `make_report.pending_adjudication` no longer lists it, so `scope.py` prints `NEXT[no-round]` (or
+  `NEXT[stage5]` after an empty diff scope) instead of starting a 60-80-agent round that could only re-raise
+  it. A Definition row the result uses follows the same rule (an unanswered QUESTION there is the human's).
+  A verdict with no decision row, an adjudicator-record fault, a `leave ... unproved` line or route change
+  after the last adjudication, and any Lean change that is not comment-only still scope a round.
+- **What the extra round used to carry is kept**: an ADOPT the author did not carry out (OUTCOMES.md "not
+  implemented — disagree" / "could not be implemented") is a `declined:` item of `decisions.py --write` (a
+  Checkpoint C item under `involved`); delivery notes name the results not established by decided rows, an
+  ADOPT with no OUTCOMES row or "implemented" with no Lean commit behind it, and an answer that took another
+  reading than the Lean's. Notes never refuse.
+- **The reading decision is read reliably.** The adjudicator ends a QUESTION row with
+  `[Lean: (a); recommended: (b)]`; an answer names `take reading (x)`. Older records are read from both cells
+  of the row, with the wordings real runs used ("The Lean (`x`, File.lean:3) takes reading A"); a bare label
+  must end its clause, so "takes A arbitrary" is no label. An answered QUESTION that kept the Lean's reading
+  reads "faithful under reading (x)", also for the results using a Definition settled that way (A5b).
+- **Comment-only check: a sharper refusal.** When the compiled bytes differ while every declaration's hash
+  agrees, the refusal names the first differing field (`olean_diff.lean`, a diagnostic; it never changes the
+  outcome, and when it cannot run the message is as before). The diagnostic is **untested on Lean**: no Lean
+  control has run it yet (one is pending), so it may never fire; it has 60 seconds per refusal in all.
+
+### Details (M7, post-paper; design DESIGN-M7 and its review DESIGN-M7-REVIEW)
+
+- **The lexer** (`project.py` `code_only`, `lexer_ambiguous`, same names): `/--` and `/-!` bodies start after
+  the third character, so `/--/` no longer closes at once; every comment is blanked to its width, so each code
+  character keeps its column (a widened mid-line comment before code is now a code change: review L3); Lean's
+  identifier tables (`isIdFirst`/`isIdRest`, v4.35.0) decide whether a `'` is a prime, and a `'` after a symbol
+  or a non-ASCII character is read three ways, which must agree (review M4). Ambiguous, so NOT comment-only:
+  `--`/`/-` right after code, `/--/`, a string that reads differently as an interpolated one (now across
+  lines), a raw string anywhere in code (also after `!`, `λ` or a digit), a `«…»` name holding a marker, an
+  unterminated comment, string or name (review L2); a project declaring a token that holds `--` or `/-` turns
+  the bracket exemption off (review L1). Replayed on the 551 edits of project Lean files in 34 local runs: the
+  verdicts are unchanged.
+- **Kinds** (`LeanReason`): each Lean reason is `semantic`, `layout` (only the constants' bytes differ, with no
+  O1 field or a benign one: sharing, binder names) or `not-run`; a reason without a kind is `semantic`.
+  `comment_only_detail` gives the basis (`compiled` or `source`); `comment_only_since` keeps its 2-tuple.
+  `doc.verso` in a project Lean file or the lakefile turns the source basis off (review L4). O1 now decides in
+  one direction: a field identical source cannot produce makes the reason `semantic` (review M1); this replaces
+  "it never changes the outcome" of batch B. `olean_diff.lean` tells binder names from binder annotations
+  (UNVERIFIED-LEAN: no Lean has run it; the `--selftest --lean` controls do).
+- **Fix round 1 (review of the M7 build).** H1 above (`_co_block_end`, `phase0.strip_comments`). H2: O1 fails
+  closed: with no O1 answer (it failed, timed out, had no budget left, or printed no complete answer, now
+  `DIFF` lines followed by `END <count>`) the bytes-only reason is `not-run`, a review round, never a stop.
+  `olean_diff.lean` compares every constant (no stop at the first difference), reports binder names and
+  annotations of a type and of a value independently, compares the kind, the module flag, imports with their
+  flags, recursor rules and every other field (`ConstantInfo`'s `==`: hints, safety, the mutual block,
+  inductive, constructor and recursor data), and prints the sharing text only when nothing differs; the reason
+  is `layout` only when every finding is benign (UNVERIFIED-LEAN, still). M1: every lexer helper,
+  `OLEAN_DIFF*`, `OLEAN_PARTS` and `olean_diff.lean` are in CORE_REACHABLE (flagged only). L1: a string's
+  newline sentinel is escaped, so a raw NUL no longer reads as a newline. L2: two or more uncertain `'` are
+  read in every mixed combination (at most 16 readings; past that, ambiguous). L4: no `lake` on PATH is
+  `not-run`, not a crash. L5: a refusal from the comparison of the compiled parts is cached (read back as a
+  refusal); a compile or build failure is not.
+- A bytes-only result is cached (`comment-only-cache.json`, its own key, which includes `olean_diff.lean`), and
+  its reasons are judged again when read. The deciding names are in `tool_patch.CORE_REACHABLE`: a tool patch
+  touching them is flagged to its reviewer, never refused; project.py stays out of CORE.
+
+### Details (batch B, fix round 1: attack review ATTACK-B, compatibility review COMPAT-B)
+
+- **A negated or questioning answer keeps nothing.** "do not keep the Lean's reading", "Keep the Lean's
+  reading? No: ...", "not reading (a)" and a row saying "Neither the paper nor the Lean takes (a)" name no
+  reading, so the result reads "not established" (before, the first two read "faithful under reading").
+- **Which label the Lean takes is read more strictly.** A bare label after "takes" ("takes A") counts only when
+  the row names it as a reading ("Reading A: ..."); "takes 1, i.e.", "takes C," are objects. A row whose
+  `[Lean: ...]` token names one reading while its text says the Lean takes another settles nothing, and a
+  delivery note names the row.
+- **Every outstanding verdict of the round must be decided.** A decided Fail on one part of a result no
+  longer hides an undecided Ambiguous on another part of it (or another item of the same round): the result
+  then still scopes a round. A row on part (a) no longer decides part (b).
+- **Declined ADOPTs in any wording reach the human.** Every OUTCOMES.md outcome that does not start with
+  "implemented" ("declined — disagree", "deferred (disagree)", "done"), and an ADOPT with no OUTCOMES.md row,
+  is a `declined:` decisions item. An item a later round passed is not listed; its anchor no longer moves when
+  the note is reworded.
+- **Notes.** An answered QUESTION with no Lean commit after its round is a delivery note (did the answer ask
+  for a change?). `make_report.py --check --delivery` prints the decided rows' notes as `NOTE[deliver]` and
+  no longer says "NOT deliverable" because of them.
+- `olean_diff.lean` compares imports by module name (`.module`).
+- TRADEOFFS.md T37: what no longer re-checks an "implemented" claim or a DEFER.
+
+### Details (batch E, post-paper; design DESIGN-E2 and its review DESIGN-E2-REVIEW)
+
+- **Fix 2 (F1, F8, F11): the code-written README section.** `project.readme_checked` and `status_block`. The
+  mark is mechanical: a result the code rates exactly *faithful* is never marked; another is marked when the
+  summary's cell does not contain the code status's first part (up to its first `;` or ` (`, review L1), or the
+  summary does not list it. Labels are normalised the same way on both sides (`**` removed; a trailing
+  parenthetical removed only when it contains a space, so "Lemma 3.2 (c)" and "Claim (7)" stay; exact match
+  first), a cell is split only at `; ` outside parentheses, and "Lemmas 2.1, 2.2 and 3.4" is three results
+  (review M1); the summary's table is the one under `## Results`, else the first whose header starts
+  `| Status` (L3). A missing reason is one `[status-wording]` note. The software block diffs the tooling
+  against the first pin's `audits_commit`; only a `tool-patch TP<k> apply` commit of an applied patch with no
+  `FAIL[tool-patch] TP<k>` note counts as reviewed. The approval line under involved and statements-only points
+  to the approval in the list (review M2: it named the Lean commit as an audit commit). The withdrawn-stop line
+  moved from README D to "Proof checks"; README D's review sentence now says the agent saved the reviews.
+  README D fingerprints every delivered file but README.md, whose sha256 and length go in the RUN_LOG
+  `## Delivery` line with the note codes; `--check-delivered` reads the last such committed line, and only
+  stage5's `Pushed to` lines may follow the delivered README. SUMMARY's facts draft carries a pointer line to
+  the section (a SUMMARY without it is a note); stage5 asks for the `## Status wording` lines.
+- **Fix 3 (F4).** `project.intake_terms` (the first committed pin's config, cached once found), used by
+  `involvement`, `mode` and `terms_differ`; `integrity.pinned_version` takes the first pin's `ownership` when the
+  key is present (else the working pin, as before; `KeyError` caught); the three `(cfg or {}).get("mode")`
+  bypasses in integrity.py go through `project.mode`. A --selftest process keeps reading the working values
+  unless it opts in (`_terms_from_pin`, `project._TERMS_FROM_PIN`).
+- **Fix 4 (F3).** `stops.work_lines`: a kernel "N declarations reach sorryAx" while no leave line or
+  re-approval is active, a "X carries [" line, and a token-scan `sorry` unless the same output's axiom sweep is
+  clean are never a core fault's: `core_attribution` makes every line foreign and `core_covered` returns False.
+  "swept only", a goal in a leave line, drift, crashes and Lean API errors stay coverable.
+- **Fix 5 (F5).** `integrity.history` walks `git log -m --first-parent`; `changed_files` diffs a merge against its
+  first parent.
+- **Fix 6.** maintainer-notes, AUDIT_PROTOCOL's limitations text, MAINTAINING (F2, R0, S3, D1, the withdrawal
+  refusal), KNOWN_LIMITATIONS and the tool_patch.py comment on RAISED lines say what is now true; maintainer-notes
+  lists what remains open (F2/fix 1, F6, F7, F9, F10, fix 4's residuals, merges, fix 7).
+- **Floor mutants** (forgery review rec. 6): the math gate's MG2-MG4 (10-28) and the new MG6-MG8 are in `FLOOR`,
+  so a tool patch hitting one needs two approvals. Each runs its selftest at every tool patch's FACTS: 8 more
+  selftest runs per FACTS run (a `project.py` baseline with MG2 and MG3, a `stops.py` baseline with MG4 and
+  MG6-MG8), each FACTS run at prepare and again in each reviewer.
+- **INT-REVIEW leftovers.** The tool-patch reviewer's FACTS command is `python3 audits/tool_patch.py facts ...`,
+  which the project allow rules cover (LOW-4; `claude_settings.py --selftest` now checks every documented
+  `python3 audits/<x>.py` command and that one); a declined-ADOPT decisions item no longer claims its result reads
+  "not established" (LOW-1); the stale "land C7 with B1" build note is gone (LOW-2).
+- Tests: unit controls in `stops.py` (including direct `integrity_blocks` controls), `integrity.py` and
+  `project.py --selftest`; `tests/delivery.py` `checked_section` (F1 variants 1 and 1b, involved receipts, an honest
+  reason, edits after delivery) and `forgery_gate` (F3, F4, F5 regressions); mutants `E2-*`, `E3-*`, `E4-*`,
+  `E5-1`, `E5-3`, `E-L4`, `MG6`-`MG8` (no "drop -m" mutant: on git >= 2.31 it is equivalent); mutants `scr-5c` and
+  `pa-32` retargeted. `tests/mutants.py` copies `skills/` into its scratch copies: without the bundled licence
+  texts `project.py`'s selftest baseline failed and no `project.py` mutant was judged.
+- **Fix round E1** (attack review ATTACK-E, compatibility review COMPAT-E). Nothing new refuses, stops or waits.
+  - A command is a selftest only when it IS `--selftest`: `project.py --deliver --selftest` no longer reads the
+    working config's level and mode or the test tier's variables (H1).
+  - The README section's status comparison drops SUMMARY.md's HTML comments, compares every row that names a
+    result, and no longer says "in the same words": it says the first words were found and asks the reader to
+    compare (H2). The summary's cell and the agent's reason are made inert (no raw HTML or code spans). A summary
+    label with an extra trailing parenthetical ("Definition 2.1 (H)") pairs; results not found in the summary's
+    table have their own heading; a Status wording label containing ": " finds its reason.
+  - `--check-delivered` flags a README fingerprint that a later RUN_LOG.md commit rewrote or removed, says "not
+    verified" (never ok) for a README no delivery line fingerprints, and accepts a `Pushed to` line only in its
+    generated form (M1).
+  - The pin check compares the raw working level and mode again, so FAIL[pin], FAIL[config], the re-pin refusal
+    and the tool-patch link check fire in real runs as before batch E (COMPAT M1).
+  - "Proof checks" names the declarations a logged leave line lets through the `sorry` check (COMPAT M2);
+    "as fixed when the run started" only when the first pin records the level; tooling changed and reverted is
+    named, not "Unchanged"; the tool-patch reviewer runs the FACTS command from the project's top-level
+    directory; one note kind reworded; `project.SUMMARY_POINTER` renamed `CHECKED_POINTER`.
+  - Mutants `E1-*` and `I28`, `TM3` retargeted.
+- **Polish round** (re-review REREVIEW-E, all LOW). Nothing new refuses, stops or waits.
+  - The no-paper push command writes the paper paths in backticks, and `--check-delivered` accepts any path
+    there except one with a backtick or a newline (`Smith+Jones (2024).pdf` is fine); the older unquoted form
+    is still accepted (L2).
+  - For a RUN_LOG.md delivery line edited or removed after delivery, `--check-delivered` no longer says only
+    "deliver again", which cannot clear it: it says to restore the line or leave it (L3).
+  - The summary coverage check ignores results rows inside HTML comments, as the README section does;
+    `tests/TIERS.md` states the `--selftest` rule as MAINTAINING A3 does (L4). KNOWN_LIMITATIONS says when a
+    summary row with extra words in its label is not compared (L1).
+  - Surviving mutants killed: `A5-1` (a `result_status.py` case where the label is named as a reading but
+    does not end its clause) and `DF13` (now run by `integrity.py`'s selftest, since `tests/delivery.py` no
+    longer builds hand edits). New mutants `PL-L2`, `PL-L3`, `PL-L4`.
+
 ## 0.3.1
 
 ### In short

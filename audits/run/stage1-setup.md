@@ -97,7 +97,8 @@ Read this after the human's OK at Checkpoint A. It ends with the pin commit; the
      exits.
    - **No value may contain `<<`.**
 4. **Checks.** `python3 audits/prompt.py --show` lists no unfilled blank, and
-   `python3 audits/selftest_all.py --project <name> --fast` passes (in `release` mode a
+   `python3 audits/selftest_all.py --project <name> --fast` passes (run it in the background, RUN.md
+   rule 9; in `release` mode a
    `DISCLOSED[selftest]` line does not fail it: record it with `stops.py disclose --cmd "python3
    audits/selftest_all.py --fast"` once step 5 has created the log).
 5. **Commit and pin.**

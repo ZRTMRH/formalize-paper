@@ -31,7 +31,7 @@ PATH.before-formalize-paper, created exclusively and never through a symlink.
 """
 import sys
 sys.dont_write_bytecode = True   # stale bytecode would run code no file shows
-import argparse, json, os, re, shutil, tempfile
+import argparse, glob, json, os, re, shutil, tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import project  # noqa: E402
 
@@ -307,6 +307,25 @@ def selftest():
                                            "audits/run/stage4-rounds.md",
                                            "audits/agents/auditor.md", "audits/fingerprint_tail.lean",
                                            "audits/skills/formalize-paper/SKILL.md", ".lake/packages/mathlib/Mathlib/X.lean")))
+    def allowed_cmd(cmd):
+        return any(cmd.startswith(r[len("Bash("):-len(":*)")]) for r in ALLOW
+                   if r.startswith("Bash(") and r.endswith(":*)"))
+    # INT-REVIEW (2026-11): every `python3 audits/<x>.py` the protocol documents runs without a prompt (the install-time
+    # and Codex scripts are the person's, not the run's), and so does the tool-patch reviewer's FACTS command as
+    # prompt.py renders it (LOW-4: it was an absolute path, which no allow rule covers)
+    docs_ = [os.path.join(here, f) for f in ("RUN.md", "AUDIT_PROTOCOL.md")] + sorted(
+        glob.glob(os.path.join(here, "run", "*.md")) + glob.glob(os.path.join(here, "skills", "*", "*.md")))
+    used = sorted({m for p_ in docs_ for m in re.findall(r"python3 audits/[\w]+\.py", open(p_, encoding="utf-8").read())})
+    import inspect, prompt as _pr
+    src_ = inspect.getsource(_pr.render_tool_patch)     # the renderer is GUARDED (tool_patch.py): read, not called
+    fc = ("python3 audits/tool_patch.py facts --tp TP1 --attempt 1 --out x/FACTS.json"
+          if 'rel_ if rel_ == "audits/tool_patch.py"' in src_ and 'f"python3 {tool_} facts --tp' in src_ else "")
+    say("every documented `python3 audits/<x>.py` command and the tool-patch reviewer's FACTS command are allowed "
+        "without a prompt",
+        lambda: used and not [c for c in used if not allowed_cmd(c + " ")
+                              and c.split("/")[-1][:-3] not in ("claude_settings", "codex_agents", "codex_spawn")]
+        and fc.startswith("python3 audits/tool_patch.py facts ") and allowed_cmd(fc)
+        and not allowed_cmd("python3 /abs/audits/tool_patch.py facts"))
     say("bypassPermissions is warned about, never set",
         lambda: any("bypassPermissions" in n for n in merged(json.dumps({"permissions": {"defaultMode": "bypassPermissions"}}))[1]))
     say("unparsable JSON refused", refused('{"env": {"A": "b",}}', "not valid JSON"))

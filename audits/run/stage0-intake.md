@@ -22,7 +22,9 @@ resumed conversation finds it (`project.py --stage` says so) and never sends the
 **What each answer fills** (derive everything else yourself):
 - 1a `source_pdf` (it must be inside the project; the config check refuses a path outside it); 1b, 1c
   `confidential` (true: no subagent uses the network; push only to private remotes, and only as
-  6c/6d allow).
+  6c/6d allow). An answer (1b, 1c or 7) saying the paper's text may not be redistributed: Stage 5's
+  push leaves the paper's files out (`paper/`, or wherever 1a put them) and has no parent; log it
+  under `## Intake` constraints.
 - 2a the range; 2b `goal_results`; 2c the indexed environments.
 - 3a `literature_hypotheses`; 3b `libraries` (a library other than Mathlib is less vetted: its
   definitions are checked before use, "Missing theory" in `stage2-statements.md`).
@@ -187,7 +189,8 @@ Show the derived setup on one screen:
   stops of the run mode, and the questions the level asks);
 - the run mode, as `prompt.py --show` prints it (set at install; RUN.md, "Run mode");
 - the report destination;
-- push yes or no, as one clean commit or with the full history, and the license;
+- push yes or no, as one clean commit or with the full history, and the license, and whether the
+  paper's files are left out;
 - any other library in the lakefile that the run leaves alone (for example the template library of
   `lake new … math`).
 

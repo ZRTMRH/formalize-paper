@@ -56,6 +56,19 @@ def index_rows(cfg):
     return scope.index_rows(open(p, encoding="utf-8").read()) if os.path.exists(p) else []
 
 
+def row_count(cfg, labels):
+    """"161 index rows (67 numbered results plus ...)" for the sheet rows `labels`: make_report.count_text, the one
+    classifier (C6: every index row was once printed as a "result"). The index text (today's index file, not the
+    sheet's commit) carries the "restatement of" marker; a label not in the index, or an unreadable index, is
+    counted by its shape alone."""
+    import make_report as mr
+    try:
+        rest = dict(index_rows(cfg))
+    except (OSError, UnicodeDecodeError, KeyError, ValueError):
+        rest = {}
+    return mr.count_text([(lab, rest.get(lab, "")) for lab in labels])
+
+
 def not_formalized(cfg):
     """[(label, reason)] for index rows that cite no Lean name: the results the sheet does NOT
     show. A human approving the sheet must see that they exist (found by the pre-approval audit:
@@ -235,7 +248,8 @@ def build_bundle(cfg, table=None):
     """(markdown, rows, defs): rows = [(label, [qualified names])], defs = [qualified names]."""
     import fingerprint
     table = table if table is not None else lean_table(cfg)
-    rows, missing = [], []
+    rows, missing, noted = [], [], []
+    from make_report import newly_read
     for label, rest in index_rows(cfg):
         qs = []
         for c in re.findall(r"`([^`]+)`", rest):
@@ -246,7 +260,8 @@ def build_bundle(cfg, table=None):
                 # EVERY unresolved name is reported, not only rows where nothing resolved: a row
                 # citing two names of which one is misspelt would otherwise reach the sheet with
                 # half its statement missing.
-                missing.append(f"{label}: `{c.split()[0]}` {why}")
+                # E2E-FIX2d: a row only the widened reader reads (Problem, Question) gets a NOTE, never a stop
+                (noted if newly_read(label) else missing).append(f"{label}: `{c.split()[0]}` {why}")
         if qs:
             rows.append((label, qs))
     stmt_names = {q for _, qs in rows for q in qs}
@@ -284,7 +299,7 @@ def build_bundle(cfg, table=None):
     if missing:
         md.append("# Index rows whose cited names could not be resolved")
         md += [f"- {m}" for m in missing]
-    build_bundle.missing = missing
+    build_bundle.missing, build_bundle.noted = missing, noted
     return "\n".join(md) + "\n", rows, defs
 
 
@@ -329,8 +344,9 @@ def bundle_problem(round_dir, fresh_md):
     return None
 
 
+# 99d928e's words, plus Problem and Question (E2E-FIX2d: a wider list made new sheet-check failures)
 RESULT_REF = re.compile(r"\b(Theorem|Lemma|Corollary|Observation|Proposition|Claim|Fact|"
-                        r"Definition|Conjecture|Remark)\s+([A-Z]?\d+(?:\.\d+)*)"
+                        r"Definition|Conjecture|Remark|Problem|Question)\s+([A-Z]?\d+(?:\.\d+)*)"
                         r"((?:\s*(?:,|and|or|&)?\s*(?:parts?\s+)?\(\s*(?:[a-z]|[ivx]+)\s*\))*)")
 PART = re.compile(r"\(\s*([a-z]|[ivx]+)\s*\)")
 
@@ -402,6 +418,18 @@ def vacuous_results(rounds_dir):
     return sorted(set(out))
 
 
+def informal_key(k):
+    """An INFORMAL.json key without a leading markdown heading marker. The informalizer copies "the ## heading,
+    verbatim" from the bundle, and may copy it with its `## ` ("## Lemma 2.2"); the key is the heading's text
+    (A3a: b1v and b2v each stopped on it). The marker needs whitespace after its `#`s, so "##Lemma 1.2" stays
+    unmatched ("no entry", fail closed) and a label that starts with `#` keeps it ("## #P" is "#P"); nothing else
+    is stripped and a non-string is unchanged. check() reads the index labels and definition names through it too
+    (attack review LOW-4), so a label that itself starts with "# " still meets its own entry. SIGNOFF.json keys
+    are not normalized: that record is not write-once (save-record --reason), so a prefixed key there costs one
+    re-save, never a stuck round; the sign-off writer's prompt asks for the heading without its `## `."""
+    return re.sub(r"^\s*#+\s+", "", k) if isinstance(k, str) else k
+
+
 def check(cfg, round_dir, rows, defs, fresh_md=None):
     """[problem strings]; empty means the sheet is complete and consistent."""
     probs = []
@@ -422,7 +450,7 @@ def check(cfg, round_dir, rows, defs, fresh_md=None):
     for name, lst, key in (("INFORMAL.json", inf.get("rows", []), "result"),
                            ("INFORMAL.json definitions", inf.get("definitions", []), "name"),
                            ("SIGNOFF.json", so.get("rows", []), "result")):
-        seen = [x.get(key) for x in lst]
+        seen = [informal_key(x.get(key)) if name.startswith("INFORMAL") else x.get(key) for x in lst]
         for dup in sorted({x for x in seen if seen.count(x) > 1}, key=str):
             # a duplicate row is a second, unchecked version of the same entry; the renderer
             # would show one and the check would see the other
@@ -437,8 +465,8 @@ def check(cfg, round_dir, rows, defs, fresh_md=None):
             probs.append(f"global difference {gid}: empty title or text")
         globals_[gid] = g
     used = set()
-    inf_rows = {r.get("result"): r for r in inf.get("rows", [])}
-    inf_defs = {d.get("name"): d for d in inf.get("definitions", [])}
+    inf_rows = {informal_key(r.get("result")): r for r in inf.get("rows", [])}
+    inf_defs = {informal_key(d.get("name")): d for d in inf.get("definitions", [])}
     so_rows = {r.get("result"): r for r in so.get("rows", [])}
     # a result the paper-defects record names must not reach the human as "no difference": the
     # Lean states the REPAIRED result (found by a test run's pre-approval audit: two results
@@ -472,7 +500,7 @@ def check(cfg, round_dir, rows, defs, fresh_md=None):
                     probs.append(project.Finding(p_ + f" (the record names {label!r}; another row of it is "
                                                       f"CHECK)", "label") if some else p_)
     for label, _ in rows:
-        if label not in inf_rows:
+        if informal_key(label) not in inf_rows:     # attack review LOW-4: both sides read the same way
             probs.append(f"INFORMAL.json has no entry for {label}")
         if label not in so_rows:
             probs.append(f"SIGNOFF.json has no entry for {label}")
@@ -511,8 +539,8 @@ def check(cfg, round_dir, rows, defs, fresh_md=None):
             # the flag is what the mathematician sees first; a difference or a junk-value risk
             # under an OK is the one inconsistency that would let it be skipped
             probs.append(f"{label}: a difference or a junk-value RISK is recorded, so the flag must be CHECK")
-        if label in inf_rows and r.get("plain_english", "").strip() != \
-                str(inf_rows[label].get("plain_english", "")).strip():
+        if informal_key(label) in inf_rows and r.get("plain_english", "").strip() != \
+                str(inf_rows[informal_key(label)].get("plain_english", "")).strip():
             probs.append(f"{label}: plain_english differs from the blind reading in INFORMAL.json "
                          f"(it must be copied verbatim)")
     for gid in sorted(set(globals_) - used):
@@ -525,11 +553,11 @@ def check(cfg, round_dir, rows, defs, fresh_md=None):
         elif not str(n.get("note", "")).strip():
             probs.append(f"not_formalized note for {n.get('result')!r} is empty")
     for d in defs:
-        # exact key: the informalizer copies the bundle's heading verbatim. A short-name match
-        # once let `Other.thing` count as explaining `N.thing`.
-        if d not in inf_defs:
+        # exact key, up to a leading "## " on either side (informal_key: the informalizer copies the bundle's
+        # heading, sometimes with its marker). A short-name match once let `Other.thing` count as explaining `N.thing`.
+        if informal_key(d) not in inf_defs:
             probs.append(f"definition {d} is used by an approved statement but not explained")
-        elif not str(inf_defs[d].get("plain_english", "")).strip():
+        elif not str(inf_defs[informal_key(d)].get("plain_english", "")).strip():
             probs.append(f"definition {d}: empty explanation")
     extra = set(so_rows) - {l for l, _ in rows}
     for e in sorted(x for x in extra if x):
@@ -713,12 +741,46 @@ SHEET_TERMS = ("**Terms.** `sorry` is Lean's placeholder for a proof not yet wri
                "the round's `ADOPTED.md`. The *formalizing agent* is the AI that wrote the Lean.")
 
 
-def sheet_background(cfg, so, kind="statements", approved=False):
+def sorry_at(cfg, commit):
+    """Does a project Lean file use `sorry` (comments stripped) at `commit`? True, False, or None when the commit or
+    no file of `lean_files` can be read there (E2E-FIX2 M4a: the sheet says what the Lean at its commit holds)."""
+    if not commit or subprocess.run(["git", "-C", project.REPO, "rev-parse", "--verify", "-q", f"{commit}^{{commit}}"],
+                                    capture_output=True).returncode:
+        return None
+    seen = False
+    for f in cfg.get("lean_files") or []:
+        r = subprocess.run(["git", "-C", project.REPO, "show", f"{commit}:{f}"], capture_output=True, text=True)
+        if r.returncode:
+            continue
+        seen = True
+        if re.search(r"(?<![\w.'])sorry(?![\w'])", strip_comments(r.stdout)):
+            return True
+    return False if seen else None
+
+
+# E2E-FIX2 M4b: the texts under each result are written when the round's sheet is made, and are never rewritten; the
+# sheet says so (the same words before and after the approval), and a re-approval's sheet says, from the approval
+# record, whether the re-approval is still open (after/before pairs, so APPROVAL_STAMPS keep the reader's hash)
+AS_OF_ROUND = ("The texts under each result (the plain-English reading, Differences, Junk values) were written when "
+               "this round's sheet was made, before its approval, and are not rewritten: a word in them such as "
+               "“open”, “pending” or “not yet audited” says how things stood then; later audit rounds and the "
+               "proofs are in the report.")
+REAPPROVAL_STATE = (" This sheet is a re-approval's, and its approval closed that re-approval (REAPPROVAL.json): a "
+                    "row text that calls the re-approval open is as of the round.",
+                    " This sheet is a re-approval's: the re-approval stays open until this sheet is approved.")
+
+
+def sheet_background(cfg, so, kind="statements", approved=False, reapproval=False):
     """The sheet's own background (a test run, KNOWN_FAULTS of the sheet): what the sheet is, who
     approves it under the run's involvement level (the intake answer quoted), what a tick and an
     empty box trigger, and what the code shown was checked with. Approval is stated as done only
-    when the sheet is `approved` (mini5 audit: the pre-approval sheet said it was approved)."""
+    when the sheet is `approved` (mini5 audit: the pre-approval sheet said it was approved). What it says of the
+    proofs is read from the Lean at the sheet's commit (sorry_at; E2E-FIX2 M4a: a re-approval's statement round, at
+    a commit with every proof done, said "the proof of every result is `sorry` by design"; REVIEW-E2E-FIX2 L-2: a
+    re-approval's with some proofs done says "some or all"); the round kind decides
+    only when that commit cannot be read. `reapproval`: the sheet re-approves CHANGED results (M4b)."""
     lvl, ans = project.involvement(cfg), str(cfg.get("involvement_answer") or "").strip()
+    stage = kind == "statements" and sorry_at(cfg, so.get("commit")) is not False
     who = {
         "hands-off": (f"At intake the person chose the hands-off involvement level (answer, verbatim: \"{ans}\"): "
                       + (APPROVAL_STAMPS[1][0] if approved else APPROVAL_STAMPS[1][1]) + ". The boxes are "
@@ -737,16 +799,24 @@ def sheet_background(cfg, so, kind="statements", approved=False):
             "is not approved: the report lists it as excluded, and its statement can be revised and put again. "
             f"The Lean shown is in the repository `{project.REPO}`, branch `{cfg.get('branch', '?')}`, at commit "
             f"`{so.get('commit', '?')}`, where it compiles (`{'; '.join(cfg.get('build_cmds') or ['?'])}` exits 0)"
-            + (" and the proof of every result is `sorry` by design (a named witness or evidence lemma may "
-               "already be proved; Phase 0, run with `--statements` by the round's adjudicator; its output is in "
-               "that round's ADOPTED.md). **This is the statement-stage sheet:** it shows the Lean as it was at "
+            + ((" and some or all of the proofs there are `sorry`: this sheet is a re-approval's, taken while the "
+                "proofs were being written, so a proof may be complete or `sorry` at that commit (Phase 0, run with "
+                "`--statements` by the round's adjudicator; its output is in that round's ADOPTED.md). "
+                if reapproval else
+                " and the proof of every result is `sorry` by design (a named witness or evidence lemma may "
+                "already be proved; Phase 0, run with `--statements` by the round's adjudicator; its output is in "
+                "that round's ADOPTED.md). ") + "**This is the statement-stage sheet:** it shows the Lean as it was at "
                "that commit, " + (APPROVAL_STAMPS[2][0] if approved else APPROVAL_STAMPS[2][1])
                + "; proofs written later, and the line numbers at the final "
-               "commit, are in the report (REPORT.pdf). " if kind == "statements" else
-               " (Phase 0, run by the round's adjudicator; its output is in that round's ADOPTED.md); this sheet is "
-               "for a re-approval, so the proofs may be complete at that commit. ")
+               "commit, are in the report (REPORT.pdf). " if stage else
+               " (Phase 0, run by the round's adjudicator; its output is in that round's ADOPTED.md); "
+               + ("no proof at that commit uses `sorry`, so the proofs there may be complete. "
+                  if kind == "statements" else
+                  "this sheet is for a re-approval, so the proofs may be complete at that commit. "))
             + "`tex l.N` is line N of the paper's source; `File.lean:N` is line N of that Lean "
-            "file at that commit.\n\n" + SHEET_TERMS + "\n\n" + SHEET_LEGEND + "\n")
+            "file at that commit. " + AS_OF_ROUND
+            + ((REAPPROVAL_STATE[0] if approved else REAPPROVAL_STATE[1]) if reapproval else "")
+            + "\n\n" + SHEET_TERMS + "\n\n" + SHEET_LEGEND + "\n")
 
 
 # The first line of a sheet whose statements no person will review (RUN.md, intake question 5c,
@@ -778,7 +848,8 @@ APPROVAL_STAMPS = [(HANDS_OFF_LINE, HANDS_OFF_PENDING),
                     "the formalizing agent will approve this sheet itself, and no person will review it"),
                    ("when it was approved", "the commit the approval is for"),
                    ("Statements unchanged since the latest approval; ", "Statements changed since the previous approval; "),
-                   (" re-approved by the agent, marked CHANGED.", " awaiting re-approval by the agent, marked CHANGED.")]
+                   (" re-approved by the agent, marked CHANGED.", " awaiting re-approval by the agent, marked CHANGED."),
+                   REAPPROVAL_STATE]
 
 
 def sheet_approved(round_dir):
@@ -822,11 +893,12 @@ def _render(cfg, round_dir, changed=None):
     changed = changed or {}
     head = ((f"**{hands_off_line(approved, len(changed))}**\n\n" if hands_off else "")
             + f"# Statement sign-off — {cfg['source_cite']}\n\n" +
-            f"Commit `{so.get('commit', '?')}`. {len(rows)} results, {n_check} flagged CHECK, "
+            f"Commit `{so.get('commit', '?')}`. {row_count(cfg, [r.get('result') for r in rows])}, {n_check} flagged CHECK, "
             f"{n_glob} differing only through the {len(glob)} global difference(s).\n")
     # what the sheet is comes before what approving it means (the reading order was inverted); with
     # global differences it follows them under "Results"
-    intro = ("\n" + sheet_background(cfg, so, project.round_kind(round_dir) or "statements", approved) + "\n"
+    intro = ("\n" + sheet_background(cfg, so, project.round_kind(round_dir) or "statements", approved,
+                                      reapproval=bool(changed)) + "\n"
             f"**{APPROVING[0]}** {APPROVING[1]}\n")
     plines = paper_lines(cfg)
     try:
@@ -886,7 +958,7 @@ def _render(cfg, round_dir, changed=None):
                for lab, why in nf]
     md.append("\n## Definitions the statements use (blind reading)\n")
     for d in inf.get("definitions", []):
-        md.append(f"* `{d.get('name')}` — {d.get('plain_english')}")
+        md.append(f"* `{informal_key(d.get('name'))}` — {d.get('plain_english')}")
     if not inf.get("definitions"):
         md.append(NO_DEFS)          # trial #7 audit: an empty last heading
     md_text = "\n".join(md) + "\n"
@@ -1600,6 +1672,9 @@ def main(argv=None):
         # An incomplete bundle produces a sheet with holes a signer cannot see. Fix the index or
         # lean_files and rebuild. It is never written: an uncommitted bundle left here was swept into the
         # round's set-aside commit, which integrity.py refuses (only "scope" owns it; live L-infinity run S1)
+        for m in getattr(build_bundle, "noted", []):
+            print(f"NOTE: {m} (a Problem or Question row, not read before E2E-FIX2: its statement is not in the "
+                  f"bundle; fix the index)")
         if build_bundle.missing:
             for m in build_bundle.missing:
                 print(project.problem_line(m, "signoff-check"))
@@ -1607,7 +1682,8 @@ def main(argv=None):
             return 1
         before = open(p, "rb").read() if os.path.exists(p) else None
         open(p, "w", encoding="utf-8").write(md)
-        print(f"wrote {os.path.relpath(p, project.REPO)}: {len(rows)} results, {len(defs)} definitions")
+        print(f"wrote {os.path.relpath(p, project.REPO)}: {row_count(cfg, [r[0] for r in rows])}, {len(defs)} Lean "
+              f"definitions in the bundle")
         try:
             h = project.commit_only([p], f"scope {a.round} (statements bundle)")
         except ValueError as e:
@@ -1624,7 +1700,8 @@ def main(argv=None):
             print(project.problem_line(p, "signoff-check"))
         for p in disc:
             print(project.disclosed_line(p))
-        print(f"sign-off check: {len(rows)} results, {len(defs)} definitions, {len(probs)} problem(s)"
+        print(f"sign-off check: {row_count(cfg, [r[0] for r in rows])}, {len(defs)} Lean definitions in the bundle, "
+              f"{len(probs)} problem(s)"
               + (f", {len(disc)} disclosed (release mode: stops.py disclose records them)" if disc else ""))
         return 1 if probs else 0
     if a.cmd == "render":
@@ -1808,7 +1885,7 @@ def main(argv=None):
             json.dump(reap, open(rp, "w"), indent=1, ensure_ascii=False); paths.append(rp)
         json.dump(doc, open(target, "w"), indent=1, ensure_ascii=False)
         n_ok = sum(1 for r in doc["rows"].values() if r["status"] == "approved")
-        print(f"wrote {os.path.relpath(target, project.REPO)}: {n_ok} result(s) approved "
+        print(f"wrote {os.path.relpath(target, project.REPO)}: {n_ok} sheet row(s) approved "
               f"({a.how}, by {a.by}), {len(excluded)} excluded, {len(doc['fingerprints'])} declarations frozen")
         try:
             # the approval file alone, by name: never the rounds dir (`add -A` swept other steps' files)
@@ -2765,6 +2842,50 @@ def selftest_b2_round3(d, say):
         globals()["REAPPROVAL_READER_GATE"] = reapproval_reader_gate
 
 
+def selftest_c6(say):
+    """C6: the counts say index rows, numbered results and definitions apart (make_report.count_text), never
+    "N results" for every row; check's message counts the bundle's Lean definitions as such."""
+    import io, contextlib
+    repo = tempfile.mkdtemp(prefix="sgc6-")
+    rd = os.path.join(repo, "R", "2026-11-10-statements-c6")
+    os.makedirs(rd)
+    open(os.path.join(repo, "Main.lean"), "w", encoding="utf-8").write(
+        "/-\n| result | Lean |\n|---|---|\n| Theorem 1.1 | `N.a` |\n| Lemma 1.2 | `N.b` |\n| Definition (f) | `N.f` |\n-/\n")
+    cfg = {"name": "P", "rounds_dir": "R", "source_cite": "test", "index_file": "Main.lean"}
+    labels = ["Theorem 1.1", "Lemma 1.2", "Definition (f)"]
+    row_ = lambda res: {"result": res, "paper": "p", "lean": ["N.x"], "plain_english": "x", "differences": "None.",
+                        "junk_values": "None.", "flag": "OK"}
+    json.dump({"rows": [{"result": l, "plain_english": "x"} for l in labels], "definitions": []},
+              open(os.path.join(rd, "INFORMAL.json"), "w"))
+    json.dump({"commit": "abc", "rows": [row_(l) for l in labels]}, open(os.path.join(rd, "SIGNOFF.json"), "w"))
+    g = globals()
+    keep = (project.REPO, project.select, g["build_bundle"], g["check"], g["cited_name_problems"])
+    project.REPO = repo
+    try:
+        want = "3 index rows (2 numbered results plus 1 unnumbered definition or notation the paper introduces"
+        ok_r = render(cfg, rd)
+        head = open(os.path.join(rd, "SIGNOFF.md"), encoding="utf-8").read().split("\n\n")[1]
+        say("C6: the sheet's header counts index rows as numbered results and definitions (count_text), never "
+            "\"3 results\"", ok_r and f"Commit `abc`. {want}" in head and "3 results" not in head)
+
+        def stub_bundle(cfg_, table=None):
+            build_bundle.missing = []
+            return "b\n", [(l, ["N.x"]) for l in labels], ["N.d1", "N.d2"]
+        g["build_bundle"], g["check"], g["cited_name_problems"] = stub_bundle, (lambda *a_, **k_: []), (lambda *a_: [])
+        project.select = lambda name=None: (cfg, "stub")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = main(["check", "--round", os.path.basename(rd)])
+        say("C6: check's message counts index rows by kind and the bundle's Lean definitions as such",
+            rc == 0 and f"sign-off check: {want}" in out.getvalue()
+            and "2 Lean definitions in the bundle, 0 problem(s)" in out.getvalue())
+        say("C6: with no readable index the rows are counted by their shape alone",
+            row_count(dict(cfg, index_file="missing.lean"), labels).startswith("3 index rows (2 numbered results"))
+    finally:
+        project.REPO, project.select, g["build_bundle"], g["check"], g["cited_name_problems"] = keep
+        shutil.rmtree(repo, ignore_errors=True)
+
+
 def selftest():
     import tempfile, shutil
     import make_report as mr
@@ -2810,6 +2931,31 @@ def selftest():
             return check(cfg, d, rows, defs)
 
         say("complete, consistent sheet passes", setup(good_inf, good_so) == [])
+        # A3a (b1v TP1 A2, b2v TP2): INFORMAL.json keys written as the bundle's "## <heading>" are read as the heading
+        pre_ = {"rows": [{"result": "## " + r_["result"], "plain_english": r_["plain_english"]} for r_ in good_inf["rows"]],
+                "definitions": [{"name": "## N.thing", "plain_english": "f(n) = n + 1."}]}
+        a3_miss = setup(dict(pre_, rows=pre_["rows"][1:]), good_so)
+        a3_ws = setup({"rows": [{"result": "Theorem 1.1 ", "plain_english": "For all n, f(n) > n."},
+                                good_inf["rows"][1]], "definitions": [{"name": " N.thing", "plain_english": "x"}]}, good_so)
+        a3_tight = setup(dict(pre_, rows=[dict(pre_["rows"][0], result="##Theorem 1.1"), pre_["rows"][1]]), good_so)
+        a3_dup = setup(dict(pre_, rows=pre_["rows"] + [good_inf["rows"][0]]), good_so)
+        # attack review LOW-4: an index label that itself starts with "# " meets its own INFORMAL.json entry
+        setup({"rows": [{"result": "# 5", "plain_english": "Five."}], "definitions": good_inf["definitions"]},
+              {"commit": "abc", "rows": [row("# 5", "Five.")]})
+        a3_hash = check(cfg, d, [("# 5", ["N.x"])], defs)
+        say("A3a: INFORMAL.json keys \"## <heading>\" match their result and definition; a result really missing is "
+            "still \"no entry\"; whitespace-only differences (\"Theorem 1.1 \", \" N.thing\") and \"##Theorem 1.1\" "
+            "(no space) still match nothing; \"## X\" beside \"X\" is a duplicate; \"## #P\" is \"#P\"",
+            setup(pre_, good_so) == []
+            and any("INFORMAL.json has no entry for Theorem 1.1" in p for p in a3_miss)
+            and any("no entry for Theorem 1.1" in p for p in a3_ws) and any("N.thing" in p for p in a3_ws)
+            and any("no entry for Theorem 1.1" in p for p in a3_tight)
+            and any("'Theorem 1.1' appears more than once" in p for p in a3_dup)
+            and informal_key("## #P") == "#P" and informal_key("#P") == "#P" and informal_key(3) == 3
+            and informal_key(None) is None)
+        say(f"A3a (attack LOW-4): a label \"# 5\" is read through informal_key on both sides, so it meets its own entry "
+            f"and its blind reading ({a3_hash})",
+            not any("# 5" in str(p) and ("no entry" in str(p) or "blind reading" in str(p)) for p in a3_hash))
         te_ = theorem_entry("K.cor (n : ℕ) : K.Q ⊤",
                             "/-- doc -/\ntheorem cor (n : ℕ) (h : P := by simp) :\n    Q (⊤ : Set (Fin (n + 1))) := by\n  simp")
         say("mini1: a theorem's bundle entry gives its statement as written (the ascription the elaborated "
@@ -2963,6 +3109,12 @@ def selftest():
         setup(good_inf, good_so)
         setup(dict(good_inf, definitions=[]), good_so)
         say("render writes the sheet when there are no separate definitions", render(cfg, d) and made())
+        setup({"rows": good_inf["rows"], "definitions": [{"name": "## N.thing", "plain_english": "f(n) = n + 1."}]},
+              good_so)
+        say("A3a: the sheet lists a definition keyed \"## N.thing\" as `N.thing`",
+            render(cfg, d) and "* `N.thing` — f(n) = n + 1." in open(os.path.join(d, "SIGNOFF.md")).read()
+            and "`## N.thing`" not in open(os.path.join(d, "SIGNOFF.md")).read())
+        setup(dict(good_inf, definitions=[]), good_so)
         # trial #7 audit (also #4, #6): the .md carries the Lean statements
         open(os.path.join(d, "STATEMENTS_BUNDLE.md"), "w", encoding="utf-8").write(
             "# Statements bundle\n\n## Theorem 1.1\n```lean\n-- signature (elaborated):\nN.thm_q (n : ℕ) : f n > n\n"
@@ -3043,6 +3195,67 @@ def selftest():
             and "statement-stage sheet" in sheet_background(cfg, {"commit": "x"}, "statements")
             and "sorry` by design" not in sheet_background(cfg, {"commit": "x"}, "full")
             and "re-approval" in sheet_background(cfg, {"commit": "x"}, "full"))
+        # E2E-FIX2 M4a (the e2e run's re-approval sheet at a commit with no `sorry` said every proof is `sorry` by
+        # design): the proof sentence is read from the Lean at the sheet's commit
+        _gr = tempfile.mkdtemp(prefix="sorryat-")
+        _keep_repo = project.REPO
+        try:
+            _G = lambda *a: subprocess.run(["git", "-c", "commit.gpgsign=false", "-C", _gr, *a], capture_output=True,
+                                           text=True).stdout.strip()
+            _G("init", "-q"); _G("config", "user.email", "t@t"); _G("config", "user.name", "t")
+            os.makedirs(os.path.join(_gr, "P"))
+            open(os.path.join(_gr, "P", "A.lean"), "w").write("theorem a : True := by\n  sorry\n")
+            _G("add", "-A"); _G("commit", "-qm", "a")
+            _c1 = _G("rev-parse", "HEAD")
+            open(os.path.join(_gr, "P", "A.lean"), "w").write("/-- no `sorry` left -/\ntheorem a : True := trivial -- sorry\n")
+            _G("commit", "-qam", "b")
+            _c2 = _G("rev-parse", "HEAD")
+            project.REPO = _gr
+            _cf = dict(cfg, lean_files=["P/A.lean", "P/Gone.lean"])
+            _s1, _s2, _s3 = sorry_at(_cf, _c1), sorry_at(_cf, _c2), sorry_at(_cf, "0" * 40)
+            _b1 = sheet_background(_cf, {"commit": _c1}, "statements")
+            _b2 = sheet_background(_cf, {"commit": _c2}, "statements")
+            _b3 = sheet_background(_cf, {"commit": _c1}, "statements", reapproval=True)
+        finally:
+            project.REPO = _keep_repo
+            shutil.rmtree(_gr, ignore_errors=True)
+        say("E2E-FIX2 M4a: a statement round's sheet says the proofs are `sorry` by design only when a `sorry` is in the "
+            "Lean at its commit (comments aside); with none it says no proof uses `sorry`; an unreadable commit keeps "
+            "the round kind's text",
+            _s1 is True and _s2 is False and _s3 is None
+            and "sorry` by design" in _b1 and "statement-stage sheet" in _b1
+            and "sorry` by design" not in _b2 and "no proof at that commit uses `sorry`" in _b2)
+        # E2E-FIX2d (REVIEW-E2E-FIX2c 1, 2): a Problem row's unresolved name is a NOTE of the bundle, a Lemma row's
+        # still a problem; the defect/vacuous label words are 99d928e's plus Problem and Question
+        _keep = (index_rows, signatures, _raw_text)
+        _g = globals()
+        try:
+            _g["index_rows"] = lambda c: [("Lemma 1", "`P.t`, `P.gone`"), ("Problem 6.4", "`P.t`, `P.lost`")]
+            _g["signatures"] = lambda c, ns: {n: f"sig of {n}" for n in ns}
+            _g["_raw_text"] = lambda q, c: f"theorem {q} : True := trivial"
+            build_bundle(cfg, {"P.t": ("theorem", "own", [])})
+            _bm, _bn = list(build_bundle.missing), list(build_bundle.noted)
+        finally:
+            _g["index_rows"], _g["signatures"], _g["_raw_text"] = _keep
+        say("E2E-FIX2d: an unresolved name in a Problem row is a NOTE of the bundle (not a problem); in a Lemma row "
+            "it is a problem; RESULT_REF reads Problem and Question, not Example or Exercise",
+            _bm == ["Lemma 1: `P.gone` not declared"] and _bn == ["Problem 6.4: `P.lost` not declared"]
+            and ref_labels("Problem 6.4 and Question 2 (a)") == ["Problem 6.4", "Question 2 (a)"]
+            and ref_labels("its counterexample is Example 3.2, Exercise 4") == [])
+        say("REVIEW-E2E-FIX2 L-2: a re-approval's statement round at a commit with some `sorry` says some or all "
+            "proofs are `sorry`, never that every proof is `sorry` by design",
+            "sorry` by design" not in _b3 and "some or all of the proofs there are `sorry`" in _b3
+            and "statement-stage sheet" in _b3)
+        # E2E-FIX2 M4b (the delivered re-approval sheet said "its re-approval is open" after it closed): the row texts
+        # are marked as of the round; a re-approval's sheet says from its approval whether the re-approval is closed,
+        # and the reader's hash is the same before and after
+        _ra, _rp = (sheet_background(cfg, {"commit": "x"}, "statements", approved=a_, reapproval=True) for a_ in (True, False))
+        say("E2E-FIX2 M4b: every sheet says its row texts are as of the round; a re-approval's sheet says the "
+            "re-approval is closed once approved, open before; unstamped, the two are the same text",
+            AS_OF_ROUND in _ra and AS_OF_ROUND in sheet_background(cfg, {"commit": "x"}, "full")
+            and REAPPROVAL_STATE[0] in _ra and REAPPROVAL_STATE[1] not in _ra and REAPPROVAL_STATE[1] in _rp
+            and REAPPROVAL_STATE[0] not in sheet_background(cfg, {"commit": "x"}, "statements", approved=True)
+            and unstamp(_ra) == unstamp(_rp))
         say("the sheet has its own background: what it is, who approves under the level (intake answer quoted), "
             "what an unticked box triggers, and a legend of OK/GLOBAL/CHECK and junk values",
             "**What this sheet is.**" in mdh and "answer, verbatim: \"(c)\"" in mdh and "unticked" in mdh
@@ -3437,6 +3650,7 @@ def selftest():
         selftest_b2_round3(d, say)
         selftest_b4(d, say)
         selftest_b13_interrupted(d, say)
+        selftest_c6(say)
     finally:
         globals()["RENDER_GUARD"], globals()["RENDER_SHOWN"] = _guard0
         shutil.rmtree(d, ignore_errors=True)

@@ -28,7 +28,7 @@ After the mathematics is verified, delivery never stops and is never refused exc
      audit round" (not re-audited, the cap reached), and the decisions document asks the human to
      confirm them. Its UNCOVERED rows are listed there for the human too.
 
-   Three things are never a reason for another round (each cost a run a whole round):
+   Four things are never a reason for another round (each cost a run a whole round):
    - **a change to comments and docstrings only**, at any stage: one that implements an ADOPT row
      of a round (trial #11: R3, a full round, and R4, a diff round, about 84 minutes, for docstring
      fixes) and one that implements none (e.g. a docstring note decided at Checkpoint C). Commit it
@@ -38,10 +38,20 @@ After the mathematics is verified, delivery never stops and is never refused exc
      `python3 audits/project.py --comment-only` checks it mechanically, with Lean (exit 0: each
      changed file, compiled before and after, gives the same declarations, with the same
      statements, proofs and definition bodies, and the same attributes and notation; only
-     docstrings and source positions differ; nothing else changed). It builds the changed modules
+     docstrings and source positions differ; nothing else changed). When the compiled files differ
+     only in their bytes (every declaration, type, value and attribute the same) and each changed
+     file, with comments and docstrings removed, reads exactly as before, it is accepted too: its
+     `ok:` line says "checked on the source", and so do the report, the decisions document and
+     `RUN_RECORD.md` (DESIGN-M7). It builds the changed modules
      and compiles each changed file twice, so it takes about as long as that. The report and the
      decisions document then say so. Any other change, however small, fails the check and is
      handled as above;
+   - **a row already decided**: an ADOPT implemented in comments and docstrings, an ADOPT you declined
+     (OUTCOMES.md "not implemented — disagree", or any outcome not starting "implemented", or no OUTCOMES.md
+     row; it is a `declined:` item of the decisions document, asked at Checkpoint C under `involved` and, under a
+     delegating level, disclosed by that item, whose "Decision taken" field carries the [DELEGATED] tag), a DEFER, a QUESTION answered by the human or by a [DELEGATED] line.
+     A new round sees the same Lean and writes the same decision. Its result keeps its "not established …
+     decision: X" status, which the summary explains; `scope.py` prints `NEXT[no-round]` (MAINTAINING L5);
    - **a stale `File.lean:N` in an adjudicator record** (`SKIPPED.md`, `PAPER_DEFECTS.md`,
      `VACUOUS.md`, a QUESTION row, a clearance): the report and the decisions document show a cited
      declaration at the line where it is declared now, resolved from its name;
@@ -211,7 +221,21 @@ After the mathematics is verified, delivery never stops and is never refused exc
        assumed and how each assumption was checked, where the proofs depart from the paper's, every
        decision taken on the reader's behalf (who decided -- the person who ran the tool, the agent, on
        whose recommendation -- and what reversing it costs), what was machine-checked, what reviewers
-       checked and what nobody checked, and one line "What we ask of you";
+       checked and what nobody checked, and one line "What we ask of you"; each reading choice whose
+       QUESTION no person answered (`DECISIONS.md` says who decided) is its one line phrased as a
+       short question to the authors ("<result>: we read '<phrase>' as <the Lean's reading>; did you
+       mean <the other>?", the weaker reading marked as such), counted by name with REPORT's section
+       when the page is full;
+     - on SUMMARY's first page, one line: "What the checking code found -- each result's status as the
+       code computes it, the answers recorded as yours, and anything the checks noticed -- is in
+       README.md." Keep the draft's "Answers recorded as yours" with their audit commits, or leave them
+       to that README section, which always lists them (a missing pointer line is a note, never a
+       refusal);
+     - for each result that the facts draft does not rate *faithful* and whose status your summary words
+       differently, add one line to `JUDGEMENT.md` under `## Status wording`:
+       `- <label>: <why, in plain words for the author>`. The delivered README shows it next to the
+       result. `--deliver` lists any you missed in a `[status-wording]` note: add those lines and
+       deliver again;
      - REPORT: the same, in full, per result and per decision, with the Lean names and files;
      - process mechanics (stops, tool patches, reviewers, rounds, seals, scripts) only in
        `RUN_RECORD.md`; correct `RUN_RECORD.md` and `DECISIONS.md` where the draft is stale or wrong (a
@@ -247,9 +271,16 @@ After the mathematics is verified, delivery never stops and is never refused exc
    - **Deliver.** `python3 audits/project.py --deliver` runs the math gate; if it passes it copies into
      `deliverables/` your SUMMARY and REPORT (each with its PDF when one was shipped, the markdown
      always), the approved sheet, `DECISIONS.md`, `RUN_RECORD.md` (yours, then its delivery-phase notes),
-     `JUDGEMENT.md`, `CITATIONS.md` when produced, and `README.md` (sections A-C as prepared, then
-     section D: who wrote and reviewed the documents, how each PDF was made, the sha256 of each delivered
-     PDF and of RUN_RECORD.md). Then it prints **notes for the main agent (not blocking)**: a stale facts
+     `JUDGEMENT.md`, `CITATIONS.md` when produced, and `README.md`: sections A-C as prepared, with the
+     section "What the checking code found" inserted before A -- written by the checking program, not
+     by you: each result's status as computed from the review records (a † where your summary words a
+     status differently, with your `## Status wording` reason), the proof checks, the run settings
+     fixed at the start, whether the checking software changed since the first pin, the answers
+     recorded as the human's, the reviews on record, and every note below counted by kind -- then
+     section D: who wrote and reviewed the documents, how each PDF was made, and the sha256 of every
+     delivered file but README.md (README.md's own sha256 goes in the `## Delivery` line of
+     `RUN_LOG.md`). Every note is also in the delivered `RUN_RECORD.md` under "Notes at delivery",
+     word for word. Then it prints **notes for the main agent (not blocking)**: a stale facts
      draft, a document check (coverage, a Lean name a document cites that does not resolve), `unverified`
      (no full-scope round since the approval, a verdict out of date), a result whose status no route
      covers, an item pending the next adjudication, an integrity FAIL outside the core, a PDF that is not
@@ -259,10 +290,13 @@ After the mathematics is verified, delivery never stops and is never refused exc
      check that fails now, the tool-patch delivery check. Judge each: fix what you agree with (revise a
      document, correct `RUN_RECORD.md`, render again, run a round) and deliver again, or leave it and say
      why in `JUDGEMENT.md`. None refuses the delivery. Each attempt logs one line under `## Delivery` of
-     `RUN_LOG.md`, and a delivery sets `## Current stage`; it commits `RUN_LOG.md` itself. If the intake
-     named another destination, copy the files there as well (`cp`), or tell the human where they are.
-     `python3 audits/project.py --check-delivered` says whether each delivered PDF and RUN_RECORD.md is
-     still the one delivered (deliver again if not).
+     `RUN_LOG.md`, and a delivery sets `## Current stage`; it commits `RUN_LOG.md` itself. A copy to
+     another destination the intake named comes after the push (below).
+     `python3 audits/project.py --check-delivered` says whether each delivered file, README.md included
+     (only stage5's `Pushed to …` lines, exactly as printed, may follow it), is still the one delivered
+     (deliver again if not, unless it names a `RUN_LOG.md` delivery line edited or removed after
+     delivery, which a new delivery cannot clear; a README no delivery line fingerprints is "not
+     verified").
    - A re-approval still open (`REAPPROVAL.json`, begun and not closed by `signoff.py approve`) is never
      delivered (`PENDING[question]`: the freeze, part of the math gate; never a failure line, never a
      stop). When it is the human's question (`involved`, `statements-only`), wait for the human (never
@@ -279,16 +313,51 @@ After the mathematics is verified, delivery never stops and is never refused exc
      `DECISIONS.md`, `OUTCOMES.md`, `READER_NOTES.md`, `SUMMARY.md`, `REPORT.md`, `RUN_RECORD.md`,
      `JUDGEMENT.md`, `delivery-review/`) by name, never `git add -A` (RUN.md rule 5); every other record
      was committed by its script.
-   - Push only if the intake said yes. Unless 6c asked for the full history, push one clean commit
-     with the same files, in ONE command (a shell variable does not survive between calls, and an
-     empty hash would delete the remote branch): `C=$(git commit-tree HEAD^{tree} -p <parent> -m
-     "Formalization of <title> (<source id>). Same tree as commit <HEAD hash>.") && test -n "$C" &&
-     git push <remote> "$C:refs/heads/<branch>" && echo "$C"`. `<parent>` is `<base_commit>` for the
-     first push, else the clean commit pushed last. Log the pushed hash and the HEAD it matches in
-     `RUN_LOG.md`, and give both in the completion message (the report cites the HEAD; anyone can
-     check that `git rev-parse <pushed>^{tree}` equals `git rev-parse <HEAD>^{tree}`). The local branch
-     keeps every commit. Never force a push: if the remote refuses, say so in the completion message
-     with the command to run.
+   - Push only if the intake said yes, after the last `--deliver` of the run (under `involved`, step
+     7's). Unless 6c asked for the full history, push one clean commit, in ONE command (a shell
+     variable does not survive between calls, and an empty hash would delete the remote branch). Each
+     command starts at the project's top level, from any directory, and appends its `Pushed to …` line
+     to `deliverables/README.md` once (a re-run adds no second copy).
+     - The paper may be redistributed. `<parent>` is `<base_commit>` for the first push, else the
+       clean commit pushed last:
+       ```
+       cd "$(git rev-parse --show-toplevel)" && H=$(git rev-parse HEAD) && T=$(git rev-parse "$H^{tree}") && C=$(git commit-tree "$T" -p <parent> -m "Formalization of <title> (<source id>). Tree of commit $H.") && test -n "$C" && git push <remote> "$C:refs/heads/<branch>" && L=$(printf 'Pushed to %s, branch %s, as commit `%s`: the tree of Lean HEAD `%s`.' '<remote>' '<branch>' "$C" "$H") && printf '%s\n' "$L" && { grep -qxF -- "$L" deliverables/README.md || printf '\n%s\n' "$L" >> deliverables/README.md; }
+       ```
+     - It may not (intake, Stage 0): the tree is built without the paper's files. `<paper paths>` are
+       the paper's files or directories in the Lean repository (`paper/`, or wherever 1a put them).
+       A path with a space or a shell character such as `( ) ~ '` is quoted in `git rm` and `git rev-list`;
+       in the `printf` argument, already in single quotes, a `'` is written `'\''`. The `Pushed to` line
+       quotes the paths in backticks.
+       `P=` names the parent: empty for the first push, which has no parent (the base commit may
+       already hold the paper) and goes to a new branch (onto an existing one it is refused as not a
+       fast-forward); for a later push, `P=<the clean commit pushed last>`:
+       ```
+       cd "$(git rev-parse --show-toplevel)" && P= && H=$(git rev-parse HEAD) && I="$(git rev-parse --absolute-git-dir)/formalize-push.index" && rm -f "$I" && GIT_INDEX_FILE="$I" git read-tree "$H" && GIT_INDEX_FILE="$I" git rm -r -q --cached -- <paper paths> && T=$(GIT_INDEX_FILE="$I" git write-tree) && test -n "$T" && test "$T" != "$(git rev-parse "$H^{tree}")" && test -z "$(git diff --name-only "$H" "$T" -- '*.lean' 'lakefile*' lean-toolchain lake-manifest.json)" && { test -z "$P" || test -z "$(git rev-list -1 "$P" -- <paper paths>)"; } && C=$(git commit-tree "$T" ${P:+-p "$P"} -m "Formalization of <title> (<source id>). Tree of commit $H without <paper paths> (the paper is not redistributed).") && test -n "$C" && git push <remote> "$C:refs/heads/<branch>" && L=$(printf 'Pushed to %s, branch %s, as commit `%s`: the tree of Lean HEAD `%s`, without `%s`.' '<remote>' '<branch>' "$C" "$H" '<paper paths>') && printf '%s\n' "$L" && { grep -qxF -- "$L" deliverables/README.md || printf '\n%s\n' "$L" >> deliverables/README.md; }
+       ```
+       Nothing is pushed when: a path is mistyped (`git rm` fails); the tree still equals HEAD's; it
+       lacks a Lean or build file HEAD has (a path such as `.` or the Lean directory); or the parent's
+       history holds the paper (a wrong `P`, such as the base commit). Find the paper's tracked paths
+       with `git ls-files`, which also shows a second copy of it elsewhere; if none is the paper's, the
+       first command is the one. If 6c asked for the full history, push this clean commit instead, and
+       say so in the completion message, with the command for the history push if the person still
+       wants it. This covers the Lean repository only: its docstrings quote the paper's statements,
+       and the audit record (6d) quotes passages of it; say so in the completion message when 6d
+       allows a push.
+     Every step is `&&`-chained: a failed step pushes nothing. Copy the printed `Pushed to …` line into
+     `RUN_LOG.md` and the completion message. The documents cite the Lean commit (README's "Delivered
+     from Lean HEAD"; SUMMARY and REPORT the last commit that changed a Lean or build file, whose Lean
+     files the pushed tree holds); the line the command appends to `deliverables/README.md` maps it to
+     the pushed commit. If you run `--deliver` again later (it rewrites README.md), append that line
+     again, copied from `RUN_LOG.md` (never retyped). Push again only if the Lean changed. Anyone can
+     check the push: `git diff --name-only <pushed> <the Lean HEAD named in the line>` prints nothing,
+     or only the paper's files. A later push's parent that git no longer finds (no local branch keeps
+     it): `git fetch <remote> <branch>` brings it back. The local branch keeps every commit. Never
+     force a push: if the remote refuses, say so in the completion message with the command to run.
+     If a permission prompt or the auto-mode classifier denies the push command, that is not a stop:
+     put the exact command, filled in, in the completion message for the person to run from the
+     project, as under Codex (`codex.md`).
+   - If the intake named another destination, copy the files there after the push, so that the copy
+     carries the push line (`cp`), or tell the human where they are.
 6. **Checkpoint C, or the completion message.** Under `involved`, Checkpoint C is asked on the
    documents written and reviewed in step 5, before anything is delivered
    (U2 §6.7). Send the human a short message:
@@ -369,8 +438,9 @@ Your perspective is <PERSPECTIVE>:
   on first reading? What would confuse, bore or mislead you? What would you want first? Is any jargon
   unexplained?
 - DECISIONS: is every decision taken on the authors' behalf listed, accurately described (who decided, on
-  whose recommendation), with a correct reversal cost? Check against RUN_LOG.md, DECISIONS.md and the
-  adjudicators' records.
+  whose recommendation), with a correct reversal cost? Is every reading choice whose QUESTION no person
+  answered also asked of the authors as a short question in SUMMARY? Check against RUN_LOG.md,
+  DECISIONS.md and the adjudicators' records.
 - TRUST: do the statements about what was machine-checked, reviewer-checked and unchecked match what the
   records show? Is anything claimed checked that was not, or a blind spot omitted?
 
