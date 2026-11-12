@@ -156,7 +156,8 @@ def same_name(key, name, ns):
 # that `H` is in `R`'s assumption list (the walk); whether the paper really invokes the result without
 # proving it, and whether `H` says no more than the quoted invocation, is the paper-faithfulness lane's
 # judgement (F13), recorded in the hypothesis's `## Hypotheses` row like any other hypothesis. A line
-# that fails a check is cleared by rewording it into the canonical form, or by a later canonical line
+# that fails a check is cleared by a later canonical line (a logged line is never reworded in place, E2E-FIX2 L2; a
+# reworded one is still read, so an older run is not refused)
 # naming the same result or hypothesis (the latest line per hypothesis, or per result for `build`, counts).
 MT_CODE = "missing-theory"
 MT_TRIGGER = re.compile(r"missing[- ](?:library[- ])?theory", re.I)
@@ -277,8 +278,8 @@ def missing_theory(cfg, log=None, doc=None, rd=None):
                         for _k2, m2, _l2, _b2 in lines[i + 1:])
             if not later:
                 out["problems"].append(
-                    f"RUN_LOG.md: a missing-theory decision not in the canonical form (U2 §7): {line[:110]!r}. Reword "
-                    f"it, or log a canonical line naming the same result after it: {MT_FORM}")
+                    f"RUN_LOG.md: a missing-theory decision not in the canonical form (U2 §7): {line[:110]!r}. Log a "
+                    f"canonical line naming the same result after it (a logged decision is never reworded): {MT_FORM}")
             continue
         e = {"result": m.group("result"), "searched": m.group("searched"), "estimate": m.group("estimate"),
              "quote": (m.group("quote") or "").strip(), "by": by, "line": line, "kind": kind,

@@ -22,8 +22,11 @@ Usage:
   audit_coverage.py [audits_dir]        # default: ../audits relative to this script
   audit_coverage.py --lane correspondence
   audit_coverage.py --selftest
-Exit 1 if any item carries an outstanding Fail; 0 otherwise (gaps are reported, not gated --
-an unexamined item is a fact about the audit, not a defect in the library).
+Exit 1 if any item carries an outstanding Fail or a lane's scope drifted; 0 otherwise (gaps are
+reported, not gated -- an unexamined item is a fact about the audit, not a defect in the library).
+Both are printed after the closing `summary:` line: exit 1 is a finished roll-up with findings, not
+a crash. Exit 2: no rounds directory, or an ambiguous one. A crash exits 1 with a traceback and no
+summary line. `finished(rc, lines)` tells them apart for a reader of the output.
 """
 import json, os, re, sys, glob, argparse
 sys.dont_write_bytecode = True   # stale bytecode would run code no file shows
@@ -470,6 +473,39 @@ def roll_up(rounds):
     return state
 
 
+# What a finished run prints, for a reader of its output (project.py's adjudicator-checks log, E2E fix 1): the
+# `summary:` line report() prints last, or main()'s line for a rounds directory with no rounds yet. Kept here,
+# beside the code that prints them; the selftest classifies report()'s real output with finished().
+SUMMARY_RE = re.compile(r"summary: (\d+) outstanding fail\(s\), .*, (\d+) scope drift\(s\), .*")
+NO_ROUNDS = "no audit rounds found in "
+
+
+def finished(rc, lines):
+    """(True, what it found) when output `lines` and exit code `rc` are a roll-up that ran to its end, by the
+    documented exits: 0 after its summary line with no outstanding Fail and no scope drift (or after "no audit
+    rounds found"), 1 after its summary line with an outstanding Fail or a scope drift -- a result the adjudicator
+    reads and decides, not a failure of the script. (False, why) for anything else: exit 2 (no or an ambiguous
+    rounds directory), a crash (run_main's FAIL[uncoded] line, exit 1 with no summary line), a signal (a negative
+    code), a code this script never returns, or a summary line that disagrees with the exit code."""
+    lines = list(lines)
+    if any(l.startswith(("FAIL[uncoded] audit_coverage.py", "Traceback (most recent call last)")) for l in lines):
+        return False, f"the coverage roll-up crashed (a traceback; exit {rc})"
+    sums = [m for m in map(SUMMARY_RE.fullmatch, lines) if m]
+    if rc == 0 and not sums and any(l.startswith(NO_ROUNDS) for l in lines):
+        return True, "no audit rounds yet"
+    if rc not in (0, 1):
+        return False, (f"the coverage roll-up exited {rc} (" + ("killed by a signal" if rc < 0 else
+                       "a wrong or ambiguous rounds directory" if rc == 2 else "not an exit it documents") + ")")
+    if len(sums) != 1:
+        return False, f"the coverage roll-up exited {rc} without its one summary line (a crash)"
+    fails, drift = int(sums[0].group(1)), int(sums[0].group(2))
+    if (rc == 1) != bool(fails or drift):
+        return False, (f"the coverage roll-up exited {rc}, but its summary line says {fails} outstanding fail(s) and "
+                       f"{drift} scope drift(s)")
+    return True, (f"{fails} outstanding fail(s), {drift} scope drift(s)"
+                  + (" (exit 1: findings to adjudicate, not a crash)" if rc == 1 else " (exit 0)"))
+
+
 def report(state, lanes, only_lane=None, rounds_meta=()):
     outstanding, never_passed, never_seen_by, ambiguous = [], [], defaultdict(list), []
     items = {item for (_, item) in state}
@@ -865,19 +901,41 @@ def selftest():
             checks.append(("a Fail followed only by NotDoneYet is still OUTSTANDING",
                            "[correspondence] F" in _o6.getvalue().split("NEVER PASSED")[0]))
             checks.append(("outstanding fails -> exit 1", _rc6 == 1))
+            # E2E fix 1: a reader of the output (project.py's adjudicator checks) takes this real exit 1 for a
+            # finished roll-up, and the same output with any other exit, or cut before its summary, for a crash
+            _l6 = _o6.getvalue().splitlines()
+            _f6 = finished(_rc6, _l6)
+            checks.append(("finished(): report()'s real output with its exit 1 (an outstanding Fail) is a finished "
+                           "roll-up; the same output with exit 0, 2 or -9, or cut before its summary line, is not",
+                           _f6[0] and _f6[1].endswith("not a crash)") and not _f6[1].startswith("0 ")
+                           and not finished(0, _l6)[0]
+                           and not finished(2, _l6)[0] and not finished(-9, _l6)[0]
+                           and not finished(1, [l for l in _l6 if not l.startswith("summary: ")])[0]
+                           and not finished(1, _l6 + ["FAIL[uncoded] audit_coverage.py crashed (X)"])[0]))
             shutil.rmtree(_t6); os.makedirs(_t6)
             _w("2026-06-01-ccccccc", "correspondence", [("A", "Pass")], 1_000_000, scope=["A"],
                target={"correspondence": ["A"]})
             _st7 = roll_up(load_rounds(_t6, ["correspondence"]))
-            with _cl2.redirect_stdout(_io2.StringIO()):
-                checks.append(("clean record -> exit 0", report(_st7, ["correspondence"]) == 0))
+            with _cl2.redirect_stdout(_io2.StringIO()) as _o7:
+                _rc7 = report(_st7, ["correspondence"])
+            checks.append(("clean record -> exit 0", _rc7 == 0))
+            _l7 = _o7.getvalue().splitlines()
+            checks.append(("finished(): a clean record's output with exit 0 is finished; with exit 1 it is not; "
+                           "\"no audit rounds found\" with exit 0 is finished",
+                           finished(_rc7, _l7)[0] and not finished(1, _l7)[0] and not finished(2, _l7)[0]
+                           and not finished(-9, _l7)[0] and not finished(3, _l7)[0]
+                           and finished(0, [NO_ROUNDS + "x — nothing has been examined yet"])[0]
+                           and not finished(1, [NO_ROUNDS + "x — nothing has been examined yet"])[0]))
             _j.dump({"correspondence": ["A"], "non-vacuity": ["A"]},
                     open(os.path.join(_t6, "2026-06-01-ccccccc", "TARGET.json"), "w"))
             _dr7, _ = scope_drift(_t6, ["correspondence"])
             checks.append(("a TARGET lane that wrote no file is a drift (all its scope dropped)",
                            any(x[1] == "non-vacuity" and x[2] == ["A"] for x in _dr7)))
-            with _cl2.redirect_stdout(_io2.StringIO()):
-                checks.append(("scope drift -> exit 1", report(_st7, ["correspondence"]) == 1))
+            with _cl2.redirect_stdout(_io2.StringIO()) as _o7d:
+                _rc7d = report(_st7, ["correspondence"])
+            checks.append(("scope drift -> exit 1", _rc7d == 1))
+            checks.append(("finished(): a scope drift's output with its exit 1 is finished",
+                           finished(_rc7d, _o7d.getvalue().splitlines())[0]))
             _j.dump({"correspondence": ["N.Foo"]}, open(os.path.join(_t6, "2026-06-01-ccccccc", "TARGET.json"), "w"))
             _j.dump({"lane": "correspondence", "scope": ["N.foo"], "verdicts": []},
                     open(os.path.join(_t6, "2026-06-01-ccccccc", "correspondence.json"), "w"))

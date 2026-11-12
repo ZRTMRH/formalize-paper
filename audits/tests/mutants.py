@@ -107,6 +107,10 @@ def copy_apparatus(dst):
         shutil.copytree(os.path.join(AUDITS, "projects"), os.path.join(dst, "projects"))
     shutil.copytree(os.path.join(AUDITS, "agents"), os.path.join(dst, "agents"))
     shutil.copytree(os.path.join(AUDITS, "run"), os.path.join(dst, "run"))     # RUN.md's stage files
+    # the skill's bundled licence texts: project.py's selftest (_license_controls) reads them; without them its
+    # baseline failed and no project.py mutant was judged (suite log of e6a117e: BASELINE FAILS project.py)
+    if os.path.isdir(os.path.join(AUDITS, "skills")):
+        shutil.copytree(os.path.join(AUDITS, "skills"), os.path.join(dst, "skills"))
     shutil.copytree(os.path.join(AUDITS, "tests"), os.path.join(dst, "tests"),
                     ignore=shutil.ignore_patterns("__pycache__"))     # tests/replay.py is a selftest
     src = open(os.path.join(dst, "project.py"), encoding="utf-8").read()

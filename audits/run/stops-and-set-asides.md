@@ -63,7 +63,14 @@ line), never by its wording. Every stop is recorded, whoever clears it (the run 
    3 of one fault in the run, or a 4th opening of a fault in a round after a failed cure of it there;
    then classify it (`stops.py classify --stop S<n> --as tool-bug|interference|other --evidence
    "<why>"`): a tool bug is the tool-patch route, outside interference (another program that keeps
-   changing the project's files) is stop 3, the human's, anything else one more cure. A made-up
+   changing the project's files) is stop 3, the human's, anything else one more cure. A stop you
+   opened in error (the fault's route is not a stop, or the wrong check or round): `close --withdrawn
+   "<why, and the route instead>"` (a stop whose fault you cured is closed `--cured`, also when the check still prints
+   only `adj-record` faults the cure created: those count as passing; a withdrawal of such a stop goes through with a
+   NOTE that `--cured` was the right close); release only, never for a human stop, refused while its check
+   passes, while it still shows a redo or tamper fault on the current round, even one that appeared
+   after it was opened (set the round aside and redo it, or restore, as its cure says), or, the budget spent, until you classify it `other`; it counts as a failed
+   cure, and RUN_RECORD lists it. A made-up
    or mistyped `--round` is refused at `open` (nothing recorded): give the round of this run. A history
    fault no cure clears (RUN.md, "History faults no cure clears") is acknowledged after a fresh review
    (`integrity.py --ack-request`), never a human stop. The four release stops (RUN.md, "Stops that remain at every level") are

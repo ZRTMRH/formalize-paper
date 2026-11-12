@@ -1,0 +1,202 @@
+\documentclass[11pt]{amsart}
+\usepackage{amsmath,amssymb,amsthm}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{conjecture}[theorem]{Conjecture}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+\title{Polite numbers and odd divisors}
+\author{R. Q. Placeholder}
+\address{Department of Exemplary Mathematics, Nowhere College (fictional)}
+\email{r.q.placeholder@example.org}
+\date{}
+
+\begin{document}
+
+\begin{abstract}
+A positive integer is called polite if it is a sum of two or more consecutive
+positive integers. We give a short self-contained proof that the impolite
+numbers are exactly the powers of two, count the representations of an
+integer as a sum of consecutive positive integers in terms of its odd
+divisors, and record a few consequences.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+
+Writing an integer as a sum of a block of consecutive positive integers, as in
+$9=4+5=2+3+4$, is a classical recreational topic; the count of such
+representations goes back at least to Mason~\cite{Mas}. The purpose of this
+note is to give a complete and short account organised around a single
+factorisation identity (Lemma~\ref{lem:identity}). Our main result is
+Theorem~\ref{thm:main}, characterising the polite numbers. In
+Section~\ref{sec:count} we count representations, and in
+Section~\ref{sec:apps} we combine the main theorem with Bertrand's postulate.
+
+\section{Representations and the main theorem}
+
+\begin{definition}\label{def:rep}
+Let $n\ge 1$ be an integer. A \emph{representation} of $n$ is a pair $(a,k)$ of
+positive integers such that
+\[
+  n=a+(a+1)+\dots+(a+k-1)=\sum_{i=0}^{k-1}(a+i).
+\]
+The integer $k$ is the \emph{length} of the representation. Every $n$ has the
+\emph{trivial} representation $(n,1)$. We call $n$ \emph{polite} if it has a
+representation of length $k\ge 2$. We write $R(n)$ for the number of
+representations of $n$, $R^{*}(n)$ for the number of representations of $n$ of
+length at least $2$, and $d_{\mathrm{odd}}(n)$ for the number of odd positive
+divisors of $n$.
+\end{definition}
+
+\begin{lemma}\label{lem:identity}
+Let $n,a,k$ be positive integers. Then $(a,k)$ is a representation of $n$ if
+and only if $2n=k(2a+k-1)$.
+\end{lemma}
+
+\begin{proof}
+By the formula for an arithmetic progression,
+$\sum_{i=0}^{k-1}(a+i)=ka+\frac{k(k-1)}{2}=\frac{k(2a+k-1)}{2}$.
+\end{proof}
+
+\begin{lemma}\label{lem:parity}
+Let $a,k$ be positive integers. Then $k$ and $2a+k-1$ have opposite parity,
+and $k<2a+k-1$.
+\end{lemma}
+
+\begin{proof}
+The sum $k+(2a+k-1)=2a+2k+1$ is odd, so exactly one of the two numbers is
+odd. Their difference is $(2a+k-1)-k=2a-1\ge 1$.
+\end{proof}
+
+\begin{lemma}\label{lem:nec}
+Let $n\ge 1$. If $n$ has a representation of length $k\ge 2$, then $n$ has an
+odd divisor greater than $1$.
+\end{lemma}
+
+\begin{proof}
+Let $(a,k)$ be such a representation and put $m=2a+k-1$. By
+Lemma~\ref{lem:identity}, $2n=km$, and by Lemma~\ref{lem:parity} exactly one of
+$k,m$ is odd; call it $d$. Since the other factor is even, $d$ divides $n$. If
+$d=k$ then $d\ge 2$, hence $d\ge 3$ as $d$ is odd. If $d=m$ then $d>k\ge 2$.
+In both cases $d>1$.
+\end{proof}
+
+\begin{proposition}\label{prop:suff}
+Let $n\ge 1$ and suppose that $n$ has an odd divisor $d\ge 1$. Then $n$ is
+polite.
+\end{proposition}
+
+\begin{proof}
+Write $n=dm$ with $m\ge 1$. If $2m>d$, put $k=d$ and $a=m-\frac{d-1}{2}$; then
+$a\ge 1$, and $k\ge 3$ because $d$ is odd and $d\ge 3$. If $2m<d$, put $k=2m$
+and $a=\frac{d-2m+1}{2}$, a positive integer since $d$ is odd; here $k\ge 2$.
+(The case $2m=d$ is impossible as $d$ is odd.) In either case
+$k(2a+k-1)=2dm=2n$, so $(a,k)$ is a representation of $n$ of length at least
+$2$ by Lemma~\ref{lem:identity}.
+\end{proof}
+
+\begin{theorem}[Main theorem]\label{thm:main}
+Let $n\ge 1$ be an integer. Then $n$ is polite if and only if $n$ is not a
+power of $2$, that is, if and only if $n\ne 2^{j}$ for every integer $j\ge 0$.
+\end{theorem}
+
+\begin{proof}
+If $n=2^{j}$, then the only odd divisor of $n$ is $1$, so $n$ is not polite by
+Lemma~\ref{lem:nec}. Conversely, if $n$ is not a power of $2$, write
+$n=2^{j}m$ with $m$ odd; then $m\ne 1$, so $m$ is an odd divisor of $n$
+greater than $1$, and $n$ is polite by Proposition~\ref{prop:suff}.
+\end{proof}
+
+\section{Counting representations}\label{sec:count}
+
+\begin{proposition}\label{prop:count}
+For every $n\ge 1$ we have $R(n)=d_{\mathrm{odd}}(n)$.
+\end{proposition}
+
+\begin{proof}
+Send a representation $(a,k)$ to the odd member $d$ of $\{k,\,2a+k-1\}$, an
+odd divisor of $n$ as in the proof of Lemma~\ref{lem:nec}. Conversely, given an
+odd divisor $d$ of $n$, put $e=2n/d$, which is even, and let $k=\min(d,e)$ and
+$a=\frac{\max(d,e)-\min(d,e)+1}{2}$. Then $a\ge 1$ and $k(2a+k-1)=de=2n$.
+By Lemma~\ref{lem:parity} the two maps are mutually inverse.
+\end{proof}
+
+\begin{corollary}\label{cor:nontriv}
+For every $n\ge 1$ we have $R^{*}(n)=d_{\mathrm{odd}}(n)$.
+\end{corollary}
+
+\begin{proof}
+Every representation other than the trivial one $(n,1)$ has length at least
+$2$, and $(n,1)$ is the only representation of length $1$. Hence the claim
+follows from Proposition~\ref{prop:count}.
+\end{proof}
+
+\begin{corollary}\label{cor:pow2}
+For every integer $j\ge 0$ we have $R(2^{j})=1$.
+\end{corollary}
+
+\begin{proof}
+The only odd divisor of $2^{j}$ is $1$; apply Proposition~\ref{prop:count}.
+\end{proof}
+
+\begin{lemma}\label{lem:tri}
+For every integer $k\ge 1$, the triangular number $T_k=\frac{k(k+1)}{2}$ is
+polite.
+\end{lemma}
+
+\begin{proof}
+We have $T_k=1+2+\dots+k$, so $(1,k)$ is a representation of $T_k$ of
+length $k$.
+\end{proof}
+
+\begin{proposition}\label{prop:prime}
+Let $p$ be a prime with $p\ge 5$. Then $R(p)=2$, the two representations
+being $(p,1)$ and $\bigl(\frac{p-1}{2},2\bigr)$.
+\end{proposition}
+
+\begin{proof}
+Since $p$ is odd, its odd divisors are $1$ and $p$, so $R(p)=2$ by
+Proposition~\ref{prop:count}. Both listed pairs are representations, because
+$\frac{p-1}{2}+\frac{p+1}{2}=p$ and $\frac{p-1}{2}\ge 1$.
+\end{proof}
+
+\section{An application of Bertrand's postulate}\label{sec:apps}
+
+We use Bertrand's postulate, proved by Chebyshev~\cite{Che}, in the following
+form: \emph{for every integer $n\ge 1$ there is a prime $p$ with $n<p<2n$.}
+
+\begin{corollary}\label{cor:interval}
+For every integer $n\ge 2$ the open interval $(n,2n)$ contains a polite
+number.
+\end{corollary}
+
+\begin{proof}
+Let $p$ be a prime with $n<p<2n$. Then $p>2$, so $p$ is odd and not a power of
+$2$; hence $p$ is polite by Theorem~\ref{thm:main}.
+\end{proof}
+
+\begin{remark}
+By Corollary~\ref{cor:pow2} and Proposition~\ref{prop:count}, $R(n)=2$ holds
+exactly when the odd part of $n$ is prime.
+\end{remark}
+
+\begin{conjecture}\label{conj:pairs}
+There are infinitely many $n$ with $R(n)=R(n+1)=2$.
+\end{conjecture}
+
+\begin{thebibliography}{9}
+\bibitem{Che} P.~L.~Chebyshev, \emph{M\'emoire sur les nombres premiers},
+J. Math. Pures Appl. \textbf{17} (1852), 366--390.
+\bibitem{Mas} T.~E.~Mason, \emph{On the representation of an integer as the sum
+of consecutive integers}, Amer. Math. Monthly \textbf{19} (1912), 46--50.
+\end{thebibliography}
+
+\end{document}

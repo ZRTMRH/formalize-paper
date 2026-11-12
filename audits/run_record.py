@@ -145,7 +145,8 @@ def text(cfg):
     out += [f"## 2. {STOPS_TITLE}", "", mr.ALL_STOPS_INTRO, ""]
     out += [_table(["stop", "date", "the stop", "cause class", "decided by", "outcome"], srows) if srows else NONE, ""]
     res = mr.resolved_stops(cfg)
-    out += [f"## 3. {CLEARED_TITLE}", "", mr.RESOLVED_INTRO, ""]
+    out += [f"## 3. {CLEARED_TITLE}", "",
+            mr.RESOLVED_INTRO + (mr.RESOLVED_WITHDRAWN if any(r[5] == "withdrawn" for r in res) else ""), ""]
     out += [_table(["stop", "date", "the stop", "cause class", "what was done", "outcome"], res) if res
             else mr.NO_RESOLVED, ""]
     # C2-FIX 5b review 2: every request to close a stop as not verified, with its reviewer's verdict (a rejection too)
@@ -189,7 +190,7 @@ def text(cfg):
         _l, _w, rs = mr.reissue_row(cfg)
     except Exception as e:      # noqa: BLE001 -- said, never hidden
         rs = f"the reissue record could not be read ({type(e).__name__}: {e})"
-    out += [f"- lane reissues: {rs}", ""]
+    out += [f"- lane reissues: {rs}"] + comment_only_lines(cfg) + [""]
     # 6. disclosed faults (release mode)
     drows = stops.disclosed_rows(cfg, phase="run")
     out += [f"## 6. {DISCLOSED_TITLE}", "",
@@ -213,6 +214,23 @@ def text(cfg):
     return "\n".join(out).rstrip("\n") + "\n"
 
 
+def comment_only_lines(cfg, c=None):
+    """DESIGN-M7: the section-5 bullet when the Lean changes after the last audit round were accepted as comment-only
+    on the source basis (the mechanism: which commits, and Lean's comparison with O1's field), else []. `c`: the
+    changes_after_last_audit dict (default: computed); one that cannot be read adds nothing here (the report's row
+    says what it can)."""
+    try:
+        c = project.changes_after_last_audit(cfg, project.rounds(cfg)) if c is None else c
+    except Exception:       # noqa: BLE001 -- the report's "Changes after the last audit round" row is the disclosure
+        return []
+    if not c or c.get("problem") or not c.get("comment_only") or c.get("comment_only_basis") != "source":
+        return []
+    lean = "; ".join(project.full(str(w)) for w in c.get("comment_only_lean") or []) or "(none recorded)"
+    return [f"- comment-only check: commit(s) {'; '.join(c.get('commits') or [])} accepted as comment-only on the "
+            "source text (DESIGN-M7): the code with comments and docstrings removed is identical; Lean's comparison: "
+            + lean]
+
+
 def ack_lines(cfg):
     """[markdown line] of every reviewed acknowledgment request of the run (integrity.acknowledgments)."""
     import integrity
@@ -227,6 +245,21 @@ def ack_lines(cfg):
                 "- the lines (`integrity.py --check` prints each as NOTE[acknowledged-fault] while it is acknowledged):"]
         out += [f"  - `{l}`" for l in a["lines"]] + [""]
     return out
+
+
+NOTES_AT_DELIVERY = "Notes at delivery"
+
+
+def notes_lines(notes):
+    """The `### Notes at delivery` part `--deliver` appends to the delivered run record (DESIGN-E fix 2): every note
+    of the delivery checks, deduplicated in order, word for word (the README's code-written section counts them by
+    kind and points here)."""
+    ns = list(dict.fromkeys(" ".join(str(n).split()) for n in notes or []))
+    out = ["", f"### {NOTES_AT_DELIVERY}", "",
+           "Written by `project.py --deliver`: every note its checks printed for the formalizing agent, word for word "
+           "(a note never stops a delivery)."]
+    out += [""] + [f"- {n}" for n in ns] if ns else ["", NONE]
+    return "\n".join(out) + "\n"
 
 
 def delivery_section(cfg, kept, dropped):
@@ -945,6 +978,45 @@ def selftest():
             "demoted) and names superseded notices",
             "NOTICEQZ" in dsec and "### `KNOWN_FAULTS-report-x.md`" in dsec and "#### Known faults" in dsec
             and "KNOWN_FAULTS-report-old.md" in dsec)
+        # DESIGN-M7: section 5 says when the changes after the last round were accepted on the source basis
+        _co = dict(problem=None, commits=["abc1234 docs"], comment_only=True, comment_only_basis="source",
+                   comment_only_lean=["F.lean: its declarations or imports differ (compiled form): O1FIELDQZ"])
+        _cl = comment_only_lines(cfg, _co)
+        _cal = project.changes_after_last_audit
+        try:
+            project.changes_after_last_audit = lambda c_, r_: _co
+            _t5 = text(cfg)
+            project.changes_after_last_audit = lambda c_, r_: dict(_co, comment_only_basis="compiled")
+            _t5c = text(cfg)
+            project.changes_after_last_audit = lambda c_, r_: (_ for _ in ()).throw(OSError("git"))
+            _t5x = text(cfg)
+        finally:
+            project.changes_after_last_audit = _cal
+        # DF14, DF30 (their delivery scenarios were removed with the hand-edit route, approver 2026-10-28; an older
+        # run's records still carry hand edits and dismissed findings): the run record lists both
+        import readers as _rd
+        _keep_he = (_rd.live_hand_edits, _rd.erased_hand_edits, _rd._he_commit)
+        try:
+            _rd.live_hand_edits = lambda c_, name=None: [{"he": "HE1", "doc": "SUMMARY.md", "finding": "HEFINDQZ",
+                                                          "date": "2026-10-26"}]
+            _rd.erased_hand_edits = lambda c_: []
+            _rd._he_commit = lambda rd_, he_, doc_: ["abcdef0123456"]
+            _t6 = delivery_section(cfg, [], [])
+        finally:
+            _rd.live_hand_edits, _rd.erased_hand_edits, _rd._he_commit = _keep_he
+        say("DF14/DF30: the run record lists each live hand edit (its finding and commit) and the section of dismissed "
+            "reader findings (saying none when there is none)",
+            f"### {HAND_EDIT_TITLE}" in _t6 and "#### HE1: `SUMMARY.md`" in _t6 and "HEFINDQZ" in _t6
+            and "abcdef01234" in _t6 and f"### {DISMISSED_TITLE}" in _t6
+            and "None: no reader finding was dismissed." in _t6)
+        say("DESIGN-M7: RUN_RECORD.md section 5 names the commits accepted as comment-only on the source text and "
+            "Lean's comparison (O1's field); none on the compiled basis, for a code change, or when the change "
+            "cannot be read",
+            len(_cl) == 1 and "abc1234 docs" in _cl[0] and "O1FIELDQZ" in _cl[0] and "on the source text" in _cl[0]
+            and _cl[0] in _section(_t5, APPARATUS_TITLE) and "comment-only check" not in _t5c
+            and "comment-only check" not in _t5x
+            and comment_only_lines(cfg, dict(_co, comment_only=False)) == []
+            and comment_only_lines(cfg, dict(_co, comment_only_basis="compiled")) == [])
     finally:
         (stops.stop_rows, stops.disclosed_rows, stops.set_aside_rows, mr.all_stops, mr.resolved_stops,
          mr.set_asides, mr.clearances_shown, mr.reissue_row, project.REPO, project.approved_round,

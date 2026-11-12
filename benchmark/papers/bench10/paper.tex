@@ -1,0 +1,191 @@
+\documentclass[11pt]{amsart}
+\usepackage{amssymb}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\Q}{\mathbb{Q}}
+
+\title{Divisibility and rational roots of integer polynomials}
+\author{Marta K.~Olsberg}
+\address{Department of Mathematics, Lindqvist College, 41 Harbour Road, Kalmarsund}
+\email{m.olsberg@lindqvist.example.edu}
+\date{}
+
+\begin{document}
+
+\begin{abstract}
+We give a short, self-contained account of the elementary divisibility
+properties of polynomials with integer coefficients. The main result is the
+classical fact that every rational root of a monic integer polynomial is an
+integer dividing the constant term. Along the way we record several
+consequences of the basic congruence $a-b \mid P(a)-P(b)$, including a
+criterion for the absence of integer roots and a remark on periodic points.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+
+Polynomials with integer coefficients enjoy a rigid arithmetic structure:
+their values at integers are constrained by divisibility relations that do
+not hold for arbitrary real polynomials. The most basic of these is the
+observation that $a-b$ divides $P(a)-P(b)$ whenever $a,b\in\Z$ and
+$P\in\Z[x]$. Combined with unique factorisation in $\Z$, it yields the
+\emph{rational root theorem}, which in turn shows that the rational roots of
+a monic integer polynomial are integers.
+
+These facts are standard and appear in many textbooks, but they are usually
+scattered over several chapters. The purpose of this note is to collect them
+in one place, with complete proofs, in a form convenient for teaching and for
+quick reference. Our main result is Theorem~\ref{thm:main}. In
+Section~\ref{sec:app} we combine it with Eisenstein's criterion and derive two
+simple non-existence results for rational roots.
+
+\section{Definitions and main results}
+
+\begin{definition}\label{def:basic}
+Throughout, $P\in\Z[x]$ denotes a nonzero polynomial, written
+$P(x)=a_nx^n+a_{n-1}x^{n-1}+\dots+a_1x+a_0$ with $a_i\in\Z$ and $a_n\neq 0$,
+so that $n=\deg P$. We call $a_n$ the \emph{leading coefficient} and
+$a_0=P(0)$ the \emph{constant term}; $P$ is \emph{monic} if $a_n=1$. A
+\emph{root} of $P$ is a number $r$ with $P(r)=0$. A rational number $r$ is
+\emph{written in lowest terms} as $r=p/q$ if $p,q\in\Z$, $q\geq 1$ and
+$\gcd(p,q)=1$; every $r\in\Q$ has exactly one such representation.
+\end{definition}
+
+\begin{lemma}\label{lem:diff}
+Let $P\in\Z[x]$ and $a,b\in\Z$. Then $a-b$ divides $P(a)-P(b)$.
+\end{lemma}
+
+\begin{proof}
+For every $k\geq 1$ we have the factorisation
+\[
+a^k-b^k=(a-b)\sum_{j=0}^{k-1}a^{j}b^{k-j},
+\]
+so $a-b \mid a^k-b^k$. Since
+$P(a)-P(b)=\sum_{k=1}^{n}a_k\,(a^k-b^k)$, the claim follows by linearity.
+\end{proof}
+
+\begin{corollary}\label{cor:cong}
+Let $m\geq 1$ and let $P\in\Z[x]$ be monic. If $a,b\in\Z$ satisfy
+$a\equiv b \pmod m$, then $P(a)\equiv P(b)\pmod m$.
+\end{corollary}
+
+\begin{proof}
+By hypothesis $m\mid a-b$, and by Lemma~\ref{lem:diff} $a-b\mid P(a)-P(b)$.
+Hence $m\mid P(a)-P(b)$ by transitivity of divisibility.
+\end{proof}
+
+\begin{lemma}\label{lem:noroot}
+Let $m\geq 2$ and $P\in\Z[x]$. If $m\nmid P(k)$ for every
+$k\in\{1,2,\dots,m-1\}$, then $P$ has no integer root.
+\end{lemma}
+
+\begin{proof}
+Suppose $r\in\Z$ satisfies $P(r)=0$, and let $k\in\{1,\dots,m-1\}$ be the
+residue of $r$ modulo $m$. Then $m\mid r-k$, and by Lemma~\ref{lem:diff},
+$r-k \mid P(r)-P(k)=-P(k)$. Thus $m\mid P(k)$, contrary to the hypothesis.
+\end{proof}
+
+\begin{lemma}\label{lem:unit}
+Let $P\in\Z[x]$ and $a,b\in\Z$. If $|P(a)-P(b)|=1$, then $|a-b|=1$.
+\end{lemma}
+
+\begin{proof}
+By Lemma~\ref{lem:diff}, $a-b$ divides $P(a)-P(b)=\pm 1$, so
+$|a-b|\leq 1$. If $a=b$ then $P(a)-P(b)=0$, which is impossible; hence
+$|a-b|=1$.
+\end{proof}
+
+\begin{lemma}\label{lem:introot}
+Let $P\in\Z[x]$. Every integer root $r$ of $P$ divides the constant term
+$a_0$; in particular $|r|\leq |a_0|$.
+\end{lemma}
+
+\begin{proof}
+Apply Lemma~\ref{lem:diff} with $a=r$ and $b=0$: $r\mid P(r)-P(0)=-a_0$.
+A nonzero divisor of an integer is at most that integer in absolute value.
+\end{proof}
+
+\begin{proposition}\label{prop:cycle}
+Let $P\in\Z[x]$ and let $a,b,c$ be pairwise distinct integers with
+$P(a)=b$, $P(b)=c$ and $P(c)=a$. Then $|a-b|=|b-c|=|c-a|$.
+\end{proposition}
+
+\begin{proof}
+By Lemma~\ref{lem:diff}, $a-b\mid P(a)-P(b)=b-c$, $b-c\mid P(b)-P(c)=c-a$
+and $c-a\mid P(c)-P(a)=a-b$. All three differences are nonzero, so
+$|a-b|\leq|b-c|\leq|c-a|\leq|a-b|$, and equality holds throughout.
+\end{proof}
+
+\begin{theorem}[Rational root theorem]\label{thm:rrt}
+Let $P\in\Z[x]$ have degree $n\geq 1$, and let $r=p/q\in\Q$, written in
+lowest terms, be a root of $P$. Then $p\mid a_0$ and $q\mid a_n$.
+\end{theorem}
+
+\begin{proof}
+Multiplying $P(p/q)=0$ by $q^n$ gives
+$\sum_{i=0}^{n}a_i\,p^{i}q^{n-i}=0$. Every term with $i\geq 1$ is divisible
+by $p$, hence $p\mid a_0q^n$; since $\gcd(p,q^n)=1$ we get $p\mid a_0$.
+Similarly every term with $i\leq n-1$ is divisible by $q$, hence
+$q\mid a_np^n$, and $\gcd(q,p^n)=1$ gives $q\mid a_n$.
+\end{proof}
+
+\begin{theorem}\label{thm:main}
+Let $P\in\Z[x]$ be monic of degree $n\geq 1$, and let $r\in\Q$ be a root of
+$P$. Then $r\in\Z$ and $r$ divides the constant term $P(0)$.
+\end{theorem}
+
+\begin{proof}
+Write $r=p/q$ in lowest terms. By Theorem~\ref{thm:rrt}, $q\mid a_n=1$, and
+since $q\geq 1$ this forces $q=1$, i.e.\ $r=p\in\Z$. Theorem~\ref{thm:rrt}
+also gives $p\mid a_0=P(0)$.
+\end{proof}
+
+\section{Applications}\label{sec:app}
+
+We recall a classical irreducibility criterion.
+
+\begin{theorem}[Eisenstein's criterion {\cite[Ch.~IV, Thm.~3.1]{Lang}}]
+\label{thm:eis}
+Let $P=a_nx^n+\dots+a_0\in\Z[x]$ with $n\geq 1$, and let $p$ be a prime
+such that $p\nmid a_n$, $p\mid a_i$ for all $0\leq i<n$, and
+$p^2\nmid a_0$. Then $P$ is irreducible in $\Z[x]$.
+\end{theorem}
+
+For instance, for every prime $p$ and every $n\geq 1$ the polynomial
+$x^n-p$ is irreducible. The absence of rational roots, which is all we need
+below, can also be read off directly from Theorem~\ref{thm:main}.
+
+\begin{corollary}\label{cor:xnp}
+Let $p$ be a prime and $n\geq 2$. Then $x^n-p$ has no rational root.
+\end{corollary}
+
+\begin{proof}
+By Theorem~\ref{thm:main}, a rational root $r$ would be an integer dividing
+$p$, so $r\in\{\pm1,\pm p\}$. But then $|r|^n\in\{1,p^n\}$, and neither
+equals $p$ because $n\geq 2$.
+\end{proof}
+
+\begin{corollary}\label{cor:parity}
+Let $P\in\Z[x]$ be monic of degree $n\geq 1$ with $P(0)$ and $P(1)$ both
+odd. Then $P$ has no rational root.
+\end{corollary}
+
+\begin{proof}
+By Theorem~\ref{thm:main}, any rational root of $P$ is an integer, and by
+Lemma~\ref{lem:noroot} with $m=2$, $P$ has no integer root.
+\end{proof}
+
+\begin{thebibliography}{9}
+\bibitem{Lang} S.~Lang, \emph{Algebra}, revised third edition, Graduate
+Texts in Mathematics 211, Springer, New York, 2002.
+\end{thebibliography}
+
+\end{document}

@@ -24,7 +24,9 @@ one of those needs extra care, and closing such a gap is welcome work.
   `project.py --deliver` (`project.deliver`, `stops.deliver_blocking`). A result reads "faithful" only
   through `result_status.py` (U2 §1, B9): fresh Pass verdicts of all three lanes on it and on the Definition
   rows of its fingerprint closure, no outstanding Fail or Ambiguous, no drift, no unrecorded assumption,
-  no other status; otherwise it names what holds instead. **(not yet enforced:** the
+  no other status; otherwise it names what holds instead. An outstanding verdict is routed `adjudicator`
+  while it has no decision row and `decided` once its round's adjudicator decided it (ADOPT, DEFER, a
+  QUESTION since answered); both keep the "not established" status (L5). **(not yet enforced:** the
   trivial-statement probe (lane D clause 4b: a statement `first | decide | simp | omega | aesop |
   exact?` closes is Ambiguous, a CHECK row on the sheet) is lane judgement; no script checks that a
   closed statement was reported.**)**
@@ -39,7 +41,12 @@ one of those needs extra care, and closing such a gap is welcome work.
   the agent judging every finding in `JUDGEMENT.md` and fixing every overstatement the claims
   reviewer reports. `--deliver` prints what `make_report.py --check --delivery`, the run-record
   listing (`integrity.run_record_problems`) and `stops.unnamed` find as notes for the agent, never a
-  refusal: this invariant is now held by agents, flagged by code. The hands-off sheet has no fresh
+  refusal: this invariant is now held by agents, flagged by code, and the flags reach the human in the
+  README's code-written section "What the checking code found" (`project.readme_checked`, `status_block`;
+  forgery review 2026-11 F1, DESIGN-E2 fix 2): each result's status from the review records with a † where the
+  summary words it differently (the agent's reason from `JUDGEMENT.md` "Status wording", a missing one a note),
+  the answers recorded as the human's at every level, and every note counted by kind (each word for word in the
+  delivered RUN_RECORD.md, "Notes at delivery"). The hands-off sheet has no fresh
   reader: `signoff.py check` is kept and the README says so.
 - **F3 Stay with the paper.** When there is no recommendation, a delegated or default choice keeps
   the paper's statement and hypotheses and documents unused or vacuous parts in docstrings. Enforced
@@ -72,13 +79,19 @@ one of those needs extra care, and closing such a gap is welcome work.
   tooling diff is byte-identical to a diff a fresh agent approved under a sealed verdict, every issued review is
   sealed, and each link is verified by the apparatus pinned before it and, at every check, by the first pin's. Enforced by `tool_patch.py`
   (`approval_problems`, `verify_link`, `chain_problems`), `integrity.py` (`FAIL[tooling]`,
-  `release_repin_problems`) and `project.py --deliver` (`tool_patch.delivery_problems`, the first pin's
-  apparatus). A patch may touch any apparatus file, protocol text included (OPERATOR-AUTHORITY, approver 2026-10-26), and add
+  `release_repin_problems`), and flagged at delivery by `tool_patch.delivery_problems` (the first pin's apparatus)
+  as notes, which the README's code-written section lists, with the checking software diffed against the first
+  pin (`project.tooling_since_first_pin`) (approver 2026-10-28: never a refusal). **(not yet enforced:** the math
+  gate's own code (`stops.math_gate`, `integrity_blocks`, `project._deliver`) lives outside `tool_patch.CORE`; an
+  edit of it, or a stdlib-shadowing module, is FAIL[tooling]: during a release run a stop that cures itself, at
+  delivery a note -- forgery review 2026-11 F2, approver decision pending. The floor mutants MG2-MG4 and MG6-MG9
+  harden only the tool-patch route.**)** A patch may touch any apparatus file, protocol text included (OPERATOR-AUTHORITY, approver 2026-10-26), and add
   new files under no Python module's name (`integrity.py` FAILs a tooling file neither the first pin nor an applied
   patch added, and a stdlib-shadowing module on the import path); never the git rules, a record, a signed document,
   the reviewer prompts and their renderer (`tool_patch.GUARDED`), nor the proof-validity core (`tool_patch.CORE`, read from the first pin:
   the build check and sorry scan, the axiom sweep, the statement freeze, the route's own provenance checks; re-check
-  3, 2026-10-25). **(not yet enforced:** that the reviewer was a fresh agent rather than the operator: the seal binds
+  3, 2026-10-25). `tool_patch.CORE_REACHABLE` (with the one-hop derivation `core_reachable_map`) flags, never
+  refuses, a patch to code the core relies on (FACTS `core_reachable`, reviewer question 12). **(not yet enforced:** that the reviewer was a fresh agent rather than the operator: the seal binds
   a verdict to its prompt and token, and the agent id is only required to be unseen elsewhere in the run.**)**
 
 - **R1 The operator cannot change a reviewer's findings.** Lane verdicts are sealed and committed at
@@ -127,7 +140,10 @@ one of those needs extra care, and closing such a gap is welcome work.
   (`result_status`, route `round-cap`, disclosed; in dev the cap is a stop).
   Everything else is
   either self-cured with the cure of its kind or disclosed, and a self-cure closes only by re-running
-  a read-only FORMS check (`close --cured`; `--delegated` is dev only). Enforced by the one table
+  a read-only FORMS check (`close --cured`; `--delegated` is dev only), or is withdrawn as opened in
+  error (`close --withdrawn`: counted as a failed cure, listed in the run record; refused for a human-kind code at
+  every level, while the stop's check passes, and while it still shows a tampered or changed round, which keeps
+  its restore or redo cure). Enforced by the one table
   `project.RELEASE` (`{code: (class, kind)}`), `project.release_cure`, `project.CURES` /
   `cure_text` / `CLOSER`, `stops.command_problem` (FORMS only in release) and `stops.cure_plan`, with
   the `project.py` selftest `_release_controls`, the L1 closer loop of `stops.py --selftest` (every
@@ -144,6 +160,9 @@ one of those needs extra care, and closing such a gap is welcome work.
   on the math gate (`stops.math_gate`: Phase 0 read-only, `fingerprint.py --check`, an
   `integrity.py --check` FAIL on the proof-validity core, a freeze record or a judgement record;
   `project._deliver`: an open re-approval, `deliver-stale`) and prints everything else as notes;
+  (forgery review 2026-11, DESIGN-E2 fix 2) in both modes `--deliver` writes the README's code-written section
+  "What the checking code found" and the delivered RUN_RECORD.md's "Notes at delivery" (delivery documents only:
+  no gate row moves);
   no delivery-document code (`deliver`, `unverified`, `reader`, `reader-check`, `decisions`,
   `status-unmapped`) opens a stop in either mode (`project.NEVER_STOP`). Known side effect (review
   2026-10-28, left as is): `NEVER_STOP` is checked by `stops.py open` at every stage, so `reader` and
@@ -194,6 +213,16 @@ one of those needs extra care, and closing such a gap is welcome work.
   check script (it still meets the per-stop cap and the (script, code) budget) or a relabel to unknown-retry does not reset it. Enforced by `stops.fault_keys`,
   `tally_events`, `tally` (stops.py selftest "B1b L3", "B1b review").
 
+- **L5 A round is scoped only for something it can clear.** A Lean change that is not comment-only, a
+  non-Pass verdict with no decision row, an adjudicator-record fault, a `leave … unproved` line or route
+  change after the last adjudication, a redo, or a forced tool-patch round. A decided row (ADOPT, DEFER, a
+  QUESTION since answered, a `## Hypotheses` row saying `no`) never scopes one: a new round sees the same
+  Lean and writes the same decision. Its result keeps "not established: … decision: X". Enforced by
+  `result_status` route `decided` and `make_report.pending_adjudication` (read by `scope.no_round_line`,
+  `scope.empty_scope_next` and the delivery notes). What the extra round used to carry is kept elsewhere:
+  a declined or never-carried-out ADOPT reaches the human as a decisions item (`decisions.declined_adopts`)
+  and a delivery note (`make_report.decided_notes`).
+
 ### Rendering
 
 - **D1 The PDF says mathematically what its .md says, and only an audited .md is rendered.** No
@@ -203,7 +232,10 @@ one of those needs extra care, and closing such a gap is welcome work.
   fingerprint: the delivered PDF is the one recorded, made from the .md as it is now. Enforced by
   `render_record.py` (`begin` refuses an .md whose audit gate fails; `save` checks hashes and
   format; `check`), `project.deliver` and `signoff.py approve --by human` (both run the check), and
-  integrity (`pdf/*` owned by `render ` commits).
+  integrity (`pdf/*` owned by `render ` commits). Every delivered file but README.md is fingerprinted in README
+  D, and README.md's sha256 is in the RUN_LOG `## Delivery` line; `project.py --check-delivered` compares them
+  (forgery review 2026-11 F11; a hash, never a reading), flags a logged README fingerprint that a later commit
+  of RUN_LOG.md removed or rewrote, and reports a README no line fingerprints as "not verified", never ok.
 - **D2 Rendering never stops.** The loop is bounded (6 renderer rounds per version of the .md, each
   with at most one verifier and one checker pair, then at most two cover attempts, each checked by a
   fresh cover verifier whose PASS alone lets that cover ship) and always reaches an
@@ -266,7 +298,9 @@ one of those needs extra care, and closing such a gap is welcome work.
   (`integrity.revert_problem`); there is no author or identity test. Enforced by `integrity.check`,
   `stops.revert`, `tree_state.revert_foreign`, `restore_gitmeta`, and `stops.cure_plan`.
 - **A3 A test-only switch never reaches a real run.** `FORMALIZE_TEST_INVOLVEMENT` and
-  `FORMALIZE_TEST_MODE` are honoured only inside `--selftest`. Enforced by `project.py` and its
+  `FORMALIZE_TEST_MODE` are honoured only inside `--selftest`: a process whose command IS
+  `--selftest` (its first argument once `--project NAME` is set aside), never a real command that also
+  carries the flag (`--deliver --selftest` is a real delivery). Enforced by `project._in_selftest` and its
   selftests.
 - **A4 A non-faithfulness check never blocks a release run.** The test for a new check is: can its
   failure change whether the Lean says what the paper says? If not, it is N (disclosed) in release.

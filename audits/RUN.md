@@ -114,7 +114,10 @@ rest. This holds only if you keep your hands off, so:
    `set-aside`, `reader`, `ack`, `render`, `escalate`). Commit your own files and the Lean by name; never `git add -A`.
    `integrity.py` checks ownership from git history at every adjudication.
 6. **ADOPT rows are implemented as written.** If you think one is wrong, record
-   "not implemented — disagree: <reason>" in `OUTCOMES.md`. It goes to the human.
+   "not implemented — disagree: <reason>" in `OUTCOMES.md`. It goes to the human: `decisions.py --write`
+   lists it ("ADOPT not carried out"), a Checkpoint C item under `involved`, a disclosed decision under a
+   delegating level. No further round is run for it. Any outcome that does not start with "implemented", and an
+   ADOPT row with no `OUTCOMES.md` row, is listed the same way.
 7. **Never re-run a lane or adjudicator hoping for a different answer.** A re-run is allowed only
    after a mechanical failure (a crash, no file written, a usage limit, a service error), within
    the retry budget of `spawn-and-seal.md`, never after an integrity or protocol STOP, and is
@@ -127,14 +130,27 @@ rest. This holds only if you keep your hands off, so:
    copying, moving or deleting a lane's verdict or probe files to satisfy a check. A script's
    refusal (a second `--write`, a second seal, a Phase 0 on an uncommitted tree) protects the
    record: read it as the failure it names, never work around it.
-9. **Tag every monitor you start.** A polling loop you start yourself (waiting for a build, a
+9. **Long commands in the background; tag every monitor you start.** A command that can run longer
+   than 10 minutes (`selftest_all.py`, `phase0.py` in any mode, `signoff.py approve`, `tool_patch.py
+   prepare`) you start in the background and wait for. Claude Code: Bash with `run_in_background`,
+   the command in its plain form (rule 12); the harness keeps the output in a file of its own (a fresh
+   one each time) and tells you when the command ends; read the result from that file with `tail` or
+   `sed -n` (rule 13). A plain foreground call is cut after about 20 minutes on a slow machine, and
+   the cut looks like a failure. Codex: one call with a timeout longer than the command (`codex.md`).
+   The adjudicator's Phase 0 and coverage roll-up have their own plain start and wait commands
+   (`project.py --adjudicator-checks`, `stage4-rounds.md` step 4).
+   Until it finishes, change nothing in the project or the audits repository (no edit, no commit, no
+   second long command): Phase 0 refuses an uncommitted tree, and `head-moved` and `tree-changed`
+   are stops. A polling loop you start yourself (waiting for a build, a
    file, a child) must carry `FORMALIZE_PAPER_OPERATOR=1` in its environment, for example
    `FORMALIZE_PAPER_OPERATOR=1 bash -c 'until …; do sleep 30; done'`; `lanecheck.py` flags an
    untagged loop as a lane's and `--kill` ends it. Prefer the harness's own blocking waits.
 10. **Write no persistent memory about this run until Checkpoint C.** Subagents receive the user's
     memory index, so a note you save becomes background every later reviewer sees.
 11. **Quote script output; never restate it.** Phase 0's verdict is its `PHASE 0 RESULT` table.
-    The order is always: change, commit, then `phase0.py`.
+    The order is always: change, commit, then `phase0.py`. Copy every hash, token, digest and agent
+    id from the output that printed it, character for character (never from memory or a summary),
+    or let the command take it itself (`$(git rev-parse HEAD)`, a file); never retype one.
 12. **Write `RUN_LOG.md` with the log command.** `python3 audits/project.py --log "<section>"
     <<'EOF'` … `EOF` appends (creating the section), and `project.py --stage "<text>"` sets the
     current stage; your file-editing tool works too. Never `python3 - <<EOF` or `python3 -c`: those
@@ -195,6 +211,9 @@ disclosed, `escalation-cite`, never a stop). Never follow a
 recommendation you wrote yourself (`DECISIONS.md`'s Recommendation field is yours, so under a
 delegating level it names the adjudicator's recommendation or accepted escalation it follows, or the
 conservative option).
+An answer to a QUESTION row on an Ambiguous names the reading it takes as `take reading (x)`, one label of the
+row's `[Lean: (a); recommended: (b)]`: a reading other than the Lean's means the Lean changes (a statement change
+goes through re-approval), or the summary says the Lean formalizes the other reading.
 Without a written recommendation, take the conservative rule:
 - keep the paper's statements and hypotheses (a hypothesis the proofs do not need stays);
 - never generalize or strengthen a statement;
@@ -245,7 +264,7 @@ proves (prove it instead) and never a result's own conclusion. The report check
 a human line without the human's committed answer, option (3) as [DELEGATED], one whose `H` is not
 in the result's assumption list (the walk) or that the walk flags as restating a result or as a
 result's conclusion, and a `build` line while the hypothesis it replaces is still a binder of the
-result; a corrected line logged after it, or the line reworded, clears it. An `H` that is a goal
+result; a corrected line logged after it clears it (a logged decision is never reworded in place: the log is append-only). An `H` that is a goal
 result's conclusion or restates a goal result (it implies the goal) is `FAIL[unproved-goal]`: no
 missing theory but the goal unprovable as stated, stop 1. The paper-faithfulness reviewer, not your line, judges the hypothesis: a Fail if the quote is not
 the paper's, the paper proves the result anywhere (a quote with part of a proof attached included),
@@ -390,7 +409,17 @@ A spent budget is no stop of its own: no further `--cured` is accepted until you
 tool-bug|interference|other --evidence "<why>"` -- `tool-bug`: the check or tool is wrong, the
 tool-patch route; `interference`: another program keeps changing the project's files, stop 3 (show
 the human the recurring events, `close --human`); `other`: neither, name the different cure you
-will try and `close --cured` once more. A stop round that is not a real round of the run is the
+will try and `close --cured` once more. A stop you opened in error (the fault's route is not a
+stop, or the wrong check or round): `close --withdrawn "<why, and the route instead>"`. A stop whose
+fault you cured is not one: close it `--cured`, also when the check still prints only `adj-record`
+faults the cure itself created (the next adjudication's: they count as passing; a withdrawal of such
+a stop goes through with a NOTE, recorded in its close, that `--cured` was the right close). It is
+release only, never for a human stop, and is refused while its check passes, while it still shows a
+redo or tamper fault on the current round, even one that appeared after it was opened (set the
+round aside and redo it, or restore, as its cure says), or, the
+budget spent, until you classify it `other`. A withdrawal never re-labels: a fault of the four
+stops is opened with its own code. It counts as a failed cure, and RUN_RECORD lists it. A stop
+round that is not a real round of the run is the
 human's. The run record `RUN_RECORD.md` names every self-cure ("Stops cleared without you", with
 what was redone and where the independence of a review was compromised; the report and the summary
 do not; `project.py --deliver` names an omission in a note, and you correct RUN_RECORD.md). In both modes
@@ -453,7 +482,9 @@ other script is the tool-patch route in `release` (a stop in `dev`).
 **The delivered documents** (approver 2026-10-28): after the mathematics is verified, delivery never stops and is
 never refused except by the math gate. `SUMMARY.md` and `REPORT.md` are yours, written from the records and the Lean
 (`project.py --prepare-delivery` gives a facts draft, data, not the deliverable); four fresh reviewers advise and you
-judge every finding (`JUDGEMENT.md`); `RUN_RECORD.md` and `DECISIONS.md` you correct where the draft is wrong. No
+judge every finding (`JUDGEMENT.md`; its `## Status wording` gives, per result whose status your summary words
+differently from the code's, your reason); `RUN_RECORD.md` and `DECISIONS.md` you correct where the draft is wrong.
+The delivered README's section "What the checking code found" is the checking program's, never yours. No
 generator fix, hand edit, fresh reader, status check or stop is involved, and nothing about the documents is a
 question to the human: `run/stage5-delivery.md` step 5.
 The PDFs are never a stop and never a disclosure, in either mode. Fresh agents render each audited
@@ -487,10 +518,10 @@ column below the table says: `close --cured` (re-running its read-only check) or
 | your own work: Phase 0 (author mode) `RED[build]`, `RED[branch]`, `RED[baseline]`, `RED[sorry]`, `RED[unproved-meta]`, `RED[hard-token-own]`, `RED[axiom-own]` (a `native_decide` or other kernel-skipping token, an extra axiom: rewrite that proof without it); `RED[index]`, `RED[unlisted]`, `RED[docstring]`, `RED[run-log]`, `RED[unused-args]`, `RED[dependencies]` | mechanical, proof-wip, document | fix it in a new commit and re-run Phase 0; a `sorry` you cannot prove follows Stage 3 (a goal result: a stop; otherwise ask: removing, narrowing or hypothesising away a result is the human's decision) | fix it in a new commit and re-run Phase 0; a `sorry` you cannot prove: a goal result is a stop; missing theory becomes a named hypothesis ("Missing theory"; an approved statement also follows "Statement changes after approval"); any other result that stays unproved after a serious attempt is left unproved, never deleted or weakened: keep its statement byte-identical, log `[DELEGATED <date>, operator under <level> (intake); reversal: re-prove] leave <decl> unproved — <reason>` as a line of its own under `## Open questions` (`project.py --log "Open questions"`; full Lean name; every result whose proof uses it needs its own line: the axiom sweep is RED until it has one), propose it in `AUTHOR_NOTES.md` under results not to formalize, make its index cell "`<decl>` (stated, not proved: not formalized)", commit, re-run Phase 0 (its `sorry` is then `NOTE[unproved]`); the next round's adjudicator records it in `SKIPPED.md`, and the report and `DECISIONS.md` disclose it as "stated, not proved" |
 | a `project.py --deliver` note `[adj-record]`: a result left unproved that no round has adjudicated since (its line logged after the final diff round) | document | (cannot occur: no line exempts under `involved`) | run one more round, so its adjudicator checks it and records it in `SKIPPED.md` (a diff round; `scope.py` exits 3 with `NEXT[full-round]` when it has nothing to scope: a full round); then Phase 0, prepare, and deliver |
 | Phase 0 `RED[dependencies]` from the walk: `DEPENDENCIES.json` missing, without the assumption walk, stale (the Lean changed), or a goal result with no walk entry; or the walk did not run because the project does not build | document | re-run Phase 0 (not `--readonly`): it rewrites the file; a goal result with no entry: fix its index cell. `RED[tool-bug]` from the walk (an error inside the walk's own code): a pinned script's bug, the `tool-bug` key | same |
-| `FAIL[missing-theory]` (`make_report.py --check`, also inside Phase 0): your missing-theory line in `RUN_LOG.md` is not in the canonical form ("Missing theory"), lacks the paper's quote or a configured library's search, comes from the wrong level (a [DELEGATED] line under `involved`, a human one under `hands-off`), is a human line without the human's committed answer naming the result, takes option (3) as [DELEGATED], names a hypothesis that is not in its result's assumption list or that the walk flags as restating a result (or as a result's conclusion), or says `build` while the replaced hypothesis is still a binder. (`FAIL[unproved-goal]` from the same check: `H` is a goal result's conclusion or restates one: stop 1, below.) | document | the human's choice is recorded in the wrong form: log their answer and correct the line (reword it, or log the corrected line after it), commit, re-run the check; ask if the Lean must change | correct the line (reword it, or log the corrected line after it), take `H` as a binder of the result's statement, or prove a restated result instead of assuming it ("Missing theory"; an approved statement follows "Statement changes after approval"), commit, re-run Phase 0 (`release`: a self-cure, closed by `make_report.py --check`) |
+| `FAIL[missing-theory]` (`make_report.py --check`, also inside Phase 0): your missing-theory line in `RUN_LOG.md` is not in the canonical form ("Missing theory"), lacks the paper's quote or a configured library's search, comes from the wrong level (a [DELEGATED] line under `involved`, a human one under `hands-off`), is a human line without the human's committed answer naming the result, takes option (3) as [DELEGATED], names a hypothesis that is not in its result's assumption list or that the walk flags as restating a result (or as a result's conclusion), or says `build` while the replaced hypothesis is still a binder. (`FAIL[unproved-goal]` from the same check: `H` is a goal result's conclusion or restates one: stop 1, below.) | document | the human's choice is recorded in the wrong form: log their answer and log the corrected line after the old one (a logged line is never reworded), commit, re-run the check; ask if the Lean must change | log the corrected line after the old one (a logged line is never reworded), take `H` as a binder of the result's statement, or prove a restated result instead of assuming it ("Missing theory"; an approved statement follows "Statement changes after approval"), commit, re-run Phase 0 (`release`: a self-cure, closed by `make_report.py --check`) |
 | lanecheck `PROBLEM[unsealed]`, `[stray-loop]`, `[stray-file]`, `[no-baseline]` | mechanical | seal (or reissue) the lane; `--kill`; restore the tree and tell the adjudicator; run Phase 0 | same |
 | a record of the adjudicator's (PAPER_DEFECTS, SKIPPED, VACUOUS.md) cites what does not exist: `FAIL[dead-witness]` (a witness cell naming `sorry` or a probe's lemma), `FAIL[record-cite]` | record-fix | `stops.py open`; record correction: `prompt.py 4 --round <R> --record-fix --write` (R the last adjudicated round), spawn a fresh adjudicator with the printed line; it edits only the faulty cells and commits `record-fix <R>` (`integrity.py --commit-record-fix`, which refuses anything more); re-run the check, `close --delegated` (`release`: `close --cured`). It needs no GREEN Phase 0, no Lean commit and no new round (Phase 0 is RED on the very fault). It returns NEEDS A ROUND, or the fault is in a verdict, decision or status cell: a new round (Phase 0 shows the fault as `PENDING[adjudication]`, so the round runs; its adjudicator clears it). Disclosed in the report's stop list | same (never the human; `release`: `close --cured`, never `--delegated`) |
-| a `PENDING[adjudication]` line (Phase 0), or `FAIL[adj-record]` / `RED[adj-record]` (`make_report.py --check`; a note of `project.py --deliver`): any other fault of an adjudicator's record (a cell count: a literal `\|` in a cell; a missing-theory "decided by" cell not bound to a RUN_LOG.md decision naming the result -- with none recorded, the adjudicator writes a QUESTION row and "QUESTION (<round>)", and the question reaches the human at Checkpoint C (under a delegating level, you decide it with a [DELEGATED] line); a defect only in prose; "formalized AND skipped" -- once an adjudication ADOPTs fixing the index for it, it is your `report` fault: make the index cell "not formalized"; a result left unproved without its SKIPPED.md row; a carried item without its ADOPTED.md row) | adjudication (`adj-record`) | not RED in Phase 0: run the round; its adjudicator's prompt lists the faults and `--commit-adjudication` refuses until it clears them. Before delivery: one more round (`prompt.py 3 --full` if no Lean changed); a stop on it is closed `--delegated` (`release`: `--cured`) | same (never the human; `release`: `close --cured`) |
+| a `PENDING[adjudication]` line (Phase 0), or `FAIL[adj-record]` / `RED[adj-record]` (`make_report.py --check`; a note of `project.py --deliver`): any other fault of an adjudicator's record (a cell count: a literal `\|` in a cell; a missing-theory "decided by" cell not bound to a RUN_LOG.md decision naming the result -- with none recorded, the adjudicator writes a QUESTION row and "QUESTION (<round>)", and the question reaches the human at Checkpoint C (under a delegating level, you decide it with a [DELEGATED] line); a defect only in prose; "formalized AND skipped" -- once an adjudication ADOPTs fixing the index for it, it is your `report` fault: make the index cell "not formalized"; a result left unproved without its SKIPPED.md row; a carried item without its ADOPTED.md row) | adjudication (`adj-record`) | not RED in Phase 0: run the round (a decided row -- ADOPT, DEFER, an answered QUESTION -- is never listed: no round can clear it); its adjudicator's prompt lists the faults and `--commit-adjudication` refuses until it clears them. Before delivery: one more round (`prompt.py 3 --full` if no Lean changed); a stop on it is closed `--delegated` (`release`: `--cured`) | same (never the human; `release`: `close --cured`) |
 | tree_state `FAIL[head-moved-operator]`: HEAD moved since the baseline only by your own prescribed empty commits (each empty, the baseline's author, subject `fresh round after the set-aside of <R>`, listed in RUN_LOG.md or a stop record: its full hash, or 12+ characters, on one line with that subject) | mechanical | list it when you make it: `echo "- <full hash> fresh round after the set-aside of <R>" \| python3 audits/project.py --log "Mechanical failures"` (works while another stop is open; `stops.py open` does not); `python3 audits/tree_state.py --resave-operator --reason "<which commit, why>"` (logged, recorded in the baseline; no GREEN Phase 0 needed); a stop opened on it: `close --delegated` (`release`: `close --cured`). `release` also: HEAD moved only by your own commits up to exactly the commit a round was cut from (its directory committed; Phase 0 did not save the baseline after them) is the same row, the same cure (`--resave-operator` logs it). Any other commit (another subject, unlisted, a change and its revert, a commit past the round's) is `FAIL[head-moved]` (next row) | same |
 | tree_state `FAIL[head-moved]`: a commit since the baseline changed files, is a merge, or has another author | tamper | a stop for the human at every level (a lane may have committed); `release`: a self-cure (restore): `tree_state.py --revert-foreign` reverts the whole foreign range, accepted only when HEAD's tree equals the baseline's, then `close --cured` | same |
 | a document check (`report`) RED from text you wrote in `AUTHOR_NOTES.md`, `READER_NOTES.md` (`DEVIATIONS.md` in a run pinned before ownership 3) | document | a stop: ask | the narrow exception above, then `stops.py close --delegated` |
@@ -553,7 +584,8 @@ a tool fault stops the run and a maintainer fixes the tool.
    `affects-review-inputs: yes`), and the floor (the canaries of the first pin's `FLOOR`, each killed
    only by a selftest that passes on the patched tools unmutated: a hit needs two approvals). It refuses before review a
    failing fact (a) or (b), a file it may not touch (above), a new file with a module's name, a change to a
-   guarded block, and a diff already rejected.
+   guarded block, and a diff already rejected. It flags (never refuses) a patch touching code the core
+   relies on (`core_reachable`), for the reviewer.
 3. `python3 audits/tool_patch.py review --tp TP<k>` prints the spawn line of a FRESH reviewer (a
    general-purpose agent; Codex: `agent_type` `formalize_tool_patch_reviewer`, `fork_turns` "none"):
    never yourself, a lane or an adjudicator of the run. Seal its verdict exactly like a lane's

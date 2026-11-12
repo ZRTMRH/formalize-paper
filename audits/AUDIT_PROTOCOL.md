@@ -473,7 +473,8 @@ These checks detect persistent replacements, not a write whose bytes were later 
    with file:line; a Pass without it is counted as NotDoneYet. A Fail needs
    `cause` (lean if the formalization is wrong, source if the paper is; then
    `evidence` carries the witness), `evidence` and `next_step`. Ambiguous (a
-   genuine reading choice the Lean took one way) needs `question`. `decision` is
+   genuine reading choice the Lean took one way) needs `question`; in it, say which
+   reading the paper's own proof proves, if it proves one. `decision` is
    PASS iff no verdict is Fail; NotDoneYet and Ambiguous never cause a FAIL.
    Anything outside your criterion goes in `out_of_lane`, unacted on.
 7. Evidence you cite must survive you. Put every probe a verdict relies on (a Lean
@@ -492,7 +493,9 @@ These checks detect persistent replacements, not a write whose bytes were later 
 8. <NETWORK-RULE>
 9. Start no background process: no `&`, no `run_in_background`, no `until`/`while`
    polling loops (`until ! pgrep -f X` matches its own command line and never
-   ends). Run each command in the foreground and wait for it. Cite only probe
+   ends). Run each command in the foreground and wait for it. A probe that may run
+   longer than 10 minutes: split it, or give the call the longest timeout; if it is
+   still cut, the item is NotDoneYet (say why), never a background run. Cite only probe
    files you wrote, by their path under <PROBE-DIR>/. A check after the round
    (lanecheck.py) flags leftover loops, stray files and probes that do not exist.
 10. A probe compiles only if `lake env lean <file>` exits 0. Never judge it by
@@ -547,9 +550,11 @@ the source. Work only from:
 It contains Lean signatures as Lean prints them after elaboration (every
 hypothesis and bound variable shown with its type, casts with their target
 type), and the definitions they use; a definition's body is its SOURCE text,
-where a cast or numeral may leave its type implicit. For each
-"## <result>" section, and for each definition in "# Definitions these
-statements use", write what it says -- exactly, not what it is "trying" to say:
+where a cast or numeral may leave its type implicit. For each "## ..." section
+ABOVE the line "# Definitions these statements use" (one row of the paper's
+index each, also one whose heading begins "Definition"), and for each
+"## <name>" section below that line, write what it says -- exactly, not what it
+is "trying" to say:
   - every quantifier, in order, with its domain;
   - every hypothesis, including type-class arguments that matter ([Fintype V]
     means V is finite) and implicit ones;
@@ -563,7 +568,9 @@ Do not guess intent from names: `isGood` means whatever its definition says.
 Write JSON, and nothing else, to <ROUND-DIR>/INFORMAL.json:
   {"rows": [{"result": "<the ## heading, verbatim>", "plain_english": "..."}],
    "definitions": [{"name": "<the ## heading, verbatim>", "plain_english": "..."}]}
-One entry per section; omit none; no section twice. Then return a short final message (at most
+One entry per section; omit none; no section twice. "rows": one entry per section
+above that line, whatever its heading says (a "Definition 2.1 (...)" row is a row);
+"definitions": one per section below it. Then return a short final message (at most
 5 lines): the file's path and the number of rows and definitions written. The file is the record.
 ```
 
@@ -626,7 +633,7 @@ Inputs:
     involvement level the human chose at intake; no human reviewed them).
 
 For every "## <result>" in the bundle, one row:
-  "result":        the heading, verbatim
+  "result":        the heading's text, verbatim, without its "## "
   "paper":         the paper's statement of that result, copied from the source
                    (LaTeX is fine)
   "lean":          the Lean names in that section
@@ -1156,11 +1163,18 @@ First, before you read the diagnosis's argument: reproduce the failure from the
 code. Read the check the stop names and find for yourself why it fails on this
 case.
 
-Then re-derive the facts: run
+Then re-derive the facts: run, from the project's top-level directory (the
+session's working directory, not your scratch directory; its output goes to your
+scratch directory)
     <FACTS-CMD>
 (the PINNED tool_patch.py; it builds its own scratch trees and runs the new
 regression test on the pinned and the patched tools, the selftests, the blast
-radius and the floor; it takes minutes) and compare its output with FACTS.json
+radius and the floor; it takes minutes, often more than 10: start it in the
+background (Claude Code: Bash `run_in_background`; Codex: one call with a timeout
+longer than the command), wait for it with your harness's wait (never a `sleep`
+loop of your own; a monitor command you need carries `FORMALIZE_PAPER_OPERATOR=1`),
+read its output only once it has finished, and never end your turn before it has)
+and compare its output with FACTS.json
 below. Any difference other than timings is a finding, worth looking close at.
 
 Answer each question with evidence (file:line):
@@ -1202,6 +1216,16 @@ Answer each question with evidence (file:line):
     or import edits, environment variables, subprocess commands, or a config or
     data file a check reads (a pattern list, a Lean tail, a project setting)?
     Any such effect beyond the diagnosed bug is a reason to reject.
+12. Core-reachable code: FACTS "core_reachable" lists the code the patch touches
+    that the proof-validity core or the approval record reads, each with why it
+    is listed: what a core file reads of another module, a script a core file
+    runs (Phase 0's gate steps), stops and the core-fault route, tokens and
+    seals, who approved, the bundle the freeze compares ("<module level>": an
+    import or another top-level statement of such a file; "<unparsed>": a side
+    that does not parse). It is a flag, not a refusal. For each, say what the
+    core reads from it and show that the patch changes that only for the
+    diagnosed case; if you cannot, reject. An empty list is no evidence of
+    safety: helpers these functions call are not listed.
 
 Write ONE JSON object:
   {"lane_token": "<your lane_token>", "verdict": "approve" or "reject",
@@ -1658,7 +1682,9 @@ For every target, fill `patterns` with one entry per pattern below: "n/a",
 "checked: <how>", or "HIT: <evidence>". A HIT is a Fail (or Ambiguous, if it is a
 reading choice). The list is a floor, not the boundary of what counts.
   too-weak            the Lean proves less than T
-  too-strong          the Lean claims more than the source justifies
+  too-strong          the Lean claims more than the source justifies (a stronger
+                      reading of an ambiguous phrase that the source's own proof
+                      proves is justified: report it Ambiguous, not too-strong)
   quantifiers         wrong order, scope, or domain of a quantifier
   missing-hypothesis  a hypothesis of T dropped, making the Lean false or different
   vacuous-hypothesis  a hypothesis no object can satisfy
@@ -2154,7 +2180,32 @@ A. BEFORE reading any finding, run these, in order, and show their raw output:
    A whole-lane re-vote's verdict replaces the lane's for every item (the old one stays in the
    record); the re-vote adjudicator decides each of its Fails as in B (a re-vote of a Pass that
    Fails is a new Fail), and closes the `(whole lane)` row with **REJECT** ("the lane's verdict is
-   replaced by the re-vote's"). Then:
+   replaced by the re-vote's"). Then Phase 0 and the coverage roll-up below. Each can take longer
+   than 10 minutes, so under Claude Code the operator started both in the background before it
+   spawned you (`python3 audits/project.py --adjudicator-checks --round <DATE>-<HASH>`), into
+   `.formalization-work/adjudicator-<DATE>-<HASH>.log`. Read no finding and write nothing until you
+   have its result. Wait for it, one call at a time (give the Bash call a timeout of 600000 ms):
+     python3 audits/project.py --wait-adjudicator-checks --round <DATE>-<HASH>
+   Exit 3: still running; run the same command again, and never end your turn before it exits 0 or 1.
+   Exit 0 (`current:`): the log ended, both its HEAD pairs equal the current HEADs, and it ran exactly
+   the two commands below with Phase 0 in the mode TARGET.json asks for; read the log (`grep`,
+   `tail`, `sed -n`) instead of running them again. Exit 1 (`STALE`: no log, a crash, a HEAD that
+   moved, a mode that differs, a run that was killed): never use that log; run the checks yourself,
+   into a file of your own, with the two commands it prints:
+     python3 audits/project.py --adjudicator-checks --round <DATE>-<HASH> --own
+     python3 audits/project.py --wait-adjudicator-checks --round <DATE>-<HASH> --own
+   A start refused because a run is "already running" names that run's wait command: wait with it,
+   then start yours (two Phase 0 runs never run at once). If your own run is stale because no run is
+   writing it (the background process was ended), start it as
+   `python3 audits/project.py --adjudicator-checks --round <DATE>-<HASH> --own --foreground` with
+   Bash `run_in_background`, then the same wait. A coverage exit 1 after its `summary:` line is no
+   crash: it means outstanding Fails or a scope drift, which you adjudicate (the wait accepts it). If
+   your own run's wait calls it a crash (no Phase 0 verdict, a traceback, a coverage exit other than 0
+   or 1, or an exit 1 with no summary line), run it once more; a second crash, STOP. Under Codex there
+   is no operator log: run that `--own --foreground` command in one call with a timeout longer than
+   the two checks, then the `--own` wait (it answers at once). If a permission prompt refuses these
+   commands, run the two commands below plainly, each in the background, and wait for each to
+   finish. Never a `sleep` loop. What the two commands are and how you read their output:
      python3 audits/phase0.py --readonly
    (add --statements if TARGET.json's `_meta.kind` is "statements": every proof
    at this commit is `sorry` by design). If its PHASE 0 RESULT is RED, STOP: a finding made against a
@@ -2214,10 +2265,16 @@ B'. The previous round's OUTCOMES.md (if any) is the author's account of what it
 
 C. Every Ambiguous verdict becomes a QUESTION row in ADOPTED.md: the source
    passage, both readings, the one the Lean takes, and the reading you recommend:
-   the weaker one, unless the paper's own proof needs the stronger; when neither
-   implies the other, the one the paper's own proof proves. Never recommend
+   the weaker one, unless the paper's own proof proves the stronger or a later
+   proof needs it; when neither implies the other, the one the paper's own proof
+   proves. Cite the proof's lines. If the Lean states the weaker reading in an
+   approved statement, recommending the stronger is a change to that statement
+   (RUN.md, "Statement changes after approval"). Never recommend
    formalizing both. Do not decide it; the human does (under a delegating level
    the operator takes your recommended reading, disclosed as a reading choice).
+   Label the readings (a), (b), ... and end the row's reason cell with exactly
+   `[Lean: (a); recommended: (b)]`, one label each (the reading the Lean takes,
+   the one you recommend), so the answer can be matched to the Lean.
 
 D. Read <ROUNDS-DIR>/AUTHOR_NOTES.md if it exists. It holds the AUTHOR's claims --
    suspected defects in the paper, results the author proposes to skip, route
@@ -2718,7 +2775,10 @@ text never is.
    one row), and every defect, proof slip, vacuous statement, assumption, reading choice, stop, hand
    delivery, self-cure and disclosed fault as one short line, or, when the page is full, counted by
    name on its kind's line with the report section that holds it in full; then the answers recorded
-   as the human's and the number of matters in DECISIONS.md. Nothing is cut mid-word, dropped or
+   as the human's and the number of matters in DECISIONS.md. A reading choice whose QUESTION no
+   person answered (DECISIONS.md says who decided) is asked of the authors: its one line is a short
+   question, "<result>: we read '<phrase>' as <the Lean's reading>; did you mean <the other>?", the
+   weaker reading marked as such. Nothing is cut mid-word, dropped or
    defaulted to faithful (the claims and trust reviewers check it against the records and the Lean;
    `project.py --deliver` notes what `make_report.py --check --delivery`'s coverage check cannot find). The top of the decisions document carries a highlighted box, placed
    before rule 1's background: a blockquote starting `> **READ THIS FIRST**`. The summary and the box list:
@@ -2879,7 +2939,7 @@ Stated explicitly, because a protocol that implies completeness is worse than on
   every check: writing a reviewer's verdict itself, committing an edit as "adjudicate R", logging an
   answer the human never gave, or rewriting the history of the run. The gates are built against a
   realistic operator's mistakes, not a deliberate forger; against forgery the defence is the
-  independent lanes as they ran and the human: under involved and statements-only the summary lists
-  every answer and approval recorded as the human's, each with the audit commit that recorded it
-  (a receipt the human keeps). Under hands-off nothing in the delivered report rules a forgery out.
+  independent lanes as they ran and the human: the delivered README's section "What the checking code
+  found", written by the checking program at delivery, lists every answer and approval recorded as the
+  human's, each with the audit commit that recorded it (a receipt the human keeps). Under hands-off nothing in the delivered report rules a forgery out.
   If the result matters, have a separate session run a fresh full audit round on the delivered commit.

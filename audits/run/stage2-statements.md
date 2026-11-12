@@ -110,7 +110,10 @@ Read this after the pin (Stage 1 step 5). It ends with the approval commit (`app
    commit and time, the approval's commit and time, and that the freeze check shows them unchanged
    since); `decisions.py --check` refuses the unverifiable sentence.
 4. **Adjudicate.** `python3 audits/prompt.py 4 --round <R> --write`, and spawn the adjudicator
-   (general-purpose) with the printed sentence. Its block runs `phase0.py --readonly --statements`.
+   (general-purpose) with the printed sentence. Its block runs `phase0.py --readonly --statements`;
+   under Claude Code start that check and the coverage roll-up in the background first, with
+   `python3 audits/project.py --adjudicator-checks --round <R>`, as `stage4-rounds.md` step 4 says
+   (it adds `--statements` itself, from the round's TARGET.json).
    A later `FAIL[dead-witness]` or `FAIL[record-cite]` in its records is cured by a record
    correction, not a new round (RUN.md failure table, record-fix).
 5. **Implement.** Run `python3 audits/prompt.py 5 --round <R>` and do what it says, using
@@ -119,7 +122,8 @@ Read this after the pin (Stage 1 step 5). It ends with the approval commit (`app
    statement change). Decide the round's QUESTION rows that shape statements first (ask the
    human; record the answers in `RUN_LOG.md` "Open questions"; under `hands-off`, decide them
    yourself as delegated decisions, one line per QUESTION row naming its item and round:
-   `- [DELEGATED …] <decision> (QUESTION row on <item>, round <R>) — <reason>`; the line starts
+   `- [DELEGATED …] <decision> (QUESTION row on <item>, round <R>) — <reason>`, the decision naming the
+   reading it takes as `take reading (x)`, one label of the row's `[Lean: …; recommended: …]`; the line starts
    with the canonical tag, `<item>` is the row's item exactly and `<R>` the round's full name: only
    this form under "Open questions" counts as the answer, and under `involved` or `statements-only`
    no line of yours answers a Checkpoint B question), so the next statement round sees them implemented. **If any statement or definition changed,** the sheet no longer
@@ -251,7 +255,7 @@ Read this after the pin (Stage 1 step 5). It ends with the approval commit (`app
      | (c) | `signoff.py approve --round <R> --by agent --how blanket` (no `--exclude`: (c) approves everything) |
 
      Prefix each with `python3 audits/`. It checks every approved declaration with Lean and can
-     take many minutes: give it a long timeout or run it in the background, and wait for it to
+     take many minutes: run it in the background (RUN.md, rule 9), and wait for it to
      finish before going on. Add `--note "<one sentence>"` when the record needs it,
      e.g. results the approver approved personally inside a (c) approval. It commits the approval
      itself (`approve <R>`): make no commit of your own for it. If the conversation ended while it ran

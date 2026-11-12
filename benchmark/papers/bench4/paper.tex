@@ -1,0 +1,160 @@
+\documentclass[11pt]{amsart}
+\usepackage{amsmath,amssymb,amsthm}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{conjecture}[theorem]{Conjecture}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+\title{Greatest common divisors of the numbers $2^n-1$}
+\author{J. P. Specimen}
+\address{Centre for Conjectural Arithmetic (fictional)}
+\email{j.p.specimen@example.org}
+\date{}
+
+\begin{document}
+
+\begin{abstract}
+We give an elementary proof that $\gcd(2^m-1,2^n-1)=2^{\gcd(m,n)}-1$ for all
+natural numbers $m,n$, by running the Euclidean algorithm on the exponents.
+We derive the usual consequences for coprimality and for prime values, and
+discuss the prime divisors of $2^p-1$.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+
+The sequence $2^n-1$ is a \emph{strong divisibility sequence}: the gcd of two
+of its terms is again a term, with index the gcd of the indices. This
+property was studied systematically by Lucas~\cite{Luc}. We present a short
+self-contained proof (Theorem~\ref{thm:main}) based on a single addition
+formula (Lemma~\ref{lem:add}), and collect some consequences.
+
+\section{The gcd identity}
+
+\begin{definition}\label{def:a}
+For $n\in\mathbb{N}$ put $a_n=2^n-1$. Thus $a_0=0$, $a_1=1$, $a_2=3$,
+$a_3=7$, $a_4=15$. We use the convention $\gcd(m,0)=m$ for $m\in\mathbb{N}$.
+\end{definition}
+
+\begin{lemma}\label{lem:add}
+For all $m,n\in\mathbb{N}$ we have $a_{m+n}=2^n a_m+a_n$.
+\end{lemma}
+
+\begin{proof}
+$2^n(2^m-1)+(2^n-1)=2^{m+n}-1$.
+\end{proof}
+
+\begin{lemma}\label{lem:odd}
+For every $n\in\mathbb{N}$ the number $a_n$ is odd.
+\end{lemma}
+
+\begin{proof}
+$2^n$ is even, so $2^n-1$ is odd.
+\end{proof}
+
+\begin{lemma}\label{lem:div}
+Let $m,n$ be integers with $1\le m\le n$. If $m\mid n$, then $a_m\mid a_n$.
+\end{lemma}
+
+\begin{proof}
+Write $n=mq$. Then
+$a_n=(2^m)^q-1=(2^m-1)\bigl(1+2^m+2^{2m}+\dots+2^{(q-1)m}\bigr)$.
+\end{proof}
+
+\begin{lemma}\label{lem:step}
+Let $m\ge n\ge 0$. Then $\gcd(a_m,a_n)=\gcd(a_{m-n},a_n)$.
+\end{lemma}
+
+\begin{proof}
+By Lemma~\ref{lem:add} applied to the pair $(m-n,n)$ we have
+$a_m=2^m a_{m-n}+a_n$, hence $\gcd(a_m,a_n)=\gcd(2^m a_{m-n},a_n)$. Since
+$a_n$ is odd by Lemma~\ref{lem:odd}, it is coprime to $2^m$, and therefore
+$\gcd(2^m a_{m-n},a_n)=\gcd(a_{m-n},a_n)$.
+\end{proof}
+
+\begin{theorem}[Main theorem]\label{thm:main}
+For all $m,n\in\mathbb{N}$,
+\[
+  \gcd(2^m-1,\,2^n-1)=2^{\gcd(m,n)}-1 .
+\]
+\end{theorem}
+
+\begin{proof}
+We argue by strong induction on $m+n$. If $n=0$, then
+$\gcd(a_m,a_0)=\gcd(a_m,0)=a_m=a_{\gcd(m,0)}$, and the case $m=0$ is symmetric.
+Otherwise we may assume $m\ge n\ge 1$ by symmetry. Then by
+Lemma~\ref{lem:step} and the induction hypothesis applied to $(m-n,n)$,
+\[
+  \gcd(a_m,a_n)=\gcd(a_{m-n},a_n)=a_{\gcd(m-n,n)}=a_{\gcd(m,n)} .\qedhere
+\]
+\end{proof}
+
+\begin{corollary}\label{cor:coprime}
+For $m,n\in\mathbb{N}$, the numbers $2^m-1$ and $2^n-1$ are coprime if and
+only if $\gcd(m,n)=1$.
+\end{corollary}
+
+\begin{proof}
+By Theorem~\ref{thm:main} the gcd is $a_g$ with $g=\gcd(m,n)$, and $a_g=1$ if
+and only if $g=1$.
+\end{proof}
+
+\begin{proposition}\label{prop:vac}
+Let $m,n\ge 1$ be integers such that $m\nmid n$ but $a_m\mid a_n$. Then
+$n>m$.
+\end{proposition}
+
+\begin{proof}
+Since $a_n\ge 1$ and $a_m\mid a_n$ we get $a_m\le a_n$, so $m\le n$; and
+$m\ne n$ because $m\nmid n$.
+\end{proof}
+
+\section{Prime values and prime divisors}
+
+\begin{proposition}\label{prop:prime}
+If $a_n$ is prime, then $n$ is prime.
+\end{proposition}
+
+\begin{proof}
+As $a_0=0$ and $a_1=1$, we have $n\ge 2$. If $n=rs$ with $1<r<n$, then
+$a_r\mid a_n$ by Lemma~\ref{lem:div} and $1<a_r<a_n$, so $a_n$ is composite.
+\end{proof}
+
+\begin{proposition}\label{prop:divisors}
+Let $p$ be an odd prime and $q$ a prime divisor of $a_p$. Then
+$q\equiv 1\pmod{4p}$.
+\end{proposition}
+
+\begin{proof}
+Since $a_p$ is odd, $q$ is odd. The multiplicative order of $2$ modulo $q$
+divides $p$ and is not $1$, hence equals $p$. By Fermat's little theorem it
+also divides $q-1$, so $p\mid q-1$; as $q-1$ is even and $p$ is odd,
+$2p\mid q-1$.
+\end{proof}
+
+\begin{remark}
+By Zsigmondy's theorem~\cite{Zsi}, for every $n\ge 2$ the number $a_n$ has a
+prime divisor that divides none of $a_1,\dots,a_{n-1}$. In view of
+Theorem~\ref{thm:main}, such a \emph{primitive} prime divisor of $a_n$
+divides no $a_k$ with $k$ not a multiple of $n$.
+\end{remark}
+
+\begin{conjecture}\label{conj:mersenne}
+There are infinitely many $n$ for which $a_n$ is prime.
+\end{conjecture}
+
+\begin{thebibliography}{9}
+\bibitem{Luc} \'E.~Lucas, \emph{Th\'eorie des fonctions num\'eriques simplement
+p\'eriodiques}, Amer. J. Math. \textbf{1} (1878), 184--240, 289--321.
+\bibitem{Zsi} K.~Zsigmondy, \emph{Zur Theorie der Potenzreste}, Monatsh. Math.
+Phys. \textbf{3} (1892), 265--284.
+\end{thebibliography}
+
+\end{document}

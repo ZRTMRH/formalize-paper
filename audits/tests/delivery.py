@@ -347,7 +347,12 @@ def scenario(base, mode, level):
               and {"SUMMARY.pdf", "SUMMARY.md", "REPORT.pdf", "REPORT.md", "DECISIONS.md", "SIGNOFF.pdf",
                    "SIGNOFF.md", "README.md", "RUN_RECORD.md"} <= set(got)
               and all(v == "verified" for v in f.rendered.values()) and len(f.rendered) == 3
-              and "written by the formalizing agent" in readme and "## D. Delivery notes" in readme)
+              and "written by the formalizing agent" in readme and "## D. Delivery notes" in readme
+              # DESIGN-E fix 2: the code-written section once, before A; README.md's sha256 in the RUN_LOG line
+              and readme.count(project.CHECKED_HEADING) == 1
+              and readme.index(project.CHECKED_HEADING) < readme.index("## A.")
+              and "README.md sha256 " in open(os.path.join(f.rd, "RUN_LOG.md"), encoding="utf-8").read()
+              and project.check_delivered(f.cfg, with_readme=True) == [])
         why = (f"stale={rc_st} {out_st[:200]!r}; sorry={rc_so} {out_so[:200]!r}; open={rc_open} {out_open[:200]!r}; "
                f"deliver={rc1} {out1[:900]!r}; "
                f"stops={stops.stops(f.cfg)} refused={stop_refused}; got={got}")
@@ -637,6 +642,23 @@ def b9_plug(base):
                     "route to the adjudicator), and the result reads not established",
                     any(c == "adj-record" and "Theorem 1.1: correspondence Fail" in t for c, t in dp)
                     and status_of(make_report.summary_md(f.cfg), "Theorem 1.1") == "not established: a review failed"))
+        import scope
+        nx0 = scope.empty_scope_next(f.cfg)[0]
+        # B1 (MAINTAINING L5): the same Fail with its round's ADOPT row is decided: no round, no adj-record, a note
+        ap = os.path.join(f.rd, f.r1, "ADOPTED.md")
+        keep_ap = open(ap).read()
+        open(ap, "a").write("\n| lane | item | verdict | decision | reason |\n|---|---|---|---|---|\n"
+                            "| correspondence | P.thm_1_1 | Fail | **ADOPT** — fix the docstring | x |\n")
+        dp1 = make_report.delivery_problems(f.cfg)
+        nx1 = scope.empty_scope_next(f.cfg)[0]
+        st1 = status_of(make_report.summary_md(f.cfg), "Theorem 1.1")
+        open(ap, "w").write(keep_ap)
+        out.append(("B1: the Fail with an ADOPT row is decided: an empty diff scope goes to Stage 5 (not a full round), "
+                    "nothing is RED[adj-record], a note names the result, and it still reads not established; "
+                    "without the row: a full round",
+                    nx0 == "full" and nx1 == "stage5" and not any(c == "adj-record" for c, _t in dp1)
+                    and any(c == "deliver" and "only because of rows" in t and "Theorem 1.1" in t for c, t in dp1)
+                    and st1 == "not established: a review failed"))
     finally:
         f.close()
     f = Fixture(base, "dev", "involved", tag="b9nov", verdicts=False)
@@ -1297,6 +1319,273 @@ def delivery_log(base):
     return out
 
 
+def withdrawn_stop(base):
+    """[(name, ok)] A2 (Pisani S1; design review HIGH-1): a release run with one stop withdrawn as opened in error
+    (`stops.py close --withdrawn`) delivers at every level; RUN_RECORD.md lists the stop, and neither the summary
+    page nor DECISIONS.md's box names it (it is process record, never "closed by the operator (delegated)")."""
+    import re as _re, stops
+    out = []
+    for level in project.INVOLVEMENT_LEVELS:
+        f = Fixture(base, "release", level, tag="wd")
+        try:
+            # attack review MEDIUM-1: under hands-off the check still fails at delivery, and README's delivery
+            # notes say so; under the other levels it passes by then, and they say nothing of it
+            f.failing = {"tree_state.py"}
+            s_, _m = stops.open_stop(f.cfg, note="a tool call failed", cause="tool-call",
+                                     check="python3 audits/tree_state.py --check")
+            rec = stops.close_stop(f.cfg, s_, withdrawn="opened in error: the fault's route was a re-run, no stop")
+            still = level == "hands-off"
+            f.failing = {"tree_state.py"} if still else set()
+            if level == "involved":
+                import decisions
+                for a_ in decisions.checkpoint_c_open(f.cfg):
+                    project.log_append(f.cfg, "Answered", f"- answered {a_} (2026-01-03, {f.r1}): yes, keep it")
+                g(f.aud, "add", "-A"); g(f.aud, "commit", "-qm", "run log: Checkpoint C answered", "--allow-empty")
+            rc_p, _l = f.prepare()
+            f.write_docs()
+            rc, o = f.deliver()
+            dv = os.path.join(f.repo, "deliverables")
+            rd_ = lambda n: open(os.path.join(dv, n), encoding="utf-8").read() if os.path.exists(os.path.join(dv, n)) else ""
+            rr, sm, dc = rd_(project.RUN_RECORD), rd_("SUMMARY.md"), rd_("DECISIONS.md")
+            said = f"Stop {s_} was closed by the operator as opened in error, without a cure, and its check still fails"
+            import make_report as _mrw
+            ok = (rec["by"] == "withdrawn" and rc_p == 0 and rc == 0 and (said in rd_("README.md")) == still
+                  and _mrw.RESOLVED_WITHDRAWN.strip() in rr
+                  and _re.search(rf"(?m)^\| {s_} \|", rr) is not None and "withdrawn as opened in error" in rr
+                  and not _re.search(rf"\b{s_}\b", sm) and "closed by the operator (delegated)" not in sm
+                  and not _re.search(rf"(?m)^> - stop {s_} \(", dc))
+            out.append((f"A2 release x {level}: a run with a stop withdrawn as opened in error delivers; RUN_RECORD.md "
+                        f"lists it, the summary page and DECISIONS.md's box do not (review HIGH-1); README's delivery "
+                        f"notes say so when its check still fails at delivery (attack MEDIUM-1)"
+                        + ("" if ok else f" [prepare={rc_p} deliver={rc} {o[-400:]!r}; summary names it: "
+                                         f"{bool(_re.search(rf'{s_}', sm))}; record: {len(rr)} chars]"), ok))
+        except Exception as e:      # noqa: BLE001 -- a crash fails the case, with its reason
+            import traceback
+            out.append((f"A2 release x {level}: crashed {e!r} {traceback.format_exc()[-500:]}", False))
+        finally:
+            f.close()
+    return out
+
+
+def _answer_checkpoint_c(f):
+    import decisions
+    for a_ in decisions.checkpoint_c_open(f.cfg):
+        project.log_append(f.cfg, "Answered", f"- answered {a_} (2026-01-03, {f.r1}): yes, keep it")
+    g(f.aud, "add", "-A"); g(f.aud, "commit", "-qm", "run log: Checkpoint C answered", "--allow-empty")
+
+
+def _fail_lemma_1_2(f):
+    """The record forgery review F1 starts from: the full round's paper-faithfulness lane FAILED Lemma 1.2."""
+    p = os.path.join(f.rd, f.r1, "paper-faithfulness.json")
+    j = json.load(open(p))
+    for v in j["verdicts"]:
+        if v["item"] == "Lemma 1.2":
+            v.update(verdict="Fail", evidence="the Lean drops the hypothesis n>=2")
+    json.dump(j, open(p, "w"))
+    g(f.aud, "add", "-A"); g(f.aud, "commit", "-qm", f"seal {f.r1} paper-faithfulness")
+
+
+def checked_section(base):
+    """[(name, ok)] DESIGN-E2 fix 2, forgery review 2026-11 F1 (attack_d1, attack_d1b) and F11, release x hands-off and
+    involved: the operator's own SUMMARY says "faithful" over a Fail, with four "no findings" reviews it saved itself.
+    --deliver still delivers (no new refusal), but the README's code-written section shows Lemma 1.2 as not
+    established; variant 1 (the draft's table, status changed) marks it † with the summary's words and "No reason is
+    on record", and the delivered RUN_RECORD.md holds the [status-wording] and [adj-record] notes word for word;
+    variant 1b (three lines of prose) gives the compare sentence; involved lists the Checkpoint C answer with its audit
+    commit; README D no longer says "Fresh agents reviewed them"; an edit after delivery makes --check-delivered NOT
+    ok. Honest control: the same record, the summary's own wording and a "Status wording" reason: the reason is shown
+    and no [status-wording] note is raised."""
+    import re as _re
+    out = []
+    for level, variant in (("hands-off", "1"), ("involved", "1"), ("hands-off", "1b"), ("involved", "honest")):
+        f = Fixture(base, "release", level, tag=f"ck{variant}")
+        try:
+            _fail_lemma_1_2(f)
+            rc_p, _l = f.prepare()
+            facts = open(os.path.join(f.rd, project.FACTS_DIR, "SUMMARY.md")).read()
+            facts_st = status_of(facts, "Lemma 1.2")
+            if level == "involved":
+                _answer_checkpoint_c(f)
+            if variant == "1":
+                sm = _re.sub(r"not established[^|\n]*", "faithful", with_status(facts, "Lemma 1.2", "faithful"))
+            elif variant == "1b":
+                sm = ("# Summary\n\nEvery result was faithfully formalized and proved; statements approved by you.\n")
+            else:
+                sm = _re.sub(r"\| not established[^|\n]*\|", "| proved; one review disagreed (REPORT §2) |", facts)
+            jt = "(no findings)\n" + (f"\n## {project.STATUS_WORDING}\n\n- Lemma 1.2: REASONQZ the paper-faithfulness "
+                                      f"review failed; the summary says what holds and why\n" if variant == "honest"
+                                      else "")
+            for n, body in (("SUMMARY.md", sm), ("REPORT.md", "# Report\n\nEvery result is faithfully formalized.\n")):
+                open(os.path.join(f.rd, n), "w").write(body)
+            os.makedirs(os.path.join(f.rd, project.REVIEW_DIR), exist_ok=True)
+            for P in project.REVIEW_PERSPECTIVES:
+                open(os.path.join(f.rd, project.REVIEW_DIR, P + ".md"), "w").write("No findings.\n")
+            open(os.path.join(f.rd, project.JUDGEMENT_MD), "w").write(jt)
+            g(f.aud, "add", "--", "R/SUMMARY.md", "R/REPORT.md", "R/JUDGEMENT.md", "R/delivery-review")
+            g(f.aud, "commit", "-qm", "deliverables: write")
+            rc, o = f.deliver()
+            dv = os.path.join(f.repo, "deliverables")
+            rme = open(os.path.join(dv, "README.md"), encoding="utf-8").read() if rc == 0 else ""
+            rr = open(os.path.join(dv, project.RUN_RECORD), encoding="utf-8").read() if rc == 0 else ""
+            sec = rme.split(project.CHECKED_HEADING, 1)[-1].split("\n## ", 1)[0]
+            log = open(os.path.join(f.rd, "RUN_LOG.md"), encoding="utf-8").read()
+            cd0 = project.check_delivered(f.cfg, with_readme=True)
+            open(os.path.join(dv, "README.md"), "w", encoding="utf-8").write(rme.replace("not established", "faithful"))
+            cd1 = project.check_delivered(f.cfg, with_readme=True)
+            open(os.path.join(dv, "README.md"), "w", encoding="utf-8").write(rme)
+            open(os.path.join(dv, "SUMMARY.md"), "a", encoding="utf-8").write("edited after delivery\n")
+            cd2 = project.check_delivered(f.cfg, with_readme=True)
+            common = (rc_p == 0 and rc == 0 and facts_st.startswith("not established") and rme.count(
+                project.CHECKED_HEADING) == 1 and rme.index(project.CHECKED_HEADING) < rme.index("## A.")
+                      and _re.search(r"(?m)^\| not established: a review failed \| Lemma 1\.2", sec) is not None
+                      and "Fresh agents reviewed them" not in rme and "### Notes at delivery" in rr
+                      and _re.search(r"README\.md sha256 [0-9a-f]{64}, \d+ bytes\); notes: ", log) is not None
+                      and cd0 == [] and any("not the README delivered" in p_ for p_ in cd1)
+                      and any("SUMMARY.md is not the file delivered" in p_ for p_ in cd2)
+                      and "The formalizing agent saved them, so the record cannot show who wrote them" in sec)
+            if variant == "1":
+                ok = (common and "Lemma 1.2 †" in sec and "- Lemma 1.2 — the summary: “faithful”. No reason is on "
+                      "record" in sec and "[status-wording]" in rr and "[adj-record]" in rr
+                      and "statuses worded differently" in sec)
+            elif variant == "1b":
+                ok = common and "could not pair the summary's results table" in sec and "†" not in sec
+            else:
+                ok = (common and "The agent's reason: “REASONQZ" in sec and "[status-wording]" not in rr)
+            if level == "involved":
+                ok = ok and _re.search(r"(?m)^- answer .*yes, keep it.*audit commit [0-9a-f]{7,}", sec) is not None
+            out.append((f"E2 fix 2 / F1 variant {variant} release x {level}: the README's code-written section shows "
+                        f"Lemma 1.2 not established beside the operator's own summary"
+                        + ("" if ok else f" [prepare={rc_p} deliver={rc} facts={facts_st!r} {o[-500:]!r} "
+                                         f"cd={cd0} {cd1} {cd2} SECTION: {sec[:2500]!r}]"), ok))
+        except Exception as e:      # noqa: BLE001 -- a crash fails the case, with its reason
+            import traceback
+            out.append((f"E2 fix 2 / F1 variant {variant} x {level}: crashed {e!r} {traceback.format_exc()[-700:]}",
+                        False))
+        finally:
+            f.close()
+    return out
+
+
+def forgery_gate(base):
+    """[(name, ok)] the forgery review's executed attacks F3, F4 and F5 (DESIGN-E2 fixes 3-5), release: the math gate
+    and the designed waits never skip.
+    F3: a real sorry (token scan and the kernel sweep) beside a stop opened as a phase0.py tool bug -- the core-fault
+    request is refused with the existing foreign-failure message, and a hand-written close record covering exactly
+    those lines leaves --deliver at RED[deliver].
+    F4: under involved, a committed first pin, then the config set to hands-off: --deliver still waits for Checkpoint
+    C (PENDING[question]); after the answers the section says what the settings file says now; a working pin lowered
+    to ownership 2 keeps the first pin's version, so DEVIATIONS.md stays owned.
+    F5: an evil merge emptying VACUOUS.md is listed by the ownership walk, its FAIL[ownership] blocks the math gate."""
+    import stops, integrity
+    out = []
+    sorry_out = ("HARD[sorry] P/Main.lean:2: `P.lemma_1_2` contains sorry\n/tmp/tmpq1w2e3r4.lean:3:0: error: 1 "
+                 "declarations reach sorryAx\n\n" + "=" * 78 + "\nPHASE 0 RESULT (computed by phase0.py from the exit "
+                 "codes above)\n  ok      build  [exit 0]\n  RED[axiom] axiom sweep  [exit 1]\n  RED[sorry] token scan: "
+                 "sorry  [exit 1]\nPHASE 0: RED (2 check(s))\n")
+    f = Fixture(base, "release", "hands-off", tag="f3")
+    try:
+        f.prepare(); f.write_docs()
+        stops.RUNNER = lambda argv: ((1, sorry_out) if "phase0.py" in " ".join(argv) else (0, "ok\n"))
+        s_, _m = stops.open_stop(f.cfg, note="phase0.py misreads the token scan", cause="tool-bug",
+                                 check="python3 audits/phase0.py --readonly")
+        try:
+            stops.core_fault_request(f.cfg, s_, "phase0.py", "the token scan misreads a comment DIAG")
+            r_req = ""
+        except stops.Refused as e:
+            r_req = str(e)
+        cmd = "python3 audits/phase0.py --readonly"
+        json.dump({"by": "core-fault", "core_file": "phase0.py", "check": cmd, "failing": [[cmd, stops._fail_lines(sorry_out)]],
+                   "check_name": "x", "text": "forged"}, open(os.path.join(stops.stop_dir(f.cfg, s_), "CLOSED.json"), "w"))
+        g(f.aud, "add", "-A"); g(f.aud, "commit", "-qm", f"stop {s_} closed")
+        rc, o = f.deliver()
+        ok = ("is open (it keeps its own cure or stop" in r_req and "not phase0.py's own" in r_req
+              and rc == 1 and "RED[deliver] not deliverable (the math gate)" in o
+              and not os.path.isdir(os.path.join(f.repo, "deliverables")))
+        out.append(("F3 regression (DESIGN-E2 fix 4): a real sorry is never a core fault's -- the request is refused, a "
+                    "forged close covering its lines leaves --deliver at RED[deliver]"
+                    + ("" if ok else f" [request: {r_req[:300]!r}; deliver={rc} {o[-500:]!r}]"), ok))
+    except Exception as e:      # noqa: BLE001
+        import traceback
+        out.append((f"F3 regression: crashed {e!r} {traceback.format_exc()[-700:]}", False))
+    finally:
+        f.close()
+    f = Fixture(base, "release", "involved", tag="f4")
+    try:
+        f.prepare(); f.write_docs()
+        pin = {"config": {k: v for k, v in f.cfg.items() if not k.startswith("_")}, "ownership": integrity.OWNERSHIP}
+        json.dump(pin, open(os.path.join(f.rd, "TOOLING_PIN.json"), "w"))
+        g(f.aud, "add", "--", "R/TOOLING_PIN.json"); g(f.aud, "commit", "-qm", "pin")
+        f.cfg.update(involvement="hands-off")
+        project._TERMS_CACHE.clear()
+        argv_, sys.argv = sys.argv, ["audits/project.py", "--deliver", "--selftest"]   # attack review E H1
+        try:
+            rc_h1, o_h1 = f.deliver()
+        finally:
+            sys.argv = argv_
+        f.cfg.update(_terms_from_pin=True)
+        project._TERMS_CACHE.clear()
+        rc0, o0 = f.deliver()
+        lvl = project.involvement(f.cfg)
+        _answer_checkpoint_c(f)
+        f.prepare(); f.write_docs()
+        rc1, o1 = f.deliver()
+        rme = open(os.path.join(f.repo, "deliverables", "README.md")).read() if rc1 == 0 else ""
+        json.dump(dict(pin, ownership=2), open(os.path.join(f.rd, "TOOLING_PIN.json"), "w"))
+        project._TERMS_FROM_PIN = True
+        pv = integrity.pinned_version(f.rd)
+        project._TERMS_FROM_PIN = False
+        ok = (lvl == "involved" and rc0 == 1 and o0.startswith("PENDING[question]") and rc1 == 0
+              and rc_h1 == 1 and o_h1.startswith("PENDING[question]")
+              and "The run's settings file now says *hands-off* for involvement; every check used *involved*." in rme
+              and "Involvement level *involved*" in rme and pv == integrity.OWNERSHIP
+              and integrity.owner("DEVIATIONS.md", pv) is not None)
+        out.append(("F4 regression (DESIGN-E2 fix 3): a config flipped to hands-off after the first pin still waits for "
+                    "Checkpoint C, also as `--deliver --selftest` (attack review E H1); the section names the settings "
+                    "file's value; a lowered working pin keeps the first pin's ownership version"
+                    + ("" if ok else f" [level={lvl} h1={rc_h1} {o_h1[:300]!r} first={rc0} {o0[:300]!r} then={rc1} "
+                                     f"{o1[-400:]!r} pv={pv}]"), ok))
+    except Exception as e:      # noqa: BLE001
+        import traceback
+        out.append((f"F4 regression: crashed {e!r} {traceback.format_exc()[-700:]}", False))
+    finally:
+        project._TERMS_FROM_PIN = False
+        project._TERMS_CACHE.clear()
+        f.close()
+    f = Fixture(base, "release", "hands-off", tag="f5")
+    try:
+        f.prepare(); f.write_docs()
+        vp = os.path.join(f.rd, "VACUOUS.md")
+        open(vp, "w").write("| # | statement | for which parameters | why | decision | status |\n|---|---|---|---|---|---|\n"
+                            "| 1 | `lemma_1_2` | all | never holds | keep | open |\n")
+        g(f.aud, "add", "--", "R/VACUOUS.md"); g(f.aud, "commit", "-qm", f"adjudicate {f.r1}")
+        main_ = g(f.aud, "symbolic-ref", "--short", "HEAD")
+        g(f.aud, "checkout", "-qb", "side"); open(os.path.join(f.rd, "side.txt"), "w").write("s\n")
+        g(f.aud, "add", "--", "R/side.txt"); g(f.aud, "commit", "-qm", "side work")
+        g(f.aud, "checkout", "-q", main_)
+        g(f.aud, "merge", "-q", "--no-ff", "--no-commit", "side")
+        open(vp, "w").write("")
+        g(f.aud, "add", "--", "R/VACUOUS.md"); g(f.aud, "commit", "-qm", "Merge branch side")
+        ver = integrity.pinned_version(f.rd)
+        lines = [f"FAIL[ownership] {rel} was committed by \"{subj[:50]}\" ({h[:11]}); only a \"{need[0].strip()} …\" "
+                 f"commit may change it" for subj, files, h in integrity.history(f.aud, "R") for rel in files
+                 for need in [integrity.owner(rel, ver)] if need and not subj.startswith(need)]
+        stops.RUNNER = lambda argv: ((1, "\n".join(lines) + "\n") if "integrity.py" in " ".join(argv) and lines
+                                     else (0, "ok\n"))
+        rc, o = f.deliver()
+        ok = (any("R/VACUOUS.md" in l or "VACUOUS.md was committed by \"Merge branch side\"" in l for l in lines)
+              and all(stops.integrity_blocks(f.cfg, l) for l in lines if "VACUOUS" in l)
+              and rc == 1 and "RED[deliver] not deliverable (the math gate)" in o)
+        out.append(("F5 regression (DESIGN-E fix 5): an evil merge that empties VACUOUS.md is judged by the ownership "
+                    "walk, and its FAIL[ownership] (a judgement record) blocks the math gate"
+                    + ("" if ok else f" [lines={lines} deliver={rc} {o[-400:]!r}]"), ok))
+    except Exception as e:      # noqa: BLE001
+        import traceback
+        out.append((f"F5 regression: crashed {e!r} {traceback.format_exc()[-700:]}", False))
+    finally:
+        f.close()
+    return out
+
+
 # approver (2026-10-28): the status check (status_check_rerun) and the hand edits of generated documents (doc_faults) are
 # no longer part of the delivery -- the main agent writes the documents and the delivery reviewers advise
 # (run/stage5-delivery.md) -- so their delivery scenarios are gone; readers.py and run_record.py keep their own
@@ -1348,6 +1637,12 @@ def selftest():
         for name, ok in citation_notes(base):
             say(name, ok)
         for name, ok in delivery_log(base):
+            say(name, ok)
+        for name, ok in withdrawn_stop(base):
+            say(name, ok)
+        for name, ok in checked_section(base):
+            say(name, ok)
+        for name, ok in forgery_gate(base):
             say(name, ok)
         for mode in project.MODES:
             for level in project.INVOLVEMENT_LEVELS:

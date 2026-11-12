@@ -89,13 +89,18 @@ SCOPE_KEYS = ["name", "source_pdf", "branch", "base_commit", "namespace", "sweep
 def scope_value(c, k):
     """A scope key's value for comparison. The involvement keys compare by meaning: a run pinned
     before they existed (no key) and a config that later states the default explicitly
-    ("involved", answer "default") are the same run."""
+    ("involved", answer "default") are the same run. The level and the mode are the RAW values `c`
+    states, never project.involvement/mode (which return the first pin's for any dict with a
+    rounds_dir, so both sides would agree and FAIL[pin], FAIL[config] and the re-pin refusal would
+    never fire: COMPAT-E M1)."""
     if k == "involvement":
-        return project.involvement(c)
+        v = c.get("involvement")
+        return "involved" if v is None else v
     if k == "involvement_answer":
         return c.get(k) or "default"
     if k == "mode":
-        return project.mode(c)
+        v = (c or {}).get("mode")
+        return "dev" if v is None else v
     return c.get(k)
 
 
@@ -286,10 +291,20 @@ def owner(rel, version=OWNERSHIP):
 
 
 def pinned_version(rounds_dir):
-    """The ownership version the run's pin records (1 for a pin written before versions)."""
+    """The ownership version the run began with: the first committed pin's when it records one (forgery review
+    2026-11 F4: a working pin lowered to `ownership: 2` must not turn DEVIATIONS.md into an author file), else the
+    working pin's (1 for a pin written before versions). A --selftest process reads the working pin unless
+    project._TERMS_FROM_PIN is set (A3; the fixtures lower the working pin to simulate an old run)."""
+    try:
+        if not project._in_selftest() or getattr(project, "_TERMS_FROM_PIN", False):
+            fp = project.first_pin(rounds_dir)
+            if isinstance(fp, dict) and "ownership" in fp:
+                return int(fp["ownership"])
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
+        pass
     try:
         return int(json.load(open(os.path.join(rounds_dir, PIN))).get("ownership", 1))
-    except (OSError, ValueError, TypeError, AttributeError):
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
         return OWNERSHIP
 
 
@@ -461,6 +476,13 @@ def _blob(audits, rev, path):
 
 
 def changed_files(audits, commit):
+    """The paths `commit` changed; for a merge, against its first parent (forgery review 2026-11 F5: diff-tree
+    lists nothing for a merge, so an evil merge was never judged; `-m --first-parent` prints both parents' diffs on
+    git 2.43, so the merge is diffed explicitly)."""
+    rcp, par = git(audits, "rev-list", "--parents", "-n", "1", commit)
+    if rcp == 0 and len(par.split()) > 2:
+        rc, out = git(audits, "diff", "--name-only", f"{commit}^1", commit)
+        return set(l for l in out.splitlines() if l.strip()) if rc == 0 else None
     rc, out = git(audits, "diff-tree", "--no-commit-id", "--name-only", "-r", commit)
     return set(l for l in out.splitlines() if l.strip()) if rc == 0 else None
 
@@ -793,10 +815,10 @@ def deviations_ownership_problems(cfg, audits=None, rounds_dir=None):
     if first_pin is not None:
         hist = list(hist[:first_pin + 1])     # the run begins at its first pin, as check() judges it
     ver = pinned_version(rounds_dir)
-    reverted = verified_reverts(audits, rounds_rel, rounds_dir, hist)[0] if (cfg or {}).get("mode") == "release" else {}
+    reverted = verified_reverts(audits, rounds_rel, rounds_dir, hist)[0] if project.mode(cfg) == "release" else {}
     exc = {h for h in reverted if "DEVIATIONS.md" in reverted[h][1]}
     # SWEEP-FIX D2: a commit whose FAIL[ownership] line on DEVIATIONS.md a fresh reviewer acknowledged (release)
-    acked = [l for l in (acknowledged(audits, rounds_dir) if (cfg or {}).get("mode") == "release" else {})
+    acked = [l for l in (acknowledged(audits, rounds_dir) if project.mode(cfg) == "release" else {})
              if l.startswith("[ownership] ") and "DEVIATIONS.md" in l]
     exc |= {h for _s, _f, h in hist if any(h[:11] in l for l in acked)}
     if ver >= OWNED_SINCE["DEVIATIONS.md"]:
@@ -809,7 +831,9 @@ def deviations_ownership_problems(cfg, audits=None, rounds_dir=None):
 
 def history(audits, rounds_rel):
     """[(subject, [paths relative to the rounds dir], commit)] for every commit touching the rounds dir."""
-    rc, out = git(audits, "log", "--format=@@%H %s", "--name-only", "--", rounds_rel)
+    # forgery review 2026-11 F5: -m --first-parent lists a merge's diff against its first parent under its own
+    # subject (which owns nothing), so an "evil merge" is judged; a linear history is listed exactly as before
+    rc, out = git(audits, "log", "-m", "--first-parent", "--format=@@%H %s", "--name-only", "--", rounds_rel)
     commits, cur = [], None
     for line in out.splitlines():
         if line.startswith("@@"):
@@ -907,7 +931,7 @@ def check(audits, cfg, round_name, agent_file=AGENT_FILE, rounds_dir=None, round
     frozen = []   # (prefix or exact path, set-aside subject), oldest first
     waived, wprobs = waivers(audits, rounds_dir, cfg)
     out += [("FAIL", f"[waiver] {w}") for w in wprobs]
-    reverted, rbad, rredo = verified_reverts(audits, rounds_rel, rounds_dir, hist) if (cfg or {}).get("mode") == "release" \
+    reverted, rbad, rredo = verified_reverts(audits, rounds_rel, rounds_dir, hist) if project.mode(cfg) == "release" \
         else ({}, [], {})
     # review R1/R2: a verified revert that undid an owner's decisions leaves FAIL[owner-redo] until a fresh adjudication
     out += [("FAIL", t) for t in owner_redo_problems(audits, rounds_rel, hist, rredo)]
@@ -3058,10 +3082,37 @@ def selftest():
         say(name, cond)
     for name, cond in _ack_controls():
         say(name, cond)
+    for name, cond in _merge_controls():
+        say(name, cond)
     say("DOC-FIX review #1: inside run_history_hidden(A) a fixture reads no `tool-patch TP<k> apply` commit of A (the "
         "run's audit record); another repository, and A outside it, still are read", _run_history_hidden_control())
+    for name, cond in _hand_edit_listing_controls():
+        say(name, cond)
     print("selftest:", "ok" if ok else "FAILED")
     return 0 if ok else 1
+
+
+def _hand_edit_listing_controls():
+    """[(name, ok)]: run_record_problems on an older run's records with a live hand edit (readers.live_hand_edits_at
+    stubbed): a delivered record (its "## Delivery-phase notes") must list the edit's id and diff sha256 under "Hand
+    edits of generated documents"; a prepared record need not (mutant DF13)."""
+    import readers
+    d = tempfile.mkdtemp(prefix="he-listing-")
+    keep = readers.live_hand_edits_at
+    try:
+        readers.live_hand_edits_at = lambda rd, name=None: [{"he": "HE1", "doc": "SUMMARY.md", "diff_sha256": "ab" * 32}]
+        delivered = "## Delivery-phase notes\n\n- none\n"
+        miss = run_record_problems(d, d, delivered)
+        listed = run_record_problems(d, d, delivered + "\n### Hand edits of generated documents\n\n#### HE1: SUMMARY.md\n"
+                                     f"\n- diff sha256 `{'ab' * 32}`\n")
+        prepared = run_record_problems(d, d, "## 1. What was run\n")
+        he = lambda ps: [p for p in ps if "hand edit HE1" in p]
+        return [("DOC-FIX: a delivered RUN_RECORD.md that does not list a live hand edit (id and diff sha256) is a "
+                 "problem; one that lists it, and a prepared record, are not (mutant DF13)",
+                 len(he(miss)) == 1 and he(listed) == [] and he(prepared) == [])]
+    finally:
+        readers.live_hand_edits_at = keep
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def _ack_controls():
@@ -3394,6 +3445,57 @@ def _run_history_hidden_control():
     finally:
         shutil.rmtree(a, ignore_errors=True)
         shutil.rmtree(b, ignore_errors=True)
+
+
+def _merge_controls():
+    """Forgery review 2026-11 F5 (DESIGN-E fix 5): an "evil merge" that changes owned records is judged under its own
+    subject (history lists its diff against the first parent; changed_files diffs it against its first parent), so it
+    is misowned and its exact inverse is a verified revert; an honest merge is not; a linear history lists exactly as
+    the old walk did."""
+    d = tempfile.mkdtemp(prefix="merge-walk-")
+    out = []
+    try:
+        G = lambda *a: subprocess.run(["git", "-C", d, *a], capture_output=True, text=True)
+        G("init", "-q"); G("config", "user.email", "t@t"); G("config", "user.name", "t")
+        rd = os.path.join(d, "P")
+        os.makedirs(os.path.join(rd, "R")); os.makedirs(os.path.join(rd, "stops", "S1"))
+        W = lambda rel, t: open(os.path.join(rd, rel), "w").write(t)
+        W("VACUOUS.md", "| # | result |\n|---|---|\n| 1 | Lemma 1 |\n"); W("R/ADOPTED.md", "ADOPT 1\n")
+        W("stops/S1/CLOSED.json", '{"by": "human"}\n'); W("notes.txt", "a\n")
+        G("add", "-A"); G("commit", "-qm", "adjudicate R")
+        W("notes.txt", "b\n"); G("add", "-A"); G("commit", "-qm", "work")
+        old_walk = G("log", "--format=@@%H %s", "--name-only", "--", "P").stdout
+        new_walk = G("log", "-m", "--first-parent", "--format=@@%H %s", "--name-only", "--", "P").stdout
+        main_ = G("symbolic-ref", "--short", "HEAD").stdout.strip()
+        G("checkout", "-qb", "side"); W("side.txt", "s\n"); G("add", "-A"); G("commit", "-qm", "side work")
+        G("checkout", "-q", main_); W("other.txt", "o\n"); G("add", "-A"); G("commit", "-qm", "main work")
+        G("merge", "-q", "--no-ff", "--no-commit", "side")
+        W("VACUOUS.md", ""); W("R/ADOPTED.md", ""); W("stops/S1/CLOSED.json", '{"by": "cure"}\n')
+        G("add", "-A"); G("commit", "-qm", "merge side")
+        evil = G("rev-parse", "HEAD").stdout.strip()
+        G("checkout", "-qb", "side2", f"{evil}^1"); W("side2.txt", "s\n"); G("add", "-A"); G("commit", "-qm", "side 2")
+        G("checkout", "-q", main_); G("merge", "-q", "--no-ff", "-m", "merge side2", "side2")
+        honest = G("rev-parse", "HEAD").stdout.strip()
+        mo = misowned(d, "P", rd, evil)
+        hl = history(d, "P")
+        hist = {h: files for _s, files, h in hl}
+        for rel in ("VACUOUS.md", "R/ADOPTED.md", "stops/S1/CLOSED.json"):
+            G("checkout", f"{evil}^1", "--", f"P/{rel}")
+        G("add", "-A"); G("commit", "-qm", f"revert {evil[:11]} (stop S2)")
+        rev = G("rev-parse", "HEAD").stdout.strip()
+        out.append(("F5: a merge that empties VACUOUS.md and ADOPTED.md and rewrites a stop record is judged under its own "
+                    "subject: misowned, listed by the history walk; an honest merge is not misowned; a linear history "
+                    "lists exactly as the old walk",
+                    mo == {"P/VACUOUS.md", "P/R/ADOPTED.md", "P/stops/S1/CLOSED.json"}
+                    and {"VACUOUS.md", "R/ADOPTED.md"} <= set(hist.get(evil, ())) and "other.txt" not in hist[evil]
+                    and len(hl) == len({h for _s, _f, h in hl})
+                    and misowned(d, "P", rd, honest) == set() and changed_files(d, honest) == {"P/side2.txt"}
+                    and old_walk == new_walk and old_walk.count("@@") == 2))
+        out.append(("F5: the exact inverse of the evil merge (against its first parent) is a verified revert",
+                    revert_problem(d, "P", rd, rev, evil) is None))
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+    return out
 
 
 def _reader_fix_controls():

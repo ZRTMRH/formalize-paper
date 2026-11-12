@@ -33,7 +33,10 @@ sudo apt install -y git python3 curl \
   `curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh`
 - **Claude Code.** Install it with `curl -fsSL https://claude.ai/install.sh | bash` (other methods:
   <https://code.claude.com/docs/en/setup>), open a new terminal, and log in: run `claude`, then
-  follow the login prompt. Claude Code needs a paid plan; a run spawns dozens of subagents, so a
+  follow the login prompt. If `ANTHROPIC_API_KEY` is set in your shell (`echo $ANTHROPIC_API_KEY`),
+  Claude Code may use that key, billed per token, instead of your plan: `unset ANTHROPIC_API_KEY`,
+  remove it from your shell's startup file, and check with `/status` inside Claude Code which
+  account is in use. Claude Code needs a paid plan; a run spawns dozens of subagents, so a
   Claude Max plan is recommended. Parallel runs share the subscription's usage limits:
   check that enough of the weekly limit is left before starting, and expect more 5-hour pauses
   when several papers run at once.
@@ -518,5 +521,6 @@ is installed system-wide, and nothing is pushed.
 - **`ALL SELFTESTS` is not ok.** Read the FAIL line. The usual cause is a missing tool from step 1
   (`git`, `python3`, `lake`). No selftest compiles a PDF.
 - **`lake` errors about the toolchain.** Run `lake exe cache get` again in the project.
+- **Usage is billed to an API account, not your plan.** See `ANTHROPIC_API_KEY` in section 1.
 - **`/formalize-paper` says the apparatus is not installed.** Step 3 was skipped, or Claude Code was
   started outside the project root.

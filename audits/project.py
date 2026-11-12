@@ -13,7 +13,7 @@ names the wrong paper is worse than no prompt.
 """
 import sys
 sys.dont_write_bytecode = True   # stale bytecode would run code no file shows
-import datetime, fnmatch, functools, glob, hashlib, io, json, os, re, subprocess
+import collections, datetime, fnmatch, functools, glob, hashlib, io, json, os, re, subprocess, time
 
 AUDITS = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(AUDITS)
@@ -92,10 +92,51 @@ def libraries(cfg):
 INVOLVEMENT_LEVELS = ("involved", "statements-only", "hands-off")
 
 
+_TERMS_CACHE = {}
+_TERMS_FROM_PIN = False     # selftest only (A3): integrity.pinned_version reads the first pin in a --selftest process
+
+
+def intake_terms(cfg):
+    """The config the run's FIRST committed pin recorded (first_pin(...)["config"]), or {}: the intake fixes the
+    involvement level and the mode (forgery review 2026-11 F4, DESIGN-E2 fix 3). Read in a real run, or in a
+    --selftest process only when the cfg opts in (`_terms_from_pin`, A3); {} with no rounds dir, no committed pin or
+    an unreadable one. Cached per rounds dir only once a pin was found: a process that commits the first pin and asks
+    again gets it."""
+    cfg = cfg or {}
+    if _in_selftest() and not cfg.get("_terms_from_pin"):
+        return {}
+    rd = cfg.get("rounds_dir")
+    if not rd:
+        return {}
+    try:
+        key = os.path.realpath(os.path.join(REPO, str(rd)))
+        if key in _TERMS_CACHE:
+            return _TERMS_CACHE[key]
+        if not os.path.isdir(key):
+            return {}
+        c = (first_pin(key) or {}).get("config")
+    except Exception:       # noqa: BLE001 -- unreadable: the working config, as before
+        return {}
+    if not isinstance(c, dict):
+        return {}
+    _TERMS_CACHE[key] = c
+    return c
+
+
+def terms_differ(cfg):
+    """[(key, working value, first pin's value)] for the intake terms the working config states differently from
+    the first committed pin (the value every check uses)."""
+    first = intake_terms(cfg)
+    return [(k, (cfg or {}).get(k), first.get(k)) for k in ("involvement", "mode")
+            if k in first and (cfg or {}).get(k) != first.get(k)]
+
+
 def involvement(cfg):
-    """The configured involvement level; "involved" when the key is absent. An invalid value is
-    returned as it is (problems() reports it; callers refuse it rather than guess)."""
-    v = cfg.get("involvement")
+    """The involvement level: the first committed pin's when it records one (intake_terms), else the configured
+    one; "involved" when the key is absent. An invalid value is returned as it is (problems() reports it; callers
+    refuse it rather than guess)."""
+    first = intake_terms(cfg)
+    v = first.get("involvement") if "involvement" in first else cfg.get("involvement")
     return "involved" if v is None else v
 
 
@@ -265,8 +306,8 @@ CAUSES = {
     # B6 (U2 §7, F13): the operator's missing-theory decision line (hypotheses.missing_theory)
     "missing-theory": ("document", "a missing-theory line of RUN_LOG.md is not canonical, lacks the paper's quote or "
                                    "a configured library's search, comes from the wrong level, or names a hypothesis "
-                                   "that is not in its result's assumption list: reword the line (or log a corrected "
-                                   "one after it), or take the hypothesis as a binder of the result, commit, re-run "
+                                   "that is not in its result's assumption list: log a corrected line after it (a "
+                                   "logged line is never reworded), or take the hypothesis as a binder of the result, commit, re-run "
                                    "Phase 0"),
     "baseline": ("mechanical", "the tree baseline could not be saved"),
     # an adjudicator-owned record (PAPER_DEFECTS/SKIPPED/VACUOUS.md) cites what does not exist: F, it
@@ -351,7 +392,10 @@ MODES = ("release", "dev")
 
 
 def mode(cfg):
-    v = (cfg or {}).get("mode")
+    """The run mode: the first committed pin's when it records one (intake_terms), else the config's; dev when
+    absent."""
+    first = intake_terms(cfg)
+    v = first.get("mode") if "mode" in first else (cfg or {}).get("mode")
     return "dev" if v is None else v
 
 
@@ -621,11 +665,12 @@ CLOSER = {c: form for form, cs in _CLOSER_GROUPS.items() for c in cs}
 
 def closer(code, round_name="<R>"):
     """The command that closes a release stop of `code` (python3 audits/<form>, the round filled in),
-    "@check" (the check recorded at open), or None (kind human or disclose: no self-cure)."""
+    "@check" (the check recorded at open), or None (kind human or disclose: no self-cure). Total: a round of None
+    reads as "<R>" (a stop opened with no --round, whose closer has no {R}, once crashed here: STATUS A1)."""
     if release_kind(code) in ("human", "disclose", "precondition"):
         return None
     form = CLOSER.get(code, "@check")
-    return form if form == "@check" else "python3 audits/" + form.replace("{R}", round_name)
+    return form if form == "@check" else "python3 audits/" + form.replace("{R}", round_name or "<R>")
 
 
 def release_cure(cfg, codes):
@@ -722,10 +767,52 @@ def selftest_release(script, output, rc):
 ROUND_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-(?:full-)?[0-9a-f]{7,40}$")
 BLANK = "<<"
 
-# The environment names a paper's numbered results may carry, as they appear in the index table.
-RESULT_KINDS = ["Definition", "Lemma", "Theorem", "Proposition", "Corollary", "Claim", "Remark",
-                "Example", "Conjecture", "Fact", "Observation", "Construction"]
+# Words that name a paper result in PROSE and in record cells ("Lemma 2.1" in a SKIPPED row, a defect's `where`
+# cell, a lane's item), matched case-insensitively. The INDEX is not read through this list: it has its own, INDEX_KINDS
+# (index_table below; E2E-FIX2c). This list only helps the prose readers find a
+# label; "Hypothesis", "Assumption" and "Condition" stay out of it on purpose, because records use those words for
+# Lean hypotheses ("hypothesis `hW`"), which must keep being read as declaration items. Multi-word kinds come first.
+RESULT_KINDS = ["Open problem", "Open question", "Definition", "Lemma", "Theorem", "Proposition", "Corollary",
+                "Claim", "Remark", "Example", "Conjecture", "Fact", "Observation", "Construction", "Problem",
+                "Question", "Exercise", "Algorithm", "Axiom"]
 RESULT_KINDS_RE = "|".join(RESULT_KINDS)
+
+# The index table: the line reader of 99d928e (scope.INDEX_ROW), its label words widened only by E2E finding #3
+# (the e2e run's "Problem 1.1" and "Problem 6.4" rows were skipped by every reader, with no warning): a row is
+# `| <kind> <rest of label> | <rest> |` at column 0, <kind> one of INDEX_KINDS, case as written. Every other `|…|…|`
+# line that is not a separator or a table's header row is returned as skipped, and the index check names them in
+# one NOTE (E2E-FIX2c: never dropped without a word; a formula line in a docstring, `|f x - f y| ≤ C * |x - y|`, is
+# then a NOTE, never a failure).
+INDEX_KINDS = ["Definition", "Lemma", "Theorem", "Proposition", "Corollary", "Claim", "Remark", "Example",
+               "Conjecture", "Fact", "Observation", "Construction", "Problem", "Question"]
+INDEX_ROW = re.compile(rf"^\|\s*((?:{'|'.join(INDEX_KINDS)})\s[^|]*?)\s*\|\s*(.*?)\s*\|\s*$")
+INDEX_LINE = re.compile(r"^\|\s*([^|]*?)\s*\|\s*(.*?)\s*\|\s*$")
+TABLE_SEP = re.compile(r"^\|[\s:|-]*-[\s:|-]*$")
+
+
+def index_table(text):
+    """([(label, rest, line)], [skipped line]) of an index file's text: every result row (INDEX_ROW), in order, and
+    every other `|…|…|` line that is not a separator or a header row (the row above a separator, or one labelled
+    "Paper"). For a row 99d928e read, `label` and `rest` are exactly what it read."""
+    lines = (text or "").splitlines()
+    rows, skipped = [], []
+    for i, line in enumerate(lines):
+        s = line.rstrip()
+        m = INDEX_ROW.match(s)
+        if m:
+            rows.append((m.group(1).strip(), m.group(2), s))
+            continue
+        m = INDEX_LINE.match(s)
+        nxt = lines[i + 1].rstrip() if i + 1 < len(lines) else ""
+        if m and not TABLE_SEP.match(s) and not TABLE_SEP.match(nxt) and m.group(1).strip().lower() != "paper":
+            skipped.append(s)
+    return rows, skipped
+
+
+def index_rows(text):
+    """[(label, rest)] of the index table's result rows (index_table): THE reader of the index, for the freeze, the
+    scope, the sheet, the coverage table, the statuses and the README alike."""
+    return [(lab, rest) for lab, rest, _l in index_table(text)[0]]
 
 
 DECISIONS = ("ADOPT", "REJECT", "DEFER", "QUESTION", "REVOTE NEEDED", "UNCOVERED")
@@ -809,7 +896,14 @@ TEST_MODE_ENV = "FORMALIZE_TEST_MODE"
 
 
 def _in_selftest(argv=None):
-    return "--selftest" in (sys.argv if argv is None else argv)
+    """Is this process a selftest: its command IS `--selftest` (the first argument once `--project NAME` is set
+    aside), never a real command that also carries the flag (attack review E H1: `--deliver --selftest` delivered
+    under the working config's level and the test tier's variables)."""
+    a = list(sys.argv if argv is None else argv)[1:]
+    if "--project" in a:
+        i = a.index("--project")
+        a = a[:i] + a[i + 2:]
+    return a[:1] == ["--selftest"]
 
 
 def _test_mode(argv=None, env=None):
@@ -1027,8 +1121,9 @@ def log_append(cfg, section, text, replace=False):
     matched by its exact name ("## Stops" never matches "## Stops resolved"), optionally followed by
     a parenthesised date; a heading line in `text` is refused (it would start a section of its own).
     The supported way to write the log from a script or a command, so that no operator improvises a
-    `python3 - <<EOF` edit (which asks for permission in Claude Code's default mode). Returns the
-    log's path."""
+    `python3 - <<EOF` edit (which asks for permission in Claude Code's default mode). A missing rounds
+    directory is created when it is the project's audits/<name> (Stage 1 step 5 is the first write
+    there: STATUS A4), else ValueError and nothing is written. Returns the log's path."""
     path = os.path.join(REPO, cfg["rounds_dir"], "RUN_LOG.md")
     log = open(path, encoding="utf-8").read() if os.path.exists(path) else f"# Run log — {cfg.get('name', '')}\n"
     body = "\n".join(l.rstrip() for l in str(text).strip("\n").splitlines()) + "\n"
@@ -1055,6 +1150,18 @@ def log_append(cfg, section, text, replace=False):
             log = log[:cs.start()] + block + "\n" + log[cs.start():]
         else:
             log = log.rstrip("\n") + "\n\n" + block
+    folder = os.path.dirname(path)
+    if not os.path.isdir(folder):
+        top = os.path.realpath(os.path.join(REPO, "audits"))
+        if not os.path.realpath(folder).startswith(top + os.sep):
+            raise ValueError(f"rounds_dir {cfg['rounds_dir']!r} does not exist and is not under audits/: "
+                             f"not created")
+        if os.path.normpath(str(cfg["rounds_dir"])) != os.path.join("audits", str(cfg.get("name", ""))):
+            # compat review L5 (batch A): only the rounds directory the config template names (audits/<name>) is
+            # created; a misspelt one fails as before, never a new empty log beside the run's
+            raise ValueError(f"rounds_dir {cfg['rounds_dir']!r} does not exist and is not audits/{cfg.get('name')} "
+                             f"(project_template.json's rounds_dir): not created")
+        os.makedirs(folder, exist_ok=True)
     open(path, "w", encoding="utf-8").write(log)
     return path
 
@@ -1585,6 +1692,428 @@ def scratch(name):
     raise ValueError("no free scratch directory name")
 
 
+# The adjudicator's two long checks in the background (batch C, C3; fix round 1: COMPAT-C H1, ATTACK-C M1/M2,
+# L2/L4/L5). Phase 0 and the coverage roll-up can each run longer than 10 minutes. The operator starts them with
+# `project.py --adjudicator-checks --round <R>` before it spawns the adjudicator; the adjudicator waits with
+# `project.py --wait-adjudicator-checks --round <R>`, which also verifies the log. Both are plain
+# `python3 audits/project.py ...` commands, covered by the project's permission rule for project.py (a
+# `bash -c '{...} > log'` and a `timeout ... until tail` loop are not). Race-free by construction:
+#   - the start returns only once the detached worker owns the lock and the new log's header is in place (written
+#     to a temporary file and renamed), so an adjudicator spawned after it never reads an older log;
+#   - one lock for every round (.formalization-work/adjudicator-checks.lock): two Phase 0 runs of this mechanism
+#     never run at once (a second start is refused while the first runs; a dead holder's lock is taken over);
+#   - the adjudicator's own run (`--own`) writes its own file, adjudicator-<R>-own.log, never the operator's;
+#   - the worker computes the commands itself (`--statements` from the round's TARGET.json `_meta.kind`), records
+#     them, both HEADs at the start and again before END, and every exit code; the verifier accepts the log only
+#     when it ends in END, both HEAD pairs equal the current HEADs, the commands and Phase 0's `mode:` line match
+#     TARGET.json, Phase 0 printed its verdict line (GREEN exit 0, RED exit 1) and the coverage roll-up finished
+#     (exit 0, or exit 1 after its summary line: outstanding Fails or scope drift to adjudicate; E2E fix 1).
+#     Anything else is stale: the adjudicator runs the checks itself (--own).
+ADJ_LOCK = "adjudicator-checks.lock"
+# Test hook, honoured only by a --selftest process (like TEST_MODE_ENV): JSON {repo, audits, name, rounds_dir,
+# stub, poll}; `stub` replaces both scripts by one fake script. A real verify (no --selftest) expects the real
+# commands, so a stubbed log is never accepted as current.
+ADJ_TEST_ENV = "FORMALIZE_ADJ_CHECKS_TEST"
+# the commands the selftest's background-checks children run with a trailing --selftest (the hook only; _in_selftest
+# stays false in them)
+ADJ_HOOK_CMDS = ("--adjudicator-checks", "--wait-adjudicator-checks", "--adjudicator-checks-worker")
+ADJ_WAIT = 540          # the default bound of one wait call, in seconds (a Bash call allows up to 600)
+ADJ_POLL = 15
+
+
+def _adj_ctx(name=None, argv=None, env=None):
+    env = os.environ if env is None else env
+    t = env.get(ADJ_TEST_ENV)
+    a_ = sys.argv if argv is None else argv
+    if t and (_in_selftest(a_) or (a_[1:2] and a_[1] in ADJ_HOOK_CMDS and "--selftest" in a_[2:])):
+        d = json.loads(t)
+        return {"repo": d["repo"], "audits": d["audits"], "name": d["name"], "rounds_dir": d["rounds_dir"],
+                "stub": d.get("stub"), "poll": float(d.get("poll", ADJ_POLL)), "grace": float(d.get("grace", 5)),
+                "test": True}
+    cfg = select(name)[0]
+    return {"repo": REPO, "audits": AUDITS, "name": cfg["name"], "rounds_dir": cfg["rounds_dir"], "stub": None,
+            "poll": ADJ_POLL, "test": False}
+
+
+def _adj_commands(ctx, round_name):
+    """(kind, [(label, the command as the log and the prompt show it, argv)]); ValueError for a bad round."""
+    import shlex
+    if not (ROUND_RE.match(round_name or "") and "/" not in round_name):
+        raise ValueError(f"--round {round_name!r} is not a round name (<DATE>-<HASH> or <DATE>-full-<HASH>)")
+    tj = os.path.join(ctx["repo"], ctx["rounds_dir"], round_name, "TARGET.json")
+    try:
+        kind = json.load(open(tj, encoding="utf-8"))["_meta"]["kind"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise ValueError(f"no readable _meta.kind in {os.path.relpath(tj, ctx['repo'])} ({type(e).__name__}): is "
+                         f"{round_name} this project's round?")
+    p0 = ["--readonly"] + (["--statements"] if kind == "statements" else []) + ["--project", ctx["name"]]
+    out = []
+    for label, script, args in (("phase0", "phase0", p0), ("coverage", "audit_coverage", [ctx["rounds_dir"]])):
+        if ctx["stub"]:
+            argv = [sys.executable, ctx["stub"], script, *args]
+            shown = shlex.join(["python3", ctx["stub"], script, *args])
+        else:
+            argv = [sys.executable, "-B", os.path.join(ctx["audits"], script + ".py"), *args]
+            shown = shlex.join(["python3", f"audits/{script}.py", *args])
+        out.append((label, shown, argv))
+    return kind, out
+
+
+def _adj_mode(kind):
+    return "read-only" + (", statement round" if kind == "statements" else "")
+
+
+def _adj_heads(ctx):
+    def h(d):
+        r = subprocess.run(["git", "-C", d, "rev-parse", "HEAD"], capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else "(unreadable)"
+    return h(ctx["repo"]), h(ctx["audits"])
+
+
+def _adj_paths(ctx, round_name, own):
+    fw = os.path.join(ctx["repo"], FW)
+    if os.path.islink(fw):
+        raise ValueError(f"{fw} is a symbolic link; it must be a directory inside the project")
+    return (os.path.join(fw, f"adjudicator-{round_name}{'-own' if own else ''}.log"),
+            os.path.join(fw, ADJ_LOCK))
+
+
+def _adj_alive(pid):
+    try:
+        pid = int(pid)
+        os.kill(pid, 0)
+    except (ProcessLookupError, ValueError, TypeError, OverflowError):
+        return False
+    except PermissionError:
+        return True
+    cmd = f"/proc/{pid}/cmdline"
+    if os.path.isdir("/proc/self"):
+        try:
+            return b"adjudicator-checks" in open(cmd, "rb").read()    # a zombie or a reused pid is not ours
+        except OSError:
+            return False
+    return _adj_alive_noproc(pid)
+
+
+def _adj_alive_noproc(pid):
+    """_adj_alive's command-line test without /proc (macOS branch): the arguments from sysctl KERN_PROCARGS2, as
+    lanecheck reads them (Codex's macOS sandbox allows it for this user's processes, not ps); elsewhere from ps.
+    A process whose arguments cannot be read (a zombie, exited meanwhile) is not ours, as on Linux."""
+    if sys.platform == "darwin":
+        import lanecheck
+        try:
+            argv = lanecheck._procargs(pid)[0]
+        except (OSError, ValueError, AttributeError):
+            return False
+        return any(b"adjudicator-checks" in a for a in argv)
+    r = subprocess.run(["ps", "-ww", "-o", "args=", "-p", str(pid)], capture_output=True, text=True)
+    return r.returncode == 0 and "adjudicator-checks" in r.stdout
+
+
+def _adj_lock(lock):
+    """The lock's record, None (no lock), or {} (unreadable: being written, or garbage)."""
+    try:
+        return json.load(open(lock, encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        return {}
+
+
+def _adj_held(lock):
+    """The live holder's record, or None. An unreadable lock younger than a minute is held (a start is writing
+    it); a lock whose process is gone is not."""
+    d = _adj_lock(lock)
+    if d is None:
+        return None
+    if not d.get("pid"):
+        try:
+            young = time.time() - os.path.getmtime(lock) < 60
+        except OSError:
+            return None
+        return {"round": "?", "own": False, "pid": "?"} if young else None
+    return d if _adj_alive(d["pid"]) else None
+
+
+def _adj_write_lock(lock, rec):
+    tmp = f"{lock}.tmp-{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(rec, f)
+    os.replace(tmp, lock)
+
+
+def _adj_release(lock, token):
+    d = _adj_lock(lock)
+    if d is not None and d.get("id") == token:
+        try:
+            os.remove(lock)
+        except OSError:
+            pass
+
+
+def _adj_cmd(what, round_name, own):
+    return f"python3 audits/project.py --{what} --round {round_name}{' --own' if own else ''}"
+
+
+def adj_start(ctx, round_name, own=False, foreground=False):
+    """Start the checks (detached; with `foreground`, in this process). 0 started (or, foreground, finished), 1
+    refused (another run holds the lock), 2 bad call."""
+    import secrets
+    try:
+        kind, cmds = _adj_commands(ctx, round_name)
+        log, lock = _adj_paths(ctx, round_name, own)
+    except ValueError as e:
+        print(f"FAIL[tool-call] {e}")
+        return 2
+    os.makedirs(os.path.dirname(lock), exist_ok=True)
+    if not ctx["test"]:
+        _exclude(FW + "/")
+    token = secrets.token_hex(8)
+    rec = {"id": token, "pid": os.getpid(), "round": round_name, "own": own,
+           "log": os.path.relpath(log, ctx["repo"]), "since": time.time()}
+    for _ in range(2):
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            held = _adj_held(lock)
+            if held is not None:
+                print(f"FAIL[tool-call] the adjudicator's checks are already running (round {held.get('round')}, "
+                      f"{'own' if held.get('own') else 'operator'} run, pid {held.get('pid')}): two Phase 0 runs "
+                      f"never run at once. Wait for them: "
+                      f"`{_adj_cmd('wait-adjudicator-checks', held.get('round'), held.get('own'))}`, then start again")
+                return 1
+            try:
+                os.remove(lock)       # its process is gone: take it over
+            except FileNotFoundError:
+                pass
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(rec, f)
+        break
+    else:
+        print("FAIL[tool-call] could not take the adjudicator-checks lock; run the same command again")
+        return 1
+    try:
+        head, aud = _adj_heads(ctx)
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        header = ([f"ADJUDICATOR CHECKS round {round_name} ({'own' if own else 'operator'} run) id {token} "
+                   f"started {stamp}", f"HEAD {head}", f"AUDITS {aud}", f"KIND {kind} (TARGET.json _meta.kind)"]
+                  + [f"CMD {label}: {shown}" for label, shown, _ in cmds])
+        tmp = f"{log}.tmp-{token}"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write("\n".join(header) + "\n")
+        os.replace(tmp, log)          # a reader sees the old log or this one, never a mix
+        if foreground:
+            return _adj_work(ctx, round_name, own, token, log, lock)
+        args = [sys.executable, "-B", os.path.abspath(__file__), "--adjudicator-checks-worker", "--round", round_name,
+                "--id", token, *(["--own"] if own else []), *(["--selftest"] if ctx["test"] else []),
+                *([] if ctx["test"] else ["--project", ctx["name"]])]
+        p = subprocess.Popen(args, cwd=ctx["repo"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+        end = time.time() + 30
+        while time.time() < end and (_adj_lock(lock) or {}).get("pid") != p.pid and p.poll() is None:
+            time.sleep(0.05)
+        if (_adj_lock(lock) or {}).get("pid") != p.pid:
+            if p.poll() is None:
+                p.kill()
+            _adj_release(lock, token)
+            print(f"FAIL[tool-call] the background checks did not start (worker exit {p.poll()}); run the same "
+                  f"command again")
+            return 1
+    except BaseException:
+        _adj_release(lock, token)
+        raise
+    print(f"started: Phase 0 ({_adj_mode(kind)}) and the coverage roll-up for round {round_name}, in the "
+          f"background, into {os.path.relpath(log, ctx['repo'])}. Change nothing in the project or the audits "
+          f"repository until they end. Wait for them with `{_adj_cmd('wait-adjudicator-checks', round_name, own)}`")
+    return 0
+
+
+def _adj_work(ctx, round_name, own, token, log=None, lock=None):
+    """The worker: runs the two commands, appending to the log the start already wrote. Ends with both HEADs,
+    every exit code and END, also when it crashes (a crash is never a bare END)."""
+    if log is None:
+        log, lock = _adj_paths(ctx, round_name, own)
+        rec = _adj_lock(lock) or {}
+        if rec.get("id") != token or rec.get("round") != round_name or bool(rec.get("own")) != own:
+            print("FAIL[tool-call] --adjudicator-checks-worker runs only as started by --adjudicator-checks")
+            return 2
+        _adj_write_lock(lock, dict(rec, pid=os.getpid()))
+    rc_all = 0
+    try:
+        with open(log, "a", encoding="utf-8") as f:
+            try:
+                kind, cmds = _adj_commands(ctx, round_name)
+                for label, shown, argv in cmds:
+                    f.write(f"=== {label}: {shown}\n")
+                    f.flush()
+                    rc = subprocess.run(argv, cwd=ctx["repo"], stdin=subprocess.DEVNULL, stdout=f,
+                                        stderr=subprocess.STDOUT).returncode
+                    f.write(f"\n{label} exit {rc}\n")
+                    f.flush()
+                    rc_all = rc_all or rc
+            except Exception as e:        # noqa: BLE001 -- recorded in the log, which then never verifies
+                f.write(f"\nworker crashed: {' '.join(f'{type(e).__name__}: {e}'.split())[:300]}\nworker exit 1\n")
+                rc_all = 1
+            head, aud = _adj_heads(ctx)
+            f.write(f"HEAD {head} (end)\nAUDITS {aud} (end)\nEND\n")
+    finally:
+        _adj_release(lock, token)
+    return 0 if rc_all == 0 else 1
+
+
+def adj_verify(ctx, round_name, own, text):
+    """(reasons the log is stale -- empty when it is current, phase 0's verdict line or None, what the coverage
+    roll-up found or None). Each check is judged by its own documented exits (E2E fix 1): Phase 0 exits 0 after
+    `PHASE 0: GREEN` and 1 after `PHASE 0: RED ...` (both current: the adjudicator reads a RED and stops on it);
+    audit_coverage.py exits 0, or 1 after its summary line when the record holds an outstanding Fail or a scope
+    drift (both current: the findings are what the adjudicator decides), see audit_coverage.finished. A crash
+    (run_main's FAIL[uncoded] line, a traceback, no verdict or summary line), a signal, exit 2 or any code a
+    check never returns is stale."""
+    lines = text.splitlines()
+    why = []
+    first = lines[0] if lines else ""
+    if not first.startswith(f"ADJUDICATOR CHECKS round {round_name} ({'own' if own else 'operator'} run) id "):
+        why.append("its first line does not name this round and run")
+    if lines[-1:] != ["END"]:
+        why.append("it does not end in END")
+    try:
+        kind, cmds = _adj_commands(ctx, round_name)
+    except ValueError as e:
+        return [str(e)], None, None
+    head, aud = _adj_heads(ctx)
+    for key, now in (("HEAD", head), ("AUDITS", aud)):
+        start = [l for l in lines[1:4] if l.startswith(key + " ") and not l.endswith(" (end)")]
+        end = [l for l in lines if l.startswith(key + " ") and l.endswith(" (end)")]
+        if start != [f"{key} {now}"]:
+            why.append(f"its {key} line at the start is not the current {key} {now}")
+        if end != [f"{key} {now} (end)"]:
+            why.append(f"its {key} line at the end is not the current {key} {now}")
+    if f"KIND {kind} (TARGET.json _meta.kind)" not in lines[:5]:
+        why.append(f"its KIND line is not TARGET.json's {kind!r}")
+    p0 = cov = None
+    for label, shown, _ in cmds:
+        if f"CMD {label}: {shown}" not in lines or lines.count(f"=== {label}: {shown}") != 1:
+            why.append(f"it did not run exactly `{shown}`")
+            continue
+        sec = lines[lines.index(f"=== {label}: {shown}") + 1:]
+        ex = [l for l in sec if re.fullmatch(rf"{label} exit -?\d+", l)]
+        if not ex:
+            why.append(f"no `{label} exit` line: it crashed or was killed")
+            continue
+        rc = int(ex[0].rsplit(" ", 1)[1])
+        sec = sec[:sec.index(ex[0])]
+        if label == "phase0":
+            modes = [l for l in sec if l.startswith("# Phase 0 for project ")]
+            want = f"; mode: {_adj_mode(kind)}"
+            if len(modes) != 1 or not modes[0].endswith(want):
+                why.append(f"Phase 0's mode line is not `...{want}` (TARGET.json kind {kind!r}): "
+                           + (modes[0] if modes else "none"))
+            res = [l for l in sec if re.fullmatch(r"PHASE 0: (GREEN|RED\b.*)", l)]
+            p0 = res[-1] if res else None
+            if p0 is None or (p0 == "PHASE 0: GREEN") != (rc == 0) or (p0 != "PHASE 0: GREEN" and rc != 1):
+                why.append(f"Phase 0 printed no verdict matching its exit code {rc} (a crash)")
+            elif any(l.startswith("FAIL[uncoded] phase0.py ") for l in sec):     # its own crash, not a child's
+                why.append(f"Phase 0 crashed (FAIL[uncoded] phase0.py), exit {rc}")
+        else:
+            import audit_coverage
+            ok_, cov = audit_coverage.finished(rc, sec)
+            if not ok_:
+                why.append(cov)
+                cov = None
+    if any(l.startswith("worker crashed:") for l in lines):
+        why.append("the worker crashed")
+    return why, p0, cov
+
+
+def adj_wait(ctx, round_name, own=False, timeout=ADJ_WAIT):
+    """Wait (at most `timeout` seconds) for the log's END, then verify it. 0 current (read the log), 1 stale (run
+    the checks yourself), 3 still running (wait again), 2 bad call."""
+    try:
+        _adj_commands(ctx, round_name)
+        log, lock = _adj_paths(ctx, round_name, own)
+    except ValueError as e:
+        print(f"FAIL[tool-call] {e}")
+        return 2
+    rel = os.path.relpath(log, ctx["repo"])
+    own_cmds = (f"`{_adj_cmd('adjudicator-checks', round_name, True)}`, then "
+                f"`{_adj_cmd('wait-adjudicator-checks', round_name, True)}`")
+    deadline = time.monotonic() + timeout
+    grace = ctx.get("grace", 5)
+    while True:
+        try:
+            text = open(log, encoding="utf-8").read()
+        except FileNotFoundError:
+            text = None
+        if text is not None and text.splitlines()[-1:] == ["END"]:
+            break
+        m = re.match(r"ADJUDICATOR CHECKS round \S+ \(\w+ run\) id (\w+) ", text or "")
+        held = _adj_held(lock)
+        if text is None or held is None or m is None or held.get("id") != m.group(1):
+            if grace > 0:         # a start run in the background may not have written its header yet
+                time.sleep(min(ctx["poll"], grace))
+                grace -= ctx["poll"]
+                continue
+            gone = ("there is no log" if text is None else
+                    "it has no END and no run is writing it (the run was killed, or the log is not this run's)")
+            print(f"STALE {rel}: {gone}. Run the checks yourself: "
+                  + (own_cmds if not own else f"`{_adj_cmd('adjudicator-checks', round_name, True)}` again, then the same wait"))
+            return 1
+        left = deadline - time.monotonic()
+        if left <= 0:
+            last = (text.splitlines() or ["?"])[-1][:120]
+            print(f"WAIT: still running (pid {held.get('pid')}; last line: {last}). Run the same command again: "
+                  f"`{_adj_cmd('wait-adjudicator-checks', round_name, own)}`")
+            return 3
+        time.sleep(min(ctx["poll"], left))
+    why, p0, cov = adj_verify(ctx, round_name, own, text)
+    if why:
+        print(f"STALE {rel}: " + "; ".join(why) + ". Do not use it. Run the checks yourself: "
+              + (own_cmds if not own else f"`{_adj_cmd('adjudicator-checks', round_name, True)}` again, then the same wait"))
+        return 1
+    print(f"current: {rel} ended; both HEADs unchanged since its start, the commands and Phase 0's mode as "
+          f"TARGET.json says. Its result: {p0}; the coverage roll-up finished: {cov}. Read the log (grep, tail or "
+          f"sed -n).")
+    return 0
+
+
+def adj_cli(argv, name):
+    """--adjudicator-checks / --wait-adjudicator-checks / --adjudicator-checks-worker, after --project is taken."""
+    what, rest = argv[0], argv[1:]
+    own = "--own" in rest
+    rest = [a for a in rest if a not in ("--own", "--selftest")]
+    fg = "--foreground" in rest and what == "--adjudicator-checks"
+    rest = [a for a in rest if a != "--foreground"]
+    opts = {}
+    while rest:
+        if rest[0] in ("--round", "--timeout", "--id") and len(rest) > 1:
+            opts[rest[0]] = rest[1]
+            rest = rest[2:]
+        else:
+            print(f"FAIL[tool-call] unexpected argument {rest[0]!r}\n{USAGE}")
+            return 2
+    if "--round" not in opts:
+        print(f"FAIL[tool-call] {what} needs --round <R>")
+        return 2
+    try:
+        ctx = _adj_ctx(name)
+    except SelectionError as e:
+        print(f"FAIL: {e}")
+        return 2
+    if what == "--adjudicator-checks":
+        return adj_start(ctx, opts["--round"], own, fg)
+    if what == "--adjudicator-checks-worker":
+        return _adj_work(ctx, opts["--round"], own, opts.get("--id"))
+    try:
+        t = float(opts.get("--timeout", ADJ_WAIT))
+    except ValueError:
+        t = -1
+    if not 0 <= t <= 3600:
+        print("FAIL[tool-call] --timeout takes seconds, 0 to 3600")
+        return 2
+    return adj_wait(ctx, opts["--round"], own, t)
+
+
 LICENSE_TEXTS = {"apache-2.0": os.path.join("skills", "formalize-paper", "LICENSE-Apache-2.0.txt")}
 
 
@@ -1982,7 +2511,10 @@ def readme_ac(cfg):
              f"the Lean; the audit record is `{rd}`).", "",
              "Read the summary first (`SUMMARY.pdf`, and `SUMMARY.md`, its markdown: the audited text): one page with "
              "every result's status, every assumption, defect and reading choice, every decision taken for you, and "
-             "every stop. The rest are its appendices. Each PDF is a rendering of the markdown delivered beside it, "
+             "every stop. The section just below, \"What the checking code found\", is written by the checking program "
+             "when the files are delivered, not by the agent that wrote the summary: each result's status as computed "
+             "from the review records, the answers recorded as yours, and what the checks noticed. The rest are its "
+             "appendices. Each PDF is a rendering of the markdown delivered beside it, "
              "made and checked by independent agents; section D says how each check ended (and names a document "
              "delivered as markdown only).", "",
              "## A. The report (REPORT.pdf, REPORT.md)", "",
@@ -2093,6 +2625,27 @@ def _run_record_text(cfg):
 RUN_RECORD_TEXT = _run_record_text          # the selftest's stand-in
 
 
+REAPPROVAL_OPEN_WORDS = re.compile(r"re-?approval (?:is |still )?(?:open|not closed|pending)|not closed\)", re.I)
+
+
+def reapproval_text_notes(rd, ar):
+    """prepare's NOTE lines (E2E-FIX2 M4b; a flag, agents judge): each row of the approved sheet `ar` whose text calls
+    a re-approval open while REAPPROVAL.json says it is closed. The sheet marks its row texts as of the round; the
+    note lets the formalizing agent say so where the documents quote such a row."""
+    try:
+        ra = json.load(open(os.path.join(rd, "REAPPROVAL.json"), encoding="utf-8"))
+        so = json.load(open(os.path.join(rd, str(ar), "SIGNOFF.json"), encoding="utf-8")) if ar else {}
+    except (OSError, ValueError):
+        return []
+    if not (isinstance(ra, dict) and ra.get("closed")) or not isinstance(so, dict):
+        return []
+    return [f"prepare: NOTE: the approved sheet's row {r.get('result')!r} says its re-approval is open, but "
+            f"REAPPROVAL.json is closed ({ra.get('closed_by', '?')}): its text is as of round {ar} (the sheet says so); "
+            f"say the current state wherever a document quotes it"
+            for r in so.get("rows") or [] if isinstance(r, dict)
+            and REAPPROVAL_OPEN_WORDS.search(" ".join(str(v) for v in r.values()))]
+
+
 def prepare_delivery(cfg, commit=True):
     """project.py --prepare-delivery (approver, 2026-10-28): the FACTS draft -- data for the main agent, never the
     deliverable. The generator's SUMMARY, REPORT and RUN_RECORD (statuses, goal results, defects, assumptions,
@@ -2118,6 +2671,7 @@ def prepare_delivery(cfg, commit=True):
             rc, tail = RERENDER_SHEET(cfg, ar)
             out.append(f"prepare: the approved sheet of {ar} was rendered before its approval: rendered again "
                        f"(signoff.py render exit {rc}{': ' + tail[0] if rc and tail and tail[0] else ''})")
+    out += reapproval_text_notes(rd, ar)
     added = decisions.refresh_box(cfg)
     if added:
         out.append(f"prepare: DECISIONS.md's box gained {len(added)} entr{'y' if len(added) == 1 else 'ies'} (a stop or "
@@ -2190,7 +2744,7 @@ def _render_check(cfg, doc, round_name):
 RENDER_CHECK = _render_check            # the selftest's stand-in
 
 
-def readme_d(cfg, files, kept, dropped):
+def readme_d(cfg, files, kept, dropped, delivered=None):
     """README section D (ADDENDUM N6: only in the delivery copy): the stamp, the pointer to RUN_RECORD.md (the
     known-fault notices, the delivery-phase records and the superseded notices are folded into it: approver
     2026-10-24), who wrote and reviewed SUMMARY and REPORT (approver 2026-10-28), the sheet's reader outcome, how each
@@ -2205,6 +2759,8 @@ def readme_d(cfg, files, kept, dropped):
              f"Delivered from Lean HEAD `{lean}` and audit record HEAD `{aud or '(unknown)'}`.", "",
              f"How the run went, including any fault disclosed instead of a stop and anything that arose after the "
              f"documents were written: `{RUN_RECORD}`, the run record. No separate KNOWN_FAULTS file is delivered."]
+    # attack review MEDIUM-1 (batch A): a stop withdrawn as opened in error whose check still fails at delivery is
+    # said in the code-written section's "Proof checks" (readme_checked; DESIGN-E fix 2 moved it there)
     # approver (2026-10-28): SUMMARY and REPORT are the main agent's; review 2026-10-28: said only from what is on record
     rd_ = os.path.join(REPO, cfg["rounds_dir"])
     same = draft_copies(cfg)
@@ -2218,7 +2774,9 @@ def readme_d(cfg, files, kept, dropped):
     gone = [p_ for p_ in REVIEW_PERSPECTIVES if p_ not in have]
     judged = os.path.isfile(os.path.join(rd_, JUDGEMENT_MD))
     if have:
-        lines.append(f"Fresh agents reviewed them ({', '.join(p_.lower() for p_ in have)}; `{REVIEW_DIR}/`)"
+        lines.append(f"Reviews by fresh agents are on record in the audit record's `{REVIEW_DIR}/` "
+                     f"({', '.join(p_.lower() for p_ in have)}); the formalizing agent saved them, so the record cannot "
+                     f"show who wrote them"
                      + (f"; no review is on record for {', '.join(p_.lower() for p_ in gone)}" if gone else "")
                      + (f". The formalizing agent's judgement of each finding is in `{JUDGEMENT_MD}`." if judged else
                         ". No judgement of their findings is on record."))
@@ -2255,34 +2813,109 @@ def readme_d(cfg, files, kept, dropped):
               "project.py --check-delivered` compares them with the files and with each render record):"
               if pdfs else "Delivered PDF fingerprints: none (no PDF was delivered)."]
     lines += [f"- `{os.path.basename(f)}`: sha256 `{render_record.sha_file(f)}`" for f in pdfs]
+    # DESIGN-E fix 2 (F11): every other delivered file but README.md (whose sha256 is in RUN_LOG.md's `## Delivery`
+    # line: a file cannot hold its own hash); `delivered` None (an older caller): RUN_RECORD.md only, as before
     rr_ = os.path.join(REPO, "deliverables", RUN_RECORD)
-    if os.path.isfile(rr_) and not os.path.islink(rr_):
-        lines += ["", "Delivered run record fingerprint (`python3 audits/project.py --check-delivered` compares it with "
-                  "the file):", f"- `{RUN_RECORD}`: sha256 `{render_record.sha_file(rr_)}`"]
+    others = sorted({os.path.basename(f) for f in (delivered or [rr_]) if not f.endswith(".pdf")
+                     and os.path.basename(f) != "README.md"
+                     and os.path.isfile(os.path.join(REPO, "deliverables", os.path.basename(f)))
+                     and not os.path.islink(os.path.join(REPO, "deliverables", os.path.basename(f)))})
+    if others:
+        lines += ["", "Delivered file fingerprints (sha256 of every other file in this directory as delivered except "
+                  "this README, whose fingerprint is in the run log; `python3 audits/project.py --check-delivered` "
+                  "compares them with the files):"]
+        lines += [f"- `{b}`: sha256 `{render_record.sha_file(os.path.join(REPO, 'deliverables', b))}`" for b in others]
     return "\n".join(lines) + "\n"
 
 
-DELIVERED_FP = re.compile(r"^- `([^`/]+\.pdf)`: sha256 `([0-9a-f]{64})`$")
-DELIVERED_RR = re.compile(r"^- `RUN_RECORD\.md`: sha256 `([0-9a-f]{64})`$")
+DELIVERED_ANY = re.compile(r"^- `([^`/]+)`: sha256 `([0-9a-f]{64})`$")    # README D: every delivered file but README
+# stage5's push appends this line to the delivered README after --deliver (both forms; DESIGN-E2 L4)
+# exactly the generated form (attack review E M1/E4: free text after "Pushed to" passed): a remote and a branch with no
+# space or comma, the two commits, and for the no-paper form the paper paths quoted in backticks, any characters but
+# a backtick or a newline (re-review E L2: `Smith+Jones (2024).pdf` is an honest path); the unquoted form stage5
+# printed before is still read, with its narrower characters
+PUSHED_RE = re.compile(r"^Pushed to [^\s,]+, branch [^\s,]+, as commit `[0-9a-f]{7,64}`: the tree of Lean HEAD "
+                       r"`[0-9a-f]{7,64}`(, without (?:`[^`\n]{1,200}`|[\w./ ,-]{1,200}))?\.\s*$")
+README_LOGGED = re.compile(r"README\.md sha256 ([0-9a-f]{64}), (\d+) bytes")
 
 
-def check_delivered(cfg):
-    """[problem] (review MED 3): every PDF in deliverables/ is the one --deliver delivered -- its sha256 is README D's
-    fingerprint of it and the one its render record shipped -- and every fingerprinted PDF is there. A hash, never
-    a reading of the PDF."""
+def readme_log_rewrites(top, rel, now):
+    """[(sha256, commit)] of every README.md sha256 a committed version of RUN_LOG.md logged, that a later commit
+    removed and that the log at HEAD no longer holds (`git log -p -G`, first parent): --deliver only appends
+    delivery lines, so an edited or deleted one is a record change (attack review E M1/E6, E7: a rewritten or
+    removed fingerprint passed). Unreadable history: [] (the HEAD comparison still runs)."""
+    r = subprocess.run(["git", "-C", top, "log", "-m", "--first-parent", "-p", "--format=@@%h %s",
+                        "-G", r"README\.md sha256", "--", rel], capture_output=True, text=True)
+    if r.returncode:
+        return []
+    out, cur = [], "?"
+    for l in r.stdout.splitlines():
+        if l.startswith("@@") and not l.startswith("@@ "):
+            cur = l[2:].strip()
+        elif l.startswith("-") and not l.startswith("---"):
+            m = README_LOGGED.search(l)
+            if m and m.group(1) not in now and m.group(1) not in [h for h, _ in out]:
+                out.append((m.group(1), f"`{cur}`"))
+    return out
+
+
+def readme_problems(cfg):
+    """([problem], [info]) of deliverables/README.md against the last RUN_LOG.md `## Delivery` line (committed at
+    HEAD) that logs its sha256: its first <n> bytes hash to it, and what follows is only blank lines and stage5's
+    `Pushed to ...` lines. A delivery logged before this check (no sha256) and a README without the code-written
+    section: not checked, said in `info`."""
+    readme = os.path.join(REPO, "deliverables", "README.md")
+    try:
+        data = open(readme, "rb").read()
+    except OSError:
+        return [], []
+    top, rel = rounds_rel(os.path.join(REPO, cfg["rounds_dir"]), "RUN_LOG.md")
+    log = (committed_blob(top, "HEAD", rel) if top else None) or ""
+    sec = log.split(f"\n## {DELIVERY_LOG}\n", 1)[1].split("\n## ", 1)[0] if f"\n## {DELIVERY_LOG}\n" in log else ""
+    found = [m for m in (README_LOGGED.search(l) for l in sec.splitlines()) if m]
+    gone = readme_log_rewrites(top, rel, {m.group(1) for m in found}) if top else []
+    if gone:
+        return [f"RUN_LOG.md once logged README.md's sha256 {h_[:12]}… and no longer does (changed by commit {c_}): "
+                f"a delivery line was edited or removed after delivery, so the README cannot be checked against it; "
+                f"this stays in the record" for h_, c_ in gone[:3]], []
+    if not found:
+        if CHECKED_HEADING.encode() in data:
+            return [f"deliverables/README.md has the section \"{CHECKED_HEADING[3:]}\" but no committed RUN_LOG.md "
+                    f"delivery line logs its sha256: --deliver did not write it, or its log line is not committed"], []
+        return [], ["deliverables/README.md not checked: its delivery predates the README fingerprint"]
+    h, n = found[-1].group(1), int(found[-1].group(2))
+    if len(data) < n or hashlib.sha256(data[:n]).hexdigest() != h:
+        return [f"deliverables/README.md is not the README delivered (its first {n} bytes do not have the sha256 the "
+                f"run log records, {h[:12]}…)"], []
+    rest = [l for l in data[n:].decode("utf-8", "replace").splitlines() if l.strip()]
+    bad = [l for l in rest if not PUSHED_RE.match(l)]
+    if bad:
+        return [f"deliverables/README.md has text after the delivered README that is not a `Pushed to` line: "
+                f"{bad[0][:80]!r}"], []
+    return [], []
+
+
+def check_delivered(cfg, with_readme=False):
+    """[problem] (review MED 3; DESIGN-E fix 2, F11): every file README D fingerprints is in deliverables/ with that
+    sha256 -- each PDF also the one its render record shipped --, every PDF there is fingerprinted, and RUN_RECORD.md
+    exactly once; with `with_readme`, README.md itself against the run log (readme_problems: --check-delivered; inside
+    --deliver the log line does not exist yet). A hash, never a reading of a file."""
     import render_record
     out = os.path.join(REPO, "deliverables")
     readme = os.path.join(out, "README.md")
     if os.path.islink(out) or not os.path.isfile(readme) or os.path.islink(readme):
         return [f"{os.path.relpath(readme, REPO)} is missing: nothing was delivered (python3 audits/project.py --deliver)"]
-    fps, rr_fp = {}, []
+    fps, rr_fp, other_fp = {}, [], {}
     for line in open(readme, encoding="utf-8").read().splitlines():
-        m = DELIVERED_FP.match(line.strip())
-        if m:
+        m = DELIVERED_ANY.match(line.strip())
+        if not m:
+            continue
+        if m.group(1).endswith(".pdf"):
             fps[m.group(1)] = m.group(2)
-        m = DELIVERED_RR.match(line.strip())
-        if m:
-            rr_fp.append(m.group(1))
+        elif m.group(1) == RUN_RECORD:
+            rr_fp.append(m.group(2))
+        else:
+            other_fp[m.group(1)] = m.group(2)
     ar = approved_round(cfg)
     docs = {"SUMMARY.pdf": ("SUMMARY", None), "REPORT.pdf": ("REPORT", None)}
     if ar:
@@ -2311,6 +2944,15 @@ def check_delivered(cfg):
         elif render_record.sha_file(p) != fps[f]:
             probs.append(f"deliverables/{f} is not the PDF delivered (sha256 now {render_record.sha_file(p)[:12]}…, "
                          f"README D {fps[f][:12]}…)")
+    for f, h in sorted(other_fp.items()):
+        p = os.path.join(out, f)
+        if os.path.islink(p) or not os.path.isfile(p):
+            probs.append(f"deliverables/{f} is missing (README D fingerprints it)")
+        elif render_record.sha_file(p) != h:
+            probs.append(f"deliverables/{f} is not the file delivered (sha256 now {render_record.sha_file(p)[:12]}…, "
+                         f"README D {h[:12]}…)")
+    if with_readme:
+        probs += readme_problems(cfg)[0]
     for f, h in sorted(fps.items()):
         if f not in present:
             probs.append(f"deliverables/{f} is missing (README D fingerprints it)")
@@ -2328,11 +2970,26 @@ def check_delivered(cfg):
 
 
 def check_delivered_cli(cfg):
-    probs = check_delivered(cfg)
+    probs = check_delivered(cfg, with_readme=True)
     for p in probs:
         print("RED[deliver] " + " ".join(p.split()))
-    print("delivered check: " + ("ok" if not probs else "NOT ok: deliver again (python3 audits/project.py --deliver); "
-                                                       "never a stop"))
+    info = readme_problems(cfg)[1]
+    for i in info:
+        print("note: " + i)
+    hist = [p for p in probs if p.startswith("RUN_LOG.md once logged README.md's sha256")]
+    if hist:        # re-review E L3: a new delivery line cannot bring back the one edited or removed
+        print("delivered check: NOT ok: a RUN_LOG.md delivery line was edited or removed after delivery, and delivering "
+              "again does not clear that: restore the line as delivered (the history of RUN_LOG.md, `git log -p`, "
+              "shows it), or leave it, and this check keeps saying so" + ("; for the rest, deliver again (python3 audits/project.py "
+                                                     "--deliver)" if len(hist) < len(probs) else "")
+              + "; never a stop")
+    elif probs:
+        print("delivered check: NOT ok: deliver again (python3 audits/project.py --deliver); never a stop")
+    elif info:      # attack review E M1: a README with no logged fingerprint is never reported ok
+        print("delivered check: README.md not verified (no delivery line logs its fingerprint); every other "
+              "delivered file is the one delivered")
+    else:
+        print("delivered check: ok")
     return 1 if probs else 0
 
 
@@ -2367,7 +3024,9 @@ def deliver(cfg):
     a mechanical fact records it). The delivered RUN_RECORD.md lists the start and the time it was written."""
     import contextlib
     global DELIVERY_STARTED
+    global DELIVERY_NOTES
     t0, t = _now(), _Tee(sys.stdout)
+    DELIVERY_NOTES = None
     DELIVERY_STARTED = t0           # run_record.delivery_section lists it in the delivered RUN_RECORD.md
     try:
         with contextlib.redirect_stdout(t):
@@ -2378,6 +3037,15 @@ def deliver(cfg):
     if rc == 0:
         m = re.search(r"^delivered (\d+) file\(s\)", out, re.M)
         what = f"delivered {m.group(1) if m else '?'} file(s) to deliverables/"
+        # DESIGN-E fix 2 (F11): README.md's own fingerprint, and the delivery notes' codes (codes only: the log is a
+        # generator input); --check-delivered compares the README with it
+        try:
+            data = open(os.path.join(REPO, "deliverables", "README.md"), "rb").read()
+            what += f" (README.md sha256 {hashlib.sha256(data).hexdigest()}, {len(data)} bytes)"
+        except OSError:
+            pass
+        codes_ = collections.Counter(note_code(n) for n in (DELIVERY_NOTES or []))
+        what += "; notes: " + (", ".join(f"{c}×{k}" for c, k in sorted(codes_.items())) or "none")
     else:
         codes = sorted(set(re.findall(r"^\s*((?:RED|PENDING|FAIL)\[[\w-]+\])", out, re.M)))
         what = "refused: " + (", ".join(codes) if codes else f"exit {rc}") + " (the command's output says why)"
@@ -2391,7 +3059,8 @@ def deliver(cfg):
                             "--", lp], capture_output=True, text=True)
         if r.returncode:
             print(f"note: RUN_LOG.md was written but not committed ({' '.join(r.stderr.split())[:200]}): commit it "
-                  f"by name")
+                  f"by name; until then `--check-delivered` compares the README with the last committed delivery line "
+                  f"and will say NOT ok")
     except (OSError, ValueError) as e:      # the delivery stands; the missing log line is said
         print(f"note: RUN_LOG.md could not be written ({e}): this attempt is not in the run log")
     return rc
@@ -2432,6 +3101,570 @@ def human_stop(cfg, s):
     if cls and cls[-1].get("as") == "interference":
         return True
     return any(c in RELEASE_STOP_CODES or release_kind(c) == "human" for c in codes)
+
+
+# --- DESIGN-E2 fix 2 (forgery review 2026-11 F1, F8, F11): the code-written section of deliverables/README.md ---------
+# The agent writes SUMMARY, REPORT and RUN_RECORD; the checking program writes this one section at --deliver, from the
+# records: each result's status as computed, the answers recorded as yours, and every note of the delivery checks. It
+# only flags: nothing in it refuses or waits. The notes go word for word into RUN_RECORD.md ("Notes at delivery").
+CHECKED_HEADING = "## What the checking code found"
+STATUS_WORDING = "Status wording"       # JUDGEMENT.md's section: `- <label>: <why the summary words it differently>`
+CHECKED_POINTER = "What the checking code found"    # the SUMMARY line pointing to the section (run/stage5-delivery.md)
+DELIVERY_NOTES = None                   # the last _deliver's notes (deliver logs their codes in RUN_LOG.md)
+CHECKED_INTRO = ("The checking program wrote this section from the run's records when the files were delivered; the "
+                 "agent that wrote the summary did not. Its table is computed mechanically from the review records, so "
+                 "a finding on one part of a result can mark the whole result, and the summary may word a status its "
+                 "own way. Where the two differ, the agent's reason is shown. The Lean proofs themselves are checked "
+                 "separately (see \"Proof checks\").")
+CHECKED_FALLBACK = ("The checking program could not write this section ({e}). Until it is written, treat every result "
+                    "as not established.")
+# (pattern, plain phrase, counted only?), first match wins; a note no pattern matches is SHOWN as "Other" (fail toward
+# the reader). Mechanical: the code does not judge which notes matter.
+NOTE_KINDS = (
+    (r"^\[status-wording\]", "statuses worded differently with no reason (marked † above)", True),
+    (r"^\[adj-record\]", "A reviewer's finding not yet ruled on", False),
+    (r"^\[unverified\]", "A review missing or out of date", False),
+    (r"^\[status-unmapped\]", "A status the program could not compute", False),
+    (r"^integrity|^\[ownership\]|FAIL\[(?:ownership|tooling|pin|seal|tool-patch)\]", "The run's records or checking "
+                                                                                    "software", False),
+    (r"^\[tool patches\]", "The corrected checking software", False),
+    (r"only because of rows", "Results not established only because of a decided review finding", False),
+    (r"implemented as described|was answered, and no Lean commit", "A decision that may have asked for a Lean change "
+                                                                    "no later commit shows", False),
+    (r"withdrawn|opened in error", "A stop closed as opened in error", False),
+    (r"self-cured stop", "A fixed problem whose check fails again", False),
+    (r"^stop S\d+ is open", "A stop still open", False),
+    (r"coverage check", "the summary's layout (the program reads its own layout)", True),
+    (r"changed since prepare|is stale|changed after prepare|was not recorded by the last prepare|Lean changed since "
+     r"prepare|facts draft of \S+ is missing|no DELIVERY\.json", "documents prepared before a later change", True),
+    (r"^\[pdf\]", "a PDF left out (its markdown is delivered)", True),
+    (r"^\[run record\]|does not name", "the run record or a document not naming a record", True),
+    (r"^\[signoff\]|reader gate", "the sign-off sheet's reader", True),
+    (r"^\[hashes\]", "the documents' recorded fingerprints", True),
+    (r"^DISCLOSED\[", "a fault disclosed instead of a stop (RUN_RECORD.md)", True),
+    (r"^\[delivered check\]", "the delivered files' fingerprints", True),
+    (r"deliverable\(s\) missing|no approval record|no JUDGEMENT|byte-identical to its facts draft|no line pointing to "
+     r"README", "a missing or unwritten file or line", True),
+    (r"Lean names the documents cite|Lean name", "the Lean names a document cites", True),
+    (r"could not be (?:checked|computed|run)|could not run", "A check that could not run", False),
+)
+PLURALS = {"Lemmas": "Lemma", "Theorems": "Theorem", "Propositions": "Proposition", "Corollaries": "Corollary",
+           "Definitions": "Definition", "Claims": "Claim", "Remarks": "Remark", "Examples": "Example",
+           "Conjectures": "Conjecture", "Facts": "Fact", "Observations": "Observation", "Equations": "Equation"}
+
+
+def _split_outside(text, sep="; "):
+    """`text` split at `sep` where it lies outside parentheses and brackets."""
+    out, depth, cur, i = [], 0, "", 0
+    while i < len(text):
+        ch = text[i]
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth = max(0, depth - 1)
+        if depth == 0 and text.startswith(sep, i):
+            out.append(cur); cur, i = "", i + len(sep)
+            continue
+        cur += ch; i += 1
+    return out + [cur]
+
+
+def norm_label(s, cut=True):
+    """A result label for pairing, the same on both sides: `**` removed, whitespace collapsed and, with `cut`, one
+    trailing parenthetical removed when it contains a space or a code span ("Lemma 2.3 (repair: x > 0)" -> "Lemma
+    2.3", "Lemma 2.4 (`H`)" -> "Lemma 2.4"; "Lemma 3.2 (c)" and "Claim (7)" are kept)."""
+    s = " ".join(str(s).replace("**", "").split()).strip()
+    if cut:
+        m = re.search(r"\s*\(([^()]*)\)$", s)
+        if m and (" " in m.group(1) or "`" in m.group(1)) and m.start() > 0:
+            s = s[:m.start()].strip()
+    return s
+
+
+def _expand_labels(cell):
+    """The labels of one summary cell: split at "; " outside parentheses, then "Lemmas 2.1, 2.2 and 3.4" expanded."""
+    out = []
+    for part in _split_outside(cell):
+        part = " ".join(part.replace("**", "").split())
+        m = re.match(r"^(%s)\s+(.+)$" % "|".join(PLURALS), part)
+        if m and re.fullmatch(r"[\w.()'-]+(?:\s*(?:,|,?\s+and)\s+[\w.()'-]+)+", m.group(2)):
+            out += [f"{PLURALS[m.group(1)]} {x}" for x in re.split(r"\s*(?:,|,?\s+and)\s+", m.group(2)) if x]
+        elif part:
+            # E2E-FIX2 M2b: "Lemma 2.2, Proposition 2.3, Example 2.4" is three results, when every part outside
+            # parentheses opens with a result word ("Definition (ω₁(h), tex l.77)" stays one)
+            cs = [re.sub(r"^and\s+", "", " ".join(x.split())) for x in _split_outside(part, ", ")]
+            if len(cs) > 1 and all(
+                    re.match(rf"(?i)(?:\*\*)?(?:{RESULT_KINDS_RE})\s+\S", x) for x in cs):
+                out += cs
+            else:
+                out.append(part)
+    return out
+
+
+def _status_columns(cells):
+    """(status column, labels column) of a summary table's header cells, or None: a cell beginning "Status" is the
+    status column; the labels are in the cell beginning "Result" (or "Results"), or, in a two-column table whose
+    status column is the first, in the second (E2E-FIX2 M2b: the run's `| Result | Status (as the Lean has it) |` was
+    read status-first, and nothing paired)."""
+    hd = [re.sub(r"[*_`]", "", c).strip().lower() for c in cells]
+    si = next((i for i, c in enumerate(hd) if re.match(r"status\b", c)), None)
+    if si is None:
+        return None
+    li = next((i for i, c in enumerate(hd) if i != si and re.match(r"results?\b", c)), None)
+    if li is None and len(hd) == 2 and si == 0:
+        li = 1
+    return (si, li) if li is not None else None
+
+
+def summary_result_rows(text):
+    """{label: [the summary's status cells]} of the summary's results table: the rows under `## Results` (or before
+    the first `## `), else the first table whose header row has a Status column and a Result column (or a Status
+    first column of two). The columns are found by the header (_status_columns), by position (status, then labels)
+    only when a `## Results` table's header names neither. HTML comments are dropped first, and a label listed in
+    several rows keeps every row's cell (attack review E H2: a hidden or earlier decoy row cannot stand in for the
+    row the reader sees)."""
+    text = re.sub(r"<!--.*?(?:-->|\Z)", "", text, flags=re.S)
+    sep = lambda l: bool(re.match(r"^\|[\s:|-]*-[\s:|-]*$", l.rstrip()))
+    split = lambda l: [c.strip() for c in _split_outside(l.strip().strip("|"), " | ")]
+
+    def rows(lines, need_header):
+        st, on, cols, other = {}, not need_header, (0, 1), False
+        for i, l in enumerate(lines):
+            if on and need_header and not l.startswith("|"):
+                break
+            if not l.startswith("|"):
+                other = False
+                continue
+            if not sep(l) and i + 1 < len(lines) and sep(lines[i + 1]):
+                hc = _status_columns(split(l))      # a header row: never a data row
+                if hc:
+                    cols, on = hc, True
+                else:       # a header naming no Status column: another table (stops, questions), not read
+                    other = True
+                continue
+            if other or not on or not l.startswith("| ") or re.match(r"^\|\s*Status\b", l) or sep(l):
+                continue
+            cells = split(l)
+            if (len(cells) != 2) if cols == (0, 1) else (len(cells) <= max(cols)):
+                continue
+            for lbl in _expand_labels(cells[cols[1]]):
+                c_ = " ".join(cells[cols[0]].replace("**", "").split())
+                if c_ not in st.setdefault(lbl, []):
+                    st[lbl].append(c_)
+        return st
+    sec_ = text.split("\n## Results", 1)[-1].split("\n## ", 1)[0]
+    return rows(sec_.splitlines(), False) or rows(text.splitlines(), True)
+
+
+def status_wording_reasons(rd):
+    """{label: reason} of JUDGEMENT.md's `## Status wording` section (`- <label>: <reason>`). A line is read at each
+    `": "` it holds, so a label that itself contains ": " still finds its reason (COMPAT-E L4); the first split
+    wins for a shorter key."""
+    p = os.path.join(rd, JUDGEMENT_MD)
+    try:
+        jt = open(p, encoding="utf-8").read()
+    except OSError:
+        return {}
+    m = re.search(r"^## +%s\s*$" % re.escape(STATUS_WORDING), jt, re.M)
+    if not m:
+        return {}
+    sec = jt[m.end():].split("\n## ", 1)[0]
+    out = {}
+    for l in sec.splitlines():
+        m2 = re.match(r"^\s*[-*] (.+)$", l)
+        if not m2:
+            continue
+        parts = m2.group(1).split(": ")
+        for i in range(1, len(parts)):
+            lb, why = ": ".join(parts[:i]), " ".join(": ".join(parts[i:]).split())
+            if lb.strip() and why:
+                out.setdefault(norm_label(lb, cut=False), why)
+    return out
+
+
+def _first_part(status):
+    """The part of a computed status a summary must keep: up to its first ";" or " (" (DESIGN-E2-REVIEW L1)."""
+    return re.split(r";| \(", status, 1)[0].strip().lower()
+
+
+STATUS_FILLER = {"a", "an", "the", "under", "of", "as", "by", "is", "it"}
+STATUS_NEGATIONS = {"not", "no", "never", "nor", "without", "unproved", "unfaithful"}
+
+
+def _status_words(s):
+    return re.findall(r"[a-z0-9]+", re.sub(r"[*_`]", "", str(s).lower()))
+
+
+def status_says(status, cell):
+    """Does a summary `cell` keep the computed `status`'s first part (_first_part)? Its exact words, or (REVIEW-E2E-
+    FIX2 L-5: "proved; faithful (recorded as a reading choice)" was marked against "faithful under a reading choice")
+    its status words in the same order, filler words ("a", "under", "as" ...) aside, with no negation the status
+    does not have ("not faithful; a reading choice" is still marked)."""
+    fp = _first_part(status)
+    if fp in str(cell).lower():
+        return True
+    want = [w for w in _status_words(fp) if w not in STATUS_FILLER]
+    have = _status_words(cell)
+    if not want or (STATUS_NEGATIONS & set(have)) - set(_status_words(fp)):
+        return False
+    it = iter(have)
+    return all(w in it for w in want)
+
+
+def md_quoted(s):
+    """Text from the agent's files (a summary cell, a reason) made inert inside the README's quotes: whitespace
+    collapsed, `<`, `>` and `&` as entities, backticks and brackets escaped (attack review E L1: no raw HTML or
+    markdown from them)."""
+    s = " ".join(str(s).split()).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return re.sub(r"([\\`\[\]])", r"\\\1", s)
+
+
+def _cut_any_paren(s):
+    """`s` without one trailing parenthetical, whatever it holds ("Definition 2.1 (H)" -> "Definition 2.1")."""
+    m = re.search(r"\s*\([^()]*\)$", s)
+    return s[:m.start()].strip() if m and m.start() > 0 else s
+
+
+def sheet_checks(rd):
+    """{result label: CHECK reason} of the rows the latest approval's sign-off sheet flags CHECK (the round
+    APPROVED_FINGERPRINTS.json names, its SIGNOFF.json); a part row ("Lemma 7.4 (c)") also under its result ("Lemma
+    7.4"). {} when there is no approval or its sheet cannot be read."""
+    try:
+        rnd = json.load(open(os.path.join(rd, "APPROVED_FINGERPRINTS.json"), encoding="utf-8")).get("round")
+        so = json.load(open(os.path.join(rd, str(rnd), "SIGNOFF.json"), encoding="utf-8")) if rnd else {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+    out = {}
+    for r in (so.get("rows") or []) if isinstance(so, dict) else []:
+        if isinstance(r, dict) and r.get("flag") == "CHECK":
+            lab = norm_label(r.get("result", ""), cut=False)
+            why = " ".join(str(r.get("check_reason") or "").split())
+            out.setdefault(lab, why)
+            if re.search(r"\s*\((?:[a-z]|[ivx]+)\)$", lab):
+                out.setdefault(re.sub(r"\s*\((?:[a-z]|[ivx]+)\)$", "", lab), why)
+    return out
+
+
+def status_block(cfg, inp):
+    """([md line] of the section's Results block, [note]): the computed status of each result (the facts draft's
+    plain_status), grouped; a † on a result that the code does not rate exactly *faithful* and whose status some row
+    of the summary words without the code status's first part, or that the summary does not list; beside it the
+    summary's words and the agent's reason from JUDGEMENT.md "Status wording", or one `[status-wording]` note when no
+    reason is on record. Mechanical: no strength test. A faithful result is marked only when the latest approved
+    sign-off sheet flags it CHECK (E2E-FIX2 M2a: a reading choice, a generalization or a partial skip the reviews
+    passed), with the sheet's reason beside it; its status is not changed."""
+    import make_report
+    rd = os.path.join(REPO, cfg["rounds_dir"])
+    keys = make_report.disclosure_keys(cfg, inp)
+    res = [(" ".join(k.ident.split()), k.short) for k in keys if k.group == "Results" and k.prefix == "result"]
+    try:
+        summ = open(os.path.join(rd, "SUMMARY.md"), encoding="utf-8").read()
+    except OSError:
+        summ = ""
+    raw = summary_result_rows(summ)
+    exact, normd, loose = {}, {}, {}
+    for k, v in raw.items():
+        for d_, k_ in ((exact, norm_label(k, cut=False)), (normd, norm_label(k)),
+                       (loose, _cut_any_paren(norm_label(k, cut=False)))):
+            d_.setdefault(k_, [])
+            d_[k_] += [c_ for c_ in v if c_ not in d_[k_]]
+
+    def cell_of(lbl):
+        """[the summary's cells] of the result, or None: an exact label first, then one with its spaced
+        parenthetical cut, then a summary label that is the result's plus a trailing parenthetical (L3)."""
+        a = norm_label(lbl, cut=False)
+        return exact[a] if a in exact else normd.get(norm_label(lbl)) or loose.get(a)
+    why_raw = status_wording_reasons(rd)
+
+    def why_of(lbl):
+        a = norm_label(lbl, cut=False)
+        if a in why_raw:
+            return why_raw[a]
+        return next((v for k, v in why_raw.items() if norm_label(k) == norm_label(lbl)), None)
+    paired = any(cell_of(l) is not None for l, _ in res)
+    groups, marked = {}, []
+    for lbl, st in res:
+        groups.setdefault(st, []).append(lbl)
+        if st == "faithful" or not paired:
+            continue
+        c = cell_of(lbl)
+        if c is None or any(not status_says(st, c_) for c_ in c):
+            marked.append((lbl, c))
+    mk = {l for l, _ in marked}
+    checks_ = sheet_checks(rd)
+    flagged = [(lbl, checks_[norm_label(lbl, cut=False)]) for lbl, st in res
+               if st == "faithful" and norm_label(lbl, cut=False) in checks_]
+    mk |= {l for l, _ in flagged}
+    out = ["**Each result's status, from the review records.** " + make_report.SUMMARY_LEGEND, "",
+           "| Status from the review records | Results |", "|---|---|"]
+    out += [f"| {st} | {'; '.join(l + (' †' if l in mk else '') for l in ls)} |" for st, ls in groups.items()]
+    out.append("")
+    notes, unexplained = [], []
+    if not res:
+        out.append("The review records name no result.")
+    elif not paired:
+        out.append("The program could not pair the summary's results table with this one (it found none, or the "
+                   "summary names the results its own way): compare the two.")
+    elif marked:
+        grouped = {}
+        for lbl, c in marked:
+            w = why_of(lbl)
+            if w is None:
+                unexplained.append(lbl)
+            grouped.setdefault((tuple(c) if c is not None else None, w), []).append(lbl)
+        for head, unp in (("† The summary words this status differently:", False),
+                          ("† Not paired with a row of the summary's table: the program looked for these names there and found no row "
+                           "it could match; a row may name them in other words (compare the two):", True)):
+            its = [(c, w, lbls) for (c, w), lbls in grouped.items() if (c is None) == unp]
+            if its:
+                out.append(head)
+            for c, w, lbls in its:
+                if w:
+                    s_, cut_ = make_report._short(w, 240)
+                    rs = (f"The agent's reason: “{md_quoted(s_ or w[:240])}”"
+                          + (f" (in full: `{JUDGEMENT_MD}`)." if cut_ else "."))
+                else:
+                    rs = f"No reason is on record (`{JUDGEMENT_MD}`, \"{STATUS_WORDING}\")."
+                if unp:
+                    out.append(f"- {', '.join(lbls)}. {rs}")
+                else:
+                    sw = ("the summary: " if len(c) == 1 else "the summary's rows: ") + ", ".join(
+                        f"“{md_quoted(c_)}”" for c_ in c)
+                    out.append(f"- {', '.join(lbls)} — {sw}. {rs}")
+    else:
+        out.append("For each result not rated *faithful*, the program found the first words of its status above in "
+                   "every row of the summary that names it; it checks nothing more, so compare the two.")
+    if flagged:
+        out.append("† Faithful by the review records, but the approved sign-off sheet (appendix C) flags it CHECK, for "
+                   "this reason:")
+        for lbl, why in flagged:
+            s_, cut_ = make_report._short(why, 240) if why else ("", False)
+            out.append(f"- {lbl} — the sheet: “{md_quoted(s_ or why[:240]) if why else 'no reason given'}”"
+                       + (" (in full: `SIGNOFF.md`)." if cut_ else "."))
+    if unexplained:
+        notes.append(f"[status-wording] the summary words the status of {len(unexplained)} result(s) differently from "
+                     f"the review records with no reason in {JUDGEMENT_MD} \"{STATUS_WORDING}\": "
+                     f"{'; '.join(unexplained)} (add `- <label>: <why>` lines and deliver again)")
+    try:        # a tool patch that raised a status: neutral words, the labels only
+        import integrity, tool_patch
+        if integrity.applied_tool_patches(AUDITS, rd):
+            rs_ = tool_patch.raised_statuses(cfg, rd, AUDITS)
+            if rs_:
+                out += ["", "With the checking software as it was when the run started, these results would read "
+                            "differently: " + "; ".join(f"{lb} (then: “{old}”)" for lb, _tp, old in rs_) + "."]
+    except Exception as e:      # noqa: BLE001 -- said, never hidden
+        out += ["", f"Whether a correction of the checking software changed a status could not be computed: {e!r}."]
+    return out, notes
+
+
+def tooling_since_first_pin(audits, rounds_dir):
+    """(files, commits, uncommitted) of the checking software since the run's first pin (its `audits_commit`):
+    `git diff --name-only <first> HEAD`, `git log --format='%h %s' <first>..HEAD` and `git status --porcelain`, each
+    on integrity.TOOLING_PATHSPECS. None when the first pin or its commit cannot be read."""
+    import integrity
+    base = (first_pin(rounds_dir) or {}).get("audits_commit")
+    if not base:
+        return None
+    G = lambda *a: subprocess.run(["git", "-C", audits, *a], capture_output=True, text=True)
+    d = G("diff", "--name-only", base, "HEAD", "--", *integrity.TOOLING_PATHSPECS)
+    if d.returncode:
+        return None
+    files = [l for l in d.stdout.splitlines() if l.strip()]
+    commits = [l for l in G("log", "--format=%h %s", f"{base}..HEAD", "--", *integrity.TOOLING_PATHSPECS)
+               .stdout.splitlines() if l.strip()]
+    unc = [l[3:] for l in G("status", "--porcelain", "--", *integrity.TOOLING_PATHSPECS).stdout.splitlines()
+           if l.strip()]
+    return files, commits, unc
+
+
+def _software_line(cfg, rd, notes):
+    import integrity
+    r = tooling_since_first_pin(AUDITS, rd)
+    if r is None:
+        return "**The checking software.** The version fixed when the run started could not be read."
+    files, commits, unc = r
+    if not files and not unc and commits:     # attack review E L2: a change later reverted is still named
+        return ("**The checking software.** The same now as when the run started; changed and restored during the "
+                "run by: " + "; ".join(f"`{c}`" for c in commits[:8]) + (" …" if len(commits) > 8 else "") + ".")
+    if not files and not unc:
+        return "**The checking software.** Unchanged since the run started."
+    applied = integrity.applied_tool_patches(AUDITS, rd)
+    failed = {m for n in notes for m in re.findall(r"FAIL\[tool-patch\]\s*(TP\d+)", str(n))}
+    tp, other = [], []
+    for c in commits:
+        m = re.match(r"^\S+ tool-patch (TP\d+) apply\b", c)
+        (tp if m and m.group(1) in applied and m.group(1) not in failed else other).append(c)
+    if not other and not unc:
+        return (f"**The checking software.** Corrected {len(tp)} time(s) during the run by changes an independent agent "
+                f"reviewed (`{RUN_RECORD}`, \"Tool patches\").")
+    s = (f"**The checking software.** Changed during the run other than by a reviewed correction "
+         f"({', '.join(files[:6])}{' …' if len(files) > 6 else ''}); the checks in this section ran on the changed "
+         f"software.")
+    if other:
+        s += " Commits: " + "; ".join(f"`{c}`" for c in other[:8]) + (" …" if len(other) > 8 else "") + "."
+    if unc:
+        s += " Uncommitted changes to: " + ", ".join(unc[:6]) + (" …" if len(unc) > 6 else "") + "."
+    if tp:
+        s += f" Also {len(tp)} reviewed correction(s)."
+    if mode(cfg) != "release":
+        s += (" (In development mode a maintainer may update the checking software during a run; each commit's "
+              "description says what it was.)")
+    return s
+
+
+LEVEL_WORDS = {"hands-off": "the agent took the decisions and approved the statements; you were asked only where a "
+                            "stop needed you",
+               "statements-only": "you approved the statements; the agent took the later decisions",
+               "involved": "you approved the statements and answered the later questions"}
+MODE_WORDS = {"release": "Release mode: the run stops only for what needs you; other faults the agent fixes with a "
+                         "fixed, logged step, or discloses.",
+              "dev": "Development mode: every failed check stopped the run until it was fixed."}
+
+
+def note_code(n):
+    """The code of a delivery note for the RUN_LOG.md line: its leading `[code]`, else `integrity` or `other`."""
+    m = re.match(r"^\[([\w -]+)\]", str(n))
+    if m:
+        return m.group(1).replace(" ", "-")
+    return "integrity" if str(n).startswith("integrity") else "other"
+
+
+def note_kind(n):
+    """(plain phrase, counted only?) of a delivery note (NOTE_KINDS; "Other", shown, when none matches)."""
+    return next(((p, c) for r, p, c in NOTE_KINDS if re.search(r, str(n))), ("Other", False))
+
+
+def readme_checked(cfg, notes, inp, status_lines):
+    """The section CHECKED_HEADING of deliverables/README.md (md text), each block computed on its own: a block that
+    fails says so in its place. Never refuses."""
+    import make_report, stops
+    rd = os.path.join(REPO, cfg["rounds_dir"])
+    out = [CHECKED_HEADING, "", CHECKED_INTRO, ""]
+
+    def block(name, f):
+        try:
+            out.extend(f())
+        except Exception as e:      # noqa: BLE001 -- said in its place, never a refusal
+            out.append(f"({name} could not be computed: {type(e).__name__}: {e})")
+        out.append("")
+    block("the results", lambda: list(status_lines))
+    appr = inp.get("approval") or {}
+
+    def proof():
+        cf = stops.core_fault_rows(cfg)
+        if cf:
+            ls = ["**Proof checks at delivery.** " + " ".join(stops.core_fault_marker(c) for c in cf)]
+        elif appr:
+            ls = ["**Proof checks at delivery.** The Lean build, the check for unfinished proofs (`sorry`), the check "
+                  "that only Lean's standard axioms are used, and the check that the approved statements are unchanged "
+                  "all passed."]
+        else:
+            ls = ["**Proof checks at delivery.** The Lean build, the check for unfinished proofs (`sorry`) and the "
+                  "check that only Lean's standard axioms are used all passed (no statements approved: the check that "
+                  "they are unchanged was not run)."]
+        try:        # COMPAT-E M2: a sorry let through by a logged leave line is said beside "passed"
+            import decisions
+            n_ = len(decisions.unproved(cfg)["decls"])
+        except Exception as e:      # noqa: BLE001 -- said, never hidden
+            n_, e_ = None, e
+        if n_:
+            ls[0] += (f" The check for unfinished proofs lets through {n_} Lean declaration(s) left unproved by a "
+                      f"logged decision (“stated only” in the table above).")
+        elif n_ is None:
+            ls[0] += f" Whether a declaration is left unproved by a logged decision could not be read ({e_!r})."
+        if mode(cfg) == "release":
+            for s_, cmd_, _rc in stops.withdrawn_failing(cfg):
+                ls.append(f"Stop {s_} was closed by the operator as opened in error, without a cure, and its check "
+                          f"still fails at delivery (`{cmd_}`). `{RUN_RECORD}` lists the stop.")
+        return ls
+    block("the proof checks", proof)
+
+    def settings():
+        lv, md, fp_ = involvement(cfg), mode(cfg), first_pin(rd)
+        fc_ = (fp_ or {}).get("config") if isinstance((fp_ or {}).get("config"), dict) else {}
+        s = (f"**Run settings.** Involvement level *{lv}* ({LEVEL_WORDS.get(lv, 'not a known level')})"
+             + (", as fixed when the run started. " if "involvement" in fc_ else ". ") + MODE_WORDS.get(md, md))
+        if not fp_:
+            s += " The settings fixed at the start could not be read; this is the settings file's value."
+        else:       # attack review E L4: "as fixed" only for what the first pin records
+            miss_ = [w_ for k_, w_ in (("involvement", "the involvement level"), ("mode", "the run mode"))
+                     if k_ not in fc_]
+            if miss_:
+                s += (f" The settings fixed at the start do not record {' or '.join(miss_)}; this is the settings "
+                      f"file's value.")
+        for k, w, f_ in terms_differ(cfg):
+            s += f" The run's settings file now says *{w}* for {k}; every check used *{f_}*."
+        return [s]
+    block("the run settings", settings)
+    block("the checking software", lambda: [_software_line(cfg, rd, notes)])
+
+    def answers():
+        keys = make_report.disclosure_keys(cfg, inp)
+        ans = [k for k in keys if k.group == make_report.ANSWERS_SECTION]
+        by = approval_file_by(os.path.join(rd, "APPROVED_FINGERPRINTS.json"), appr)[0] if appr else None
+        if not appr:
+            tail = "No approval of the statements is on record."
+        elif involvement(cfg) == "hands-off" or by == "agent":
+            tail = ("The statements were approved by the agent, not by you (hands-off)"
+                    + ("; every other decision was the agent's (`DECISIONS.md`)." if ans else
+                       ", and the agent took every decision (`DECISIONS.md`)."))
+        elif any(k.prefix == "approval" for k in ans):
+            tail = "The statements: approved by you (the approval above)."
+        else:
+            tail = (f"The statements: approved by you (the approval's Lean commit is "
+                    f"`{str(appr.get('commit', '?'))[:11]}`).")
+        if not ans:
+            return [f"**{make_report.ANSWERS_SECTION}.** None. " + tail]
+        return ([f"**{make_report.ANSWERS_SECTION}.** " + make_report.ANSWERS_INTRO]
+                + [f"- {k.prefix} ({k.ident}): {k.short}" for k in ans] + [tail])
+    block("the answers recorded as yours", answers)
+
+    def reviews():
+        have = [p for p in REVIEW_PERSPECTIVES if os.path.isfile(os.path.join(rd, REVIEW_DIR, p + ".md"))]
+        if not have:
+            return ["**Reviews of the summary and the report.** No review of the summary and the report is on record."]
+        return [f"**Reviews of the summary and the report.** {len(have)} review(s) ({', '.join(p.lower() for p in have)})"
+                f" are in the audit record's `{REVIEW_DIR}/` folder (not in this folder). The formalizing agent saved "
+                f"them, so the record cannot show who wrote them."]
+    block("the reviews", reviews)
+
+    def noticed():
+        ns = list(dict.fromkeys(" ".join(str(n).split()) for n in notes))
+        if not ns:
+            return ["**What the checks noticed at delivery.** Nothing."]
+        ls = [f"**What the checks noticed at delivery.** {len(ns)} note(s) to the formalizing agent; a note never "
+              f"stops a delivery. Each is in `{RUN_RECORD}`, \"Notes at delivery\", word for word."]
+        labels = [" ".join(k.ident.split()) for k in make_report.disclosure_keys(cfg, inp)
+                  if k.group == "Results" and k.prefix == "result"]
+        grp, counted = {}, {}
+        for n in ns:
+            p, c = note_kind(n)
+            if c:
+                counted[p] = counted.get(p, 0) + 1
+            else:
+                grp.setdefault(p, []).append(n)
+        for p, nn in grp.items():
+            names = list(dict.fromkeys(l for n in nn for l in labels
+                                       if re.search(r"(?<![\w.])" + re.escape(l) + r"(?![\w.])", n)))
+            what = "; ".join(names) if names else "; ".join(
+                (make_report._short(re.sub(r"^\[[\w -]+\]\s*", "", n), 160)[0] or n[:160]) for n in nn[:3])
+            ls.append(f"- {p}: {what}" + (f" ({len(nn)} notes)" if len(nn) > 1 else "") + ".")
+        if counted:
+            ls.append("- About the documents only: " + ", ".join(f"{v} on {k}" for k, v in counted.items()) + ".")
+        return ls
+    block("the notes", noticed)
+    out.append("**Checking this folder later.** `python3 audits/project.py --check-delivered`, run in the audit record, "
+               "says whether a delivered file was changed after delivery (section D lists their fingerprints).")
+    return "\n".join(out) + "\n"
+
+
+def insert_checked(cover, section):
+    """README A-C with `section` inserted before its first `\\n## ` line (after the title and the intro), else
+    appended."""
+    i = cover.find("\n## ")
+    if i < 0:
+        return cover.rstrip("\n") + "\n\n" + section
+    return cover[:i + 1] + section + "\n" + cover[i + 1:]
 
 
 def _deliver(cfg):
@@ -2480,9 +3713,11 @@ def _deliver(cfg):
                   f"prepare again and deliver")
             return 1
         notes.append(f"stop {busy} is open (not a human stop)")
-    # make_report.py --check --delivery: deliver-stale is the gate's; every other code a note
+    # make_report.py --check --delivery: deliver-stale is the gate's; every other code a note. The summary's inputs
+    # are computed once, for the checks and the README's code-written section (DESIGN-E fix 2)
+    inp = note("the summary's inputs", make_report.summary_inputs, cfg)
     try:
-        pre = make_report.delivery_problems(cfg)
+        pre = make_report.delivery_problems(cfg, inp)
     except Exception as e:      # noqa: BLE001 -- the stale check alone, then
         notes.append(f"the delivery checks could not run ({type(e).__name__}: {e})")
         try:
@@ -2602,14 +3837,38 @@ def _deliver(cfg):
         elif name_ == JUDGEMENT_MD:
             notes.append(f"no {JUDGEMENT_MD} in the rounds directory: the delivery reviewers' findings were not judged "
                          f"on record (run/stage5-delivery.md)")
-    # README.md = README A-C as prepared (generated now when there is none), then section D (N6)
+    # DESIGN-E2 fix 2: the code-written section's results block (its `[status-wording]` note joins the notes), then
+    # every note, word for word, at the end of the delivered RUN_RECORD.md (before README D fingerprints it)
+    global DELIVERY_NOTES
+    status_lines = []
+    try:
+        if inp is None:
+            raise ValueError("the summary's inputs could not be computed")
+        status_lines, sw_ = status_block(cfg, inp)
+        notes += sw_
+    except Exception as e:      # noqa: BLE001 -- said in the section and as a note, never a refusal
+        status_lines = [f"(the results could not be computed: {type(e).__name__}: {e})"]
+        notes.append(f"the README section's results could not be computed ({type(e).__name__}: {e})")
+    notes[:] = list(dict.fromkeys(" ".join(str(n_).split()) for n_ in notes))
+    nl_ = note("the run record's delivery notes", run_record.notes_lines, notes)
+    if nl_:
+        open(rr_out, "a", encoding="utf-8").write(nl_)
+    # README.md = README A-C as prepared (generated now when there is none), the code-written section inserted before
+    # its first `## ` line, then section D (N6), which fingerprints every other delivered file
     ac_ = os.path.join(rd, README_AC)
-    cover = (open(ac_, encoding="utf-8").read() if os.path.isfile(ac_) else (note("README A-C", readme_ac, cfg) or "")) \
-        + (note("README section D", readme_d, cfg, files, kept, dropped) or "\n## D. Delivery notes\n\n(could not be "
-                                                                            "written: see the notes)\n")
+    ac_text = open(ac_, encoding="utf-8").read() if os.path.isfile(ac_) else (note("README A-C", readme_ac, cfg) or "")
+    try:
+        sect_ = readme_checked(cfg, notes, inp or {}, status_lines)
+    except Exception as e:      # noqa: BLE001 -- the fallback text and a note, never a refusal
+        notes.append(f"the README section \"{CHECKED_HEADING[3:]}\" could not be written ({type(e).__name__}: {e})")
+        sect_ = CHECKED_HEADING + "\n\n" + CHECKED_FALLBACK.format(e=f"{type(e).__name__}: {e}") + "\n"
+    cover = insert_checked(ac_text, sect_) \
+        + (note("README section D", readme_d, cfg, files, kept, dropped, delivered)
+           or "\n## D. Delivery notes\n\n(could not be written: see the notes)\n")
     open(os.path.join(out, "README.md"), "w", encoding="utf-8").write(cover)
     delivered.append(os.path.join(out, "README.md"))
     notes += [f"[delivered check] {b}" for b in (note("the delivered check", check_delivered, cfg) or [])]
+    DELIVERY_NOTES = list(notes)
     print(f"delivered {len(delivered)} file(s) to {out}")
     say_notes()
     return 0
@@ -3051,6 +4310,14 @@ def selftest():
                  for argv_ in (["x.py", "--check"], ["x.py"], ["x.py", "--deliver"], ["x.py", "--selftests"]))
          and "mode" not in _test_level(fake, ["x.py", "--selftest"], {TEST_LEVEL_ENV: "hands-off"})
          and _test_mode(["x.py", "--check"], {TEST_MODE_ENV: "release"}) is None),
+        ("attack review E H1: a real command carrying --selftest is not a selftest -- `--deliver --selftest` keeps its "
+         "config and the first pin's terms; `--project P --selftest` and `--selftest --lean` are selftests",
+         not _in_selftest(["project.py", "--deliver", "--selftest"])
+         and not _in_selftest(["project.py", "--deliver", "--project", "P", "--selftest"])
+         and _test_level(fake, ["project.py", "--deliver", "--selftest"],
+                         {TEST_LEVEL_ENV: "hands-off", TEST_MODE_ENV: "release"}) == fake
+         and _in_selftest(["make_report.py", "--project", "P", "--selftest"])
+         and _in_selftest(["project.py", "--selftest", "--lean"]) and _in_selftest(["-c", "--selftest"])),
         ("a real run with FORMALIZE_TEST_MODE set keeps its config's mode (A3)", _test_mode_real_run()),
         ("clip cuts at a word boundary and marks the cut; a short text is unchanged",
          clip("not confidential, light budget", 18) == "not confidential …" and clip("a  b", 9) == "a b"),
@@ -3309,7 +4576,9 @@ def selftest():
             except ValueError:
                 _ok13.append(True)
         _ok13.append("unchanged" in intake_save(f"intake-message sha256 {_h13}\n- 1a: paper.tex\n"))
-        _lc13 = dict(_lc, rounds_dir="audits/lt13"); os.makedirs(os.path.join(REPO, "audits", "lt13"))
+        # A4 (STATUS A4): the rounds directory is NOT created first; --intake-move (log_append) creates it
+        _lc13 = dict(_lc, name="lt13", rounds_dir="audits/lt13")
+        _no13 = not os.path.exists(os.path.join(REPO, "audits", "lt13"))
 
         def _stage13(sel):
             global select
@@ -3328,8 +4597,11 @@ def selftest():
         _s1 = _stage13(_nosel)
         intake_save(f"intake-message sha256 {_h13}\n- 1a: paper.tex\n- Checkpoint A: OK (2026-10-23)\n")
         _s2 = _stage13(lambda name=None: (_lc13, "test"))
-        _m13 = intake_move(_lc13)
-        _log13 = open(os.path.join(REPO, "audits", "lt13", "RUN_LOG.md")).read()
+        try:
+            _m13 = intake_move(_lc13)
+            _log13 = open(os.path.join(REPO, "audits", "lt13", "RUN_LOG.md")).read()
+        except OSError as e:        # A4: the missing rounds directory (FileNotFoundError before the fix)
+            _m13, _log13 = f"intake_move failed: {e}", ""
         _s3 = _stage13(_nosel)
         checks.append(("B13 restart: the intake is saved before the branch (Stage 0); --stage then says resume (no new "
                        "intake; Checkpoint A again until its OK is saved; git switch to an existing branch); a different "
@@ -3341,6 +4613,17 @@ def selftest():
                        and re.search(r"^## Intake \(\d{4}-\d{2}-\d{2}\)\n", _log13, re.M) and "- 1a: paper.tex" in _log13
                        and intake_logged(os.path.join(REPO, "audits", "lt13")) is None
                        and not os.path.exists(intake_draft_path()) and "a new run" in _s3))
+        try:
+            log_append(dict(_lc, rounds_dir="../lt13x"), "Notes", "x"); _out13 = False
+        except ValueError as e:
+            _out13 = "not under audits/" in str(e) and not os.path.exists(os.path.join(REPO, "..", "lt13x"))
+        try:        # compat review L5: a misspelt rounds_dir under audits/ is not created either
+            log_append(dict(_lc, name="lt13y", rounds_dir="audits/lt13z"), "Notes", "x"); _out13 = False
+        except ValueError as e:
+            _out13 = _out13 and "not audits/lt13y" in str(e) and not os.path.exists(os.path.join(REPO, "audits", "lt13z"))
+        checks.append(("A4: --intake-move (log_append) creates a missing rounds directory audits/<name>; a missing one "
+                       "outside audits/, or a misspelt one under it (compat L5), is refused and nothing is created",
+                       _no13 and os.path.isfile(os.path.join(REPO, "audits", "lt13", "RUN_LOG.md")) and _out13))
         checks.append(("B3: a sorry is the author's work (proof-wip), an axiom or kernel-skipping token is a stop",
                        cause_class("sorry") == "proof-wip" and not is_stop_cause("sorry")
                        and is_stop_cause("axiom") and is_stop_cause("hard-token") and is_stop_cause("no-such-code")))
@@ -3505,7 +4788,9 @@ def selftest():
                        "four fresh agents, names JUDGEMENT.md only when it exists, claims no reader for them, and keeps "
                        "the sheet's reader outcome (none claimed under hands-off)",
                        "written by the formalizing agent" in _cv5 and "No delivery review is on record" in _cv5
-                       and "`JUDGEMENT.md`" in _cv9 and "reviewed them (claims, trust" in _cv9
+                       and "`JUDGEMENT.md`" in _cv9 and "Fresh agents reviewed them" not in _cv9
+                       and "Reviews by fresh agents are on record in the audit record's `delivery-review/` (claims, trust)"
+                       " ; the formalizing agent saved them, so the record cannot show who wrote them".replace(" ;", ";") in _cv9
                        and "no review is on record for readability, decisions" in _cv9
                        and _dc10 == ["SUMMARY.md"] and "SUMMARY.md is the generator's draft, unchanged" in _cv10
                        and "written by the formalizing agent" not in _cv10 and "passed (every blocking finding" not in _cv5
@@ -3681,8 +4966,19 @@ def selftest():
         shutil.rmtree(tmp, ignore_errors=True)
     checks += _release_controls(fake)
     checks += _comment_only_controls()
+    checks += _parts_differ_controls()
+    checks += _m7_lexer_controls()
+    checks += _m7_controls()
+    checks += _m7_fail_closed_controls()
     checks += _steady_clock_controls()
     checks += _license_controls()
+    checks += _adj_checks_controls()
+    checks += _intake_terms_controls()
+    checks += _checked_controls()
+    fc_ = _floor_controls()
+    # REVIEW-FLOOR LOW-1: the full selftest still runs the fast floor's control (S' within S)
+    checks += fc_ + [("DESIGN-FLOOR: the full selftest ran the fast floor's control (project.py --selftest --floor)",
+                      len(fc_) == 1 and fc_[0][0].startswith("floor: --deliver refuses when the math gate refuses"))]
     for name, ok in checks:
         print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
     ok = all(c for _, c in checks)
@@ -3690,11 +4986,496 @@ def selftest():
     return 0 if ok else 1
 
 
+def _floor_controls(tb=False):
+    """[(name, ok)]: the math gate's floor control on --deliver (DESIGN-FLOOR, 2026-11-10; floor mutant MG2): with every
+    check before the gate a stand-in that passes and stops.math_gate refusing, _deliver exits 1, prints the refusal as
+    RED[deliver] and delivers nothing, in dev and release and at every involvement level (REVIEW-FLOOR LOW-6 and
+    MEDIUM-1: a --deliver that dropped the gate's refusals in release only passed this control when it ran dev only).
+    `project.py --selftest --floor` runs this alone (seconds); the full selftest runs it too. An exception is a failed
+    control; with tb (the --floor entry) it also prints its traceback (REVIEW-FLOOR LOW-2: the floor then counts a
+    mutant that raises here as crashed, a hit, never as killed; the full selftest's output is as before)."""
+    import contextlib, io, shutil, tempfile, traceback
+    import decisions, make_report, stops, tool_patch
+    global REPO
+    keep = (REPO, decisions.reapproval_question, decisions.checkpoint_c_refusal, stops.open_name,
+            make_report.summary_inputs, make_report.delivery_problems, stops.math_gate, tool_patch.delivery_problems)
+    bad = []
+    for m_ in MODES:
+        for lv in INVOLVEMENT_LEVELS:
+            tmp = tempfile.mkdtemp(prefix="project-floor-")
+            buf, rc = io.StringIO(), None
+            try:
+                REPO = tmp
+                os.makedirs(os.path.join(tmp, "audits", "x"))
+                decisions.reapproval_question = decisions.checkpoint_c_refusal = stops.open_name = lambda c_: None
+                make_report.summary_inputs = lambda c_: None
+                make_report.delivery_problems = lambda c_, inp=None: []
+                stops.math_gate = lambda c_: (["`python3 audits/phase0.py --readonly` fails (exit 1): HARD[sorry] GATEQZ"], [])
+                tool_patch.delivery_problems = lambda c_: []
+                with contextlib.redirect_stdout(buf):
+                    rc = _deliver({"rounds_dir": "audits/x", "mode": m_, "involvement": lv})
+            except Exception as e:      # noqa: BLE001 -- a failed control
+                buf.write(f"(_deliver raised {type(e).__name__}: {e})\n{traceback.format_exc() if tb else ''}")
+            finally:
+                (REPO, decisions.reapproval_question, decisions.checkpoint_c_refusal, stops.open_name,
+                 make_report.summary_inputs, make_report.delivery_problems, stops.math_gate,
+                 tool_patch.delivery_problems) = keep
+                gone = not os.path.exists(os.path.join(tmp, "deliverables"))
+                shutil.rmtree(tmp, ignore_errors=True)
+            out = buf.getvalue()
+            if not (rc == 1 and "RED[deliver] not deliverable (the math gate)" in out and "GATEQZ" in out and gone):
+                bad.append(f"{m_}/{lv}")
+                tb = "Traceback (most recent call last)" in out
+                print(f"  ({m_}/{lv}) " + (out if tb else " | ".join(out.strip().splitlines()[-4:])))
+    return [("floor: --deliver refuses when the math gate refuses (RED[deliver]) and delivers nothing, in dev and "
+             "release, at every involvement level" + (f" (not: {', '.join(bad)})" if bad else ""), not bad)]
+
+
+def _checked_controls():
+    """DESIGN-E2 fix 2: the README's code-written section -- the status mark (mechanical, faithful never marked, the
+    same label normalisation on both sides), the reasons, the answers at each level, the software against the first
+    pin, the notes by kind, the insertion, and the README fingerprint against the run log."""
+    import integrity, make_report, shutil, tempfile
+    global REPO, AUDITS
+    out, tmp = [], tempfile.mkdtemp(prefix="checked-")
+    keep = (make_report.disclosure_keys, integrity.applied_tool_patches, REPO, AUDITS)
+    K = make_report.Key
+    try:
+        rd = os.path.join(tmp, "R")
+        os.makedirs(rd)
+        cfg = {"rounds_dir": rd, "involvement": "hands-off", "mode": "dev", "name": "P"}
+
+        def run(results, summary, judgement=None, answers=()):
+            open(os.path.join(rd, "SUMMARY.md"), "w").write(summary)
+            jp = os.path.join(rd, JUDGEMENT_MD)
+            if judgement is None:
+                if os.path.exists(jp):
+                    os.remove(jp)
+            else:
+                open(jp, "w").write(judgement)
+            make_report.disclosure_keys = lambda c_, i_=None: (
+                [K("Results", "result", l, st) for l, st in results] + list(answers))
+            return status_block(cfg, {})
+        integrity.applied_tool_patches = lambda *a, **k: {}
+        res1 = [("Theorem 1.1", "faithful"), ("Lemma 1.2", "not established: a review failed"),
+                ("Lemma 2.3", "false as printed; proved as repaired"), ("Theorem 2.6", "faithful under a reading choice"),
+                ("Lemma 3.2 (c)", "true only vacuously"), ("Lemma 2.4", "assumed, not proved (`H`: literature "
+                                                                       "hypothesis (declared at Checkpoint A))"),
+                ("Lemma 4.1", "true only vacuously"), ("Claim (7)", "true only vacuously"),
+                ("Lemma 5.1 (a)", "true only vacuously")]
+        summ1 = ("# Summary\n\n## Results\n\n| Status | Results |\n|---|---|\n"
+                 "| false, nothing else | Theorem 1.1 |\n| faithful | Lemma 1.2 |\n"
+                 "| False as printed; the Lean proves the repaired statement | Lemma 2.3 (repair: x > 0) |\n"
+                 "| faithful under a reading choice | **Theorem 2.6** |\n| true only vacuously | Lemma 3.2 (c) |\n"
+                 "| Assumed, not proved | Lemma 2.4 (`H`) |\n| true only vacuously | Claim (7) (the bound) |\n"
+                 "| true only vacuously | Lemma 5.1 (b) |\n\n## Next\n")
+        l1, n1 = run(res1, summ1)
+        t1 = "\n".join(l1)
+        row = lambda lbl: next((l for l in l1 if l.startswith("|") and lbl in l), "")
+        out.append(("E2 fix 2: the mark is mechanical -- a faithful result is never marked (whatever the summary says); "
+                    "a cell keeping the status's first part (up to ';' or ' (') is not; 'Lemma 2.3 (repair: x > 0)' and "
+                    "'**Theorem 2.6**' pair; 'Lemma 3.2 (c)' pairs with an identical row (M1), 'Lemma 5.1 (a)' never with 'Lemma 5.1 (b)'; a result the summary "
+                    "does not list is marked, said plainly",
+                    "Theorem 1.1 †" not in t1 and "Lemma 1.2 †" in t1 and "Lemma 2.3 †" not in t1
+                    and "Theorem 2.6 †" not in t1 and "Lemma 3.2 (c) †" not in t1 and "Lemma 2.4 †" not in t1
+                    and "Claim (7) †" not in t1
+                    and "Lemma 4.1 †" in t1 and "† Not paired with a row of the summary's table" in t1
+                    and "Lemma 5.1 (a) †" in t1 and "- Lemma 4.1, Lemma 5.1 (a). No reason is on record" in t1
+                    and "- Lemma 1.2 — the summary: “faithful”. No reason is on record" in t1
+                    and "| Status from the review records | Results |" in t1))
+        out.append(("E2 fix 2: a marked result with no reason gives one [status-wording] note naming it",
+                    len(n1) == 1 and n1[0].startswith("[status-wording]") and "3 result(s)" in n1[0]
+                    and "Lemma 1.2; Lemma 4.1; Lemma 5.1 (a)" in n1[0]))
+        res5 = [("Lemma 2.2", "faithful under a reading choice"), ("Lemma 2.3", "faithful under a reading choice"),
+                ("Lemma 2.4", "faithful under a reading choice"), ("Proposition 2.7", "vacuous as printed; x")]
+        l5, _n5 = run(res5, "# Summary\n\n## Results\n\n| Status | Results |\n|---|---|\n"
+                            "| proved; faithful (recorded as a reading choice) | Lemma 2.2 |\n"
+                            "| proved; not faithful (a reading choice was rejected) | Lemma 2.3 |\n"
+                            "| proved as printed | Lemma 2.4 |\n| proved; true only vacuously | Proposition 2.7 |\n")
+        t5 = "\n".join(l5)
+        out.append(("REVIEW-E2E-FIX2 L-5: a cell holding the status's words in order, filler words aside, is not "
+                    "marked (b2v: 'proved; faithful (recorded as a reading choice)'); one adding a negation, or "
+                    "lacking a word, still is",
+                    "Lemma 2.2 †" not in t5 and "Lemma 2.3 †" in t5 and "Lemma 2.4 †" in t5
+                    and "Proposition 2.7 †" in t5))
+        long_ = "because " + "the record names a helper, not the theorem, " * 12
+        l2, n2 = run(res1, summ1, f"# J\n\n## {STATUS_WORDING}\n\n- Lemma 1.2: REASONQZ the review was on a helper.\n"
+                                  f"- Lemma 4.1: {long_}\n- Lemma 5.1 (a): (b) is another part\n\n## Other\n- Lemma 9: x\n")
+        t2 = "\n".join(l2)
+        out.append(("E2 fix 2: the reasons come from JUDGEMENT.md \"Status wording\", a long one cut with a pointer; "
+                    "with every reason on record no note",
+                    "The agent's reason: “REASONQZ the review was on a helper.”" in t2
+                    and f"(in full: `{JUDGEMENT_MD}`)" in t2 and n2 == []))
+        l3, n3 = run(res1, "# Summary\n\n| Result | What |\n|---|---|\n| Theorem one | proved |\n")
+        out.append(("E2 fix 2: no pairing at all gives the compare sentence, no mark and no note",
+                    any("could not pair the summary's results table" in l for l in l3) and "†" not in "\n".join(l3)
+                    and n3 == []))
+        res4 = [("Lemma 2.1", "not established: x"), ("Lemma 2.2", "not established: x"),
+                ("Lemma 3.4", "not established: x"), ("Lemma 3.5", "faithful under a reading choice")]
+        summ4 = ("# Summary\n\n## Status of every result\n\n| Status | Results |\n|---|---|\n"
+                 "| not established: x | Lemmas 2.1, 2.2 and 3.4 |\n"
+                 "| faithful under a reading choice | Lemma 3.5 (for one fixed labelling; its statement is shorter) |\n")
+        l4, n4 = run(res4, summ4)
+        out.append(("E2 fix 2 (M1, L3): 'Lemmas 2.1, 2.2 and 3.4' is three results; a cell is split only at '; ' "
+                    "outside parentheses; a table under another heading whose header starts '| Status' is found",
+                    "†" not in "\n".join(l4) and n4 == []
+                    and any("it checks nothing more, so compare the two" in l for l in l4)
+                    and not any("in the same words" in l for l in l4)
+                    and summary_result_rows(summ4).get("Lemma 3.5 (for one fixed labelling; its statement is shorter)")))
+        # attack review E H2: a decoy row hidden in an HTML comment, or a second row, never vouches for the status
+        res5 = [("Lemma 1.2", "not established: a review failed"), ("Lemma 1.3", "not established: a review failed")]
+        summ5 = ("# Summary\n\n## Results\n\n| Status | Results |\n|---|---|\n<!--\n"
+                 "| not established: a review failed | Lemma 1.2 |\n-->\n| faithful | Lemma 1.2 |\n"
+                 "| not established: a review failed | Lemma 1.3 |\n| faithful | Lemma 1.3 |\n")
+        t5 = "\n".join(run(res5, summ5)[0])
+        out.append(("attack review E H2: an HTML comment is not read; a label in several rows is checked in every row "
+                    "and all its cells are shown",
+                    "Lemma 1.2 †" in t5 and "Lemma 1.3 †" in t5 and "- Lemma 1.2 — the summary: “faithful”." in t5
+                    and "- Lemma 1.3 — the summary's rows: “not established: a review failed”, “faithful”." in t5
+                    and "checks nothing more" not in t5
+                    and summary_result_rows(summ5) == {"Lemma 1.2": ["faithful"],
+                                                       "Lemma 1.3": ["not established: a review failed", "faithful"]}))
+        # L1, L3 (b3v), L4: a reason or cell is inert; "Definition 2.1 (H)" pairs; a label holding ": " has its reason
+        res6 = [("Definition 2.1", "true only vacuously"), ("Lemma 2 (a: b)", "not established: x")]
+        summ6 = ("# Summary\n\n## Results\n\n| Status | Results |\n|---|---|\n"
+                 "| true only vacuously | Definition 2.1 (H) |\n| fine <br> `y` | Lemma 2 (a: b) |\n")
+        l6, n6 = run(res6, summ6, f"# J\n\n## {STATUS_WORDING}\n\n- Lemma 2 (a: b): REASONQZ <br><br>Checked: `ok`\n")
+        t6 = "\n".join(l6)
+        out.append(("attack review E L1, L3, L4: the summary's cell and the agent's reason are inert (no raw HTML, no "
+                    "code span); 'Definition 2.1 (H)' pairs with Definition 2.1; a label containing ': ' finds its "
+                    "reason",
+                    "Definition 2.1 †" not in t6 and "Lemma 2 (a: b) †" in t6 and n6 == []
+                    and "“fine &lt;br&gt; \\`y\\`”" in t6 and "“REASONQZ &lt;br&gt;&lt;br&gt;Checked: \\`ok\\`”" in t6
+                    and "<br>" not in t6))
+        # E2E-FIX2 M2b (the e2e run: `| Result | Status (as the Lean has it) |` under "## Status of each result"
+        # paired nothing): the columns are found by the header; a table with a Status column but no Result column
+        # (a stops table) is not the results table
+        summ7 = ("# Summary\n\n| Stop | Status |\n|---|---|\n| S1 | Lemma 1.2 |\n\n## Status of each result\n\n"
+                 "| Result | Status (as the Lean has it) | Note |\n|---|---|---|\n| **Lemma 1.2** | not established: x | n |\n"
+                 "| Theorem 1.1, Lemma 2.3 | Proved; faithful. | n |\n")
+        l7, n7 = run([("Lemma 1.2", "not established: x"), ("Theorem 1.1", "faithful")], summ7)
+        out.append(("E2E-FIX2 M2b: a summary table `| Result | Status ... |` is paired by its header, whatever its "
+                    "heading and column order; a Status table with no Result column is not the results table",
+                    summary_result_rows(summ7) == {"Lemma 1.2": ["not established: x"],
+                                                   "Theorem 1.1": ["Proved; faithful."], "Lemma 2.3": ["Proved; faithful."]}
+                    and not any("could not pair" in l for l in l7) and "†" not in "\n".join(l7) and n7 == []))
+        # E2E-FIX2 M2a (the e2e run: six results the approved sheet flags CHECK for a reading choice or a partial
+        # skip read as plain "faithful"): such a result is marked, the sheet's reason beside it; its status stays
+        json.dump({"round": "RS"}, open(os.path.join(rd, "APPROVED_FINGERPRINTS.json"), "w"))
+        os.makedirs(os.path.join(rd, "RS"), exist_ok=True)
+        json.dump({"rows": [{"result": "Lemma 2.1", "flag": "CHECK", "check_reason": "Generalization: confirm REASONQZ."},
+                            {"result": "Remark 4.2 (b)", "flag": "CHECK", "check_reason": "Skip: the density claim."},
+                            {"result": "Theorem 1.1", "flag": "OK"},
+                            {"result": "Lemma 1.2", "flag": "CHECK", "check_reason": "not faithful anyway"}]},
+                  open(os.path.join(rd, "RS", "SIGNOFF.json"), "w"))
+        l8, n8 = run([("Theorem 1.1", "faithful"), ("Lemma 2.1", "faithful"), ("Remark 4.2", "faithful"),
+                      ("Lemma 1.2", "not established: x")],
+                     "# Summary\n\n## Results\n\n| Status | Results |\n|---|---|\n| faithful | Theorem 1.1, Lemma 2.1, "
+                     "Remark 4.2 |\n| not established: x | Lemma 1.2 |\n")
+        t8 = "\n".join(l8)
+        # E2E-FIX2 M4b: a row text calling a closed re-approval open is named at prepare (a NOTE, never a refusal)
+        json.dump({"rows": [{"result": "Remark 5.2", "differences": "its re-approval is open (REAPPROVAL.json, not "
+                             "closed)"}, {"result": "Lemma 2.1", "differences": "fine"}]},
+                  open(os.path.join(rd, "RS", "SIGNOFF.json"), "w"))
+        _n_open = reapproval_text_notes(rd, "RS")
+        json.dump({"closed": True, "closed_by": "approve RS"}, open(os.path.join(rd, "REAPPROVAL.json"), "w"))
+        _n_closed = reapproval_text_notes(rd, "RS")
+        os.remove(os.path.join(rd, "REAPPROVAL.json"))
+        out.append(("E2E-FIX2 M4b: prepare names each approved-sheet row that calls a closed re-approval open, and "
+                    "nothing while there is no closed re-approval",
+                    _n_open == [] and len(_n_closed) == 1 and "'Remark 5.2'" in _n_closed[0]
+                    and _n_closed[0].startswith("prepare: NOTE:")))
+        os.remove(os.path.join(rd, "APPROVED_FINGERPRINTS.json"))
+        shutil.rmtree(os.path.join(rd, "RS"))
+        out.append(("E2E-FIX2 M2a: a faithful result the approved sheet flags CHECK (a part row marks its result) is "
+                    "marked †, with the sheet's reason; an OK one and a not-faithful one are not marked for it",
+                    "| faithful | Theorem 1.1; Lemma 2.1 †; Remark 4.2 † |" in t8
+                    and "- Lemma 2.1 — the sheet: “Generalization: confirm REASONQZ.”." in t8
+                    and "- Remark 4.2 — the sheet: “Skip: the density claim.”." in t8
+                    and "Lemma 1.2 †" not in t8 and "not faithful anyway" not in t8 and n8 == []))
+        # the whole section: answers, notes, insertion (no git: the first pin cannot be read)
+        approval = {"round": "R1", "commit": "abcdef0123456789", "by": "human"}
+        stop_key = K(make_report.ANSWERS_SECTION, "stop decision", "2026-10-29 stop S1", "“close it” — audit commit 0be0a91")
+        appr_key = K(make_report.ANSWERS_SECTION, "approval", "Checkpoint B", "“approved” — audit commit 5dce37e")
+        notes_ = ["[weird] SOMETHINGNEWQZ happened", "[status-wording] x", "[pdf] SUMMARY.pdf stale",
+                  "[adj-record] Lemma 1.2 has a finding not ruled on", "[adj-record] another for Lemma 1.2"]
+        make_report.disclosure_keys = lambda c_, i_=None: [K("Results", "result", "Lemma 1.2", "faithful"), stop_key]
+        ho = readme_checked(dict(cfg), notes_, {"approval": dict(approval, by="agent")}, ["TABLEQZ"])
+        make_report.disclosure_keys = lambda c_, i_=None: [K("Results", "result", "Lemma 1.2", "faithful")]
+        none_ = readme_checked(dict(cfg), [], {"approval": dict(approval, by="agent")}, [])
+        noappr = readme_checked(dict(cfg), [], {}, [])
+        make_report.disclosure_keys = lambda c_, i_=None: [K("Results", "result", "Lemma 1.2", "faithful"), appr_key]
+        inv = readme_checked(dict(cfg, involvement="involved"), [], {"approval": approval}, [])
+        make_report.disclosure_keys = lambda c_, i_=None: [K("Results", "result", "Lemma 1.2", "faithful"), stop_key]
+        inv2 = readme_checked(dict(cfg, involvement="involved"), [], {"approval": approval}, [])
+        out.append(("E2 fix 2 (M1, M2): the answers recorded as yours at every level -- hands-off lists a human stop "
+                    "answer and says the agent approved the statements; 'None.' only with no answer; involved points "
+                    "to the approval above, never a Lean commit called an audit commit",
+                    "- stop decision (2026-10-29 stop S1): “close it” — audit commit 0be0a91" in ho
+                    and "approved by the agent, not by you (hands-off); every other decision" in ho
+                    and "**Answers recorded as yours.** None. The statements were approved by the agent" in none_
+                    and "No approval of the statements is on record." in noappr
+                    and "The statements: approved by you (the approval above)." in inv
+                    and "approval's Lean commit is `abcdef01234`" in inv2 and "audit commit `abcdef" not in inv2))
+        out.append(("E2 fix 2: the notes -- an unknown one is shown as Other, a document-only kind is counted, a note "
+                    "naming a result lists it; the proof checks say the freeze did not run without an approval; the "
+                    "section starts with its heading and keeps the table",
+                    ho.startswith(CHECKED_HEADING + "\n") and "TABLEQZ" in ho
+                    and "- Other: SOMETHINGNEWQZ happened." in ho
+                    and "- A reviewer's finding not yet ruled on: Lemma 1.2 (2 notes)." in ho
+                    and "About the documents only: 1 on statuses worded differently" in ho and "1 on a PDF left out" in ho
+                    and "5 note(s) to the formalizing agent" in ho and "Nothing." in none_
+                    and "(no statements approved: the check that they are unchanged was not run)" in noappr
+                    and "The settings fixed at the start could not be read" in ho))
+        import decisions
+        keep_unp = decisions.unproved
+        try:
+            decisions.unproved = lambda c_, *a_, **k_: {"decls": {"P.lemma_x": "[DELEGATED]"}, "lines": {}, "goal": [],
+                                                       "problems": []}
+            unp = readme_checked(dict(cfg), [], {"approval": dict(approval, by="agent")}, [])
+        finally:
+            decisions.unproved = keep_unp
+        fp_k = first_pin
+        try:
+            globals()["first_pin"] = lambda r_: {"config": {"mode": "release"}}
+            nokey = readme_checked(dict(cfg), [], {}, [])
+            globals()["first_pin"] = lambda r_: {"config": {"mode": "release", "involvement": "hands-off"}}
+            haskey = readme_checked(dict(cfg), [], {}, [])
+        finally:
+            globals()["first_pin"] = fp_k
+        out.append(("COMPAT-E M2, attack review E L4: the proof checks name the declarations a logged leave line lets "
+                    "through; 'as fixed when the run started' only when the first pin records the level",
+                    "lets through 1 Lean declaration(s) left unproved by a logged decision" in unp
+                    and "lets through" not in noappr
+                    and "as fixed when the run started" not in nokey
+                    and "do not record the involvement level; this is the settings file's value" in nokey
+                    and "as fixed when the run started" in haskey and "do not record" not in haskey))
+        c0 = "# What is delivered\n\nINTRO\n\n## A. The report\n\nA\n"
+        out.append(("E2 fix 2: the section is inserted before README A-C's first `## ` line, else appended",
+                    insert_checked(c0, "SECTQZ\n") == "# What is delivered\n\nINTRO\n\nSECTQZ\n\n## A. The report\n\nA\n"
+                    and insert_checked("# T\n\nX\n", "SECTQZ\n") == "# T\n\nX\n\nSECTQZ\n"))
+        # the software block, against the first pin's audits_commit
+        aud = os.path.join(tmp, "aud")
+        G = lambda *a: subprocess.run(["git", "-C", aud, *a], capture_output=True, text=True)
+        os.makedirs(os.path.join(aud, "P"))
+        G("init", "-q"); G("config", "user.email", "t@t"); G("config", "user.name", "t")
+        open(os.path.join(aud, "stops.py"), "w").write("a\n")
+        G("add", "-A"); G("commit", "-qm", "setup")
+        base = G("rev-parse", "HEAD").stdout.strip()
+        json.dump({"audits_commit": base, "config": {}}, open(os.path.join(aud, "P", "TOOLING_PIN.json"), "w"))
+        G("add", "-A"); G("commit", "-qm", "pin")
+        prd = os.path.join(aud, "P")
+        AUDITS = aud
+        sw = lambda n_=(): _software_line({"mode": "dev"}, prd, list(n_))
+        s_un = sw()
+        open(os.path.join(aud, "stops.py"), "w").write("b\n"); G("commit", "-qam", "tool-patch TP1 apply")
+        integrity.applied_tool_patches = lambda *a, **k: {"TP1": {}}
+        s_tp, s_tpf = sw(), sw(["integrity: FAIL[tool-patch] TP1 has no patch.diff"])
+        integrity.applied_tool_patches = lambda *a, **k: {}
+        s_fake = sw()
+        integrity.applied_tool_patches = lambda *a, **k: {"TP1": {}}
+        open(os.path.join(aud, "x.py"), "w").write("x\n"); G("add", "-A"); G("commit", "-qm", "maintainer: update x.py")
+        s_mt = sw()
+        json.dump({"audits_commit": G("rev-parse", "HEAD").stdout.strip(), "config": {}},     # a re-pin: the working
+                  open(os.path.join(aud, "P", "TOOLING_PIN.json"), "w"))                    # pin moves, not the first
+        G("add", "-A"); G("commit", "-qm", "pin (re-pin)")
+        s_rp = sw()
+        open(os.path.join(aud, "stops.py"), "w").write("c\n")
+        s_unc = sw()
+        tk_ = tooling_since_first_pin
+        try:
+            globals()["tooling_since_first_pin"] = lambda a_, r_: ([], ["abc1234 maintainer: try x",
+                                                                      "def5678 Revert \"maintainer: try x\""], [])
+            s_rev = sw()
+        finally:
+            globals()["tooling_since_first_pin"] = tk_
+        out.append(("E2 fix 2 (M2): the checking software against the first pin: unchanged; one verified TP apply is a "
+                    "reviewed correction; a TP apply with a FAIL[tool-patch] note, or one not applied, is a change; a "
+                    "maintainer commit is listed; an uncommitted edit is named",
+                    "Unchanged since the run started." in s_un and "Corrected 1 time(s)" in s_tp
+                    and "other than by a reviewed correction" in s_tpf and "other than by a reviewed correction" in s_fake
+                    and "maintainer: update x.py`" in s_mt and "Also 1 reviewed correction(s)." in s_mt
+                    and "In development mode" in s_mt and "maintainer: update x.py`" in s_rp
+                    and "Uncommitted changes to: stops.py" in s_unc
+                    and "changed and restored during the run by: `abc1234 maintainer: try x`" in s_rev
+                    and "Unchanged" not in s_rev))
+        # the README fingerprint against the committed run log
+        REPO = os.path.join(tmp, "repo")
+        GR = lambda *a: subprocess.run(["git", "-C", REPO, *a], capture_output=True, text=True)
+        os.makedirs(os.path.join(REPO, "audits", "x")); os.makedirs(os.path.join(REPO, "deliverables"))
+        GR("init", "-q"); GR("config", "user.email", "t@t"); GR("config", "user.name", "t")
+        rme = os.path.join(REPO, "deliverables", "README.md")
+        body = f"# What is delivered\n\n{CHECKED_HEADING}\n\nX\n".encode()
+        open(rme, "wb").write(body)
+        lg = os.path.join(REPO, "audits", "x", "RUN_LOG.md")
+
+        def log(*lines):
+            open(lg, "w").write(f"# Log\n\n## {DELIVERY_LOG}\n\n" + "".join(l + "\n" for l in lines) + "\n## Other\n")
+            GR("add", "-A"); GR("commit", "-qm", "log")
+        good = (f"- t0 to t1: project.py --deliver delivered 3 file(s) to deliverables/ (README.md sha256 "
+                f"{hashlib.sha256(body).hexdigest()}, {len(body)} bytes); notes: none")
+        cx = {"rounds_dir": "audits/x"}
+        log("- t: project.py --deliver refused: RED[deliver]")
+        r_none = readme_problems(cx)
+        open(rme, "wb").write(b"# What is delivered\n\nold\n")
+        log("- t: project.py --deliver delivered 3 file(s)")
+        r_old2 = readme_problems(cx)
+        open(rme, "wb").write(body)
+        log(good, "- t2: project.py --deliver refused: RED[deliver] (the command's output says why)")
+        r_ok = readme_problems(cx)
+        open(rme, "ab").write(b"\nPushed to origin, branch main, as commit `abc1234`: the tree of Lean HEAD `def5678`.  \n"
+                              b"\nPushed to o, branch b, as commit `abc1234`: the tree of Lean HEAD `def5678`, without "
+                              b"paper.\n"
+                              b"\nPushed to o, branch b, as commit `abc1234`: the tree of Lean HEAD `def5678`, without "
+                              b"`paper/Smith+Jones (2024) ~O'Neil.pdf`.\n")
+        r_push = readme_problems(cx)
+        b_push = open(rme, "rb").read()
+        open(rme, "ab").write(b"\nPushed to o, branch b, as commit `abc1234`: the tree of Lean HEAD `def5678`, without "
+                              b"`paper` NOTE: all faithful `x`.\n")
+        r_tick = readme_problems(cx)
+        open(rme, "wb").write(b_push + b"I was added later\n")
+        r_tail = readme_problems(cx)
+        open(rme, "wb").write(body + b"\nPushed to origin. NOTE: every result is faithful, branch main, as commit "
+                              b"`abc1234`: the tree of Lean HEAD `def5678`.\n")
+        r_free = readme_problems(cx)
+        open(rme, "wb").write(body.replace(b"X", b"Y"))
+        r_edit = readme_problems(cx)
+        # attack review E M1 (E6, E7): the delivery line's fingerprint rewritten to the edited README, or removed
+        b2 = body.replace(b"X", b"Y")
+        log(good.replace(hashlib.sha256(body).hexdigest(), hashlib.sha256(b2).hexdigest()))
+        r_rw = readme_problems(cx)
+        log("- t0 to t1: project.py --deliver delivered 3 file(s) to deliverables/; notes: none")
+        r_rm = readme_problems(cx)
+        open(rme, "wb").write(b"# What is delivered\n\nold\n")
+        r_rm2 = readme_problems(cx)
+        out.append(("E2 fix 2 (F11): --check-delivered compares README.md with the last committed RUN_LOG delivery line "
+                    "that logs its sha256 (a later refused line does not count); stage5's `Pushed to` lines (both forms, "
+                    "trailing spaces; the paper paths in backticks, any characters but a backtick: re-review E L2; the "
+                    "older unquoted form) may follow, in exactly their generated form; an edit, or other text after it, "
+                    "is NOT ok; a README with the section and no logged sha256 is NOT ok; an old delivery is not "
+                    "checked, said; a logged fingerprint later rewritten or removed is NOT ok, with the commit (attack "
+                    "review E M1)",
+                    r_none[0] and "no committed RUN_LOG.md delivery line" in r_none[0][0] and r_ok == ([], [])
+                    and r_push == ([], []) and "not a `Pushed to` line" in r_tail[0][0]
+                    and bool(r_tick[0]) and "not a `Pushed to` line" in r_tick[0][0]
+                    and bool(r_free[0]) and "not a `Pushed to` line" in r_free[0][0]
+                    and "is not the README delivered" in r_edit[0][0]
+                    and r_old2[0] == [] and "predates" in r_old2[1][0]
+                    and all(r_[0] and "no longer does (changed by commit `" in r_[0][0] for r_ in (r_rw, r_rm, r_rm2))))
+        import contextlib
+        g_, keep_ = globals(), (check_delivered, readme_problems)
+        try:
+            g_["check_delivered"] = lambda c_, with_readme=False: []
+            g_["readme_problems"] = lambda c_: ([], ["deliverables/README.md not checked: its delivery predates x"])
+            o_ = io.StringIO()
+            with contextlib.redirect_stdout(o_):
+                rc_nv = check_delivered_cli({})
+            hist_ = ("RUN_LOG.md once logged README.md's sha256 abc… and no longer does (changed by commit `x`): a "
+                     "delivery line was edited or removed after delivery, so the README cannot be checked against it; "
+                     "this stays in the record")
+            g_["readme_problems"] = lambda c_: ([], [])
+            o_h, o_m = io.StringIO(), io.StringIO()
+            g_["check_delivered"] = lambda c_, with_readme=False: [hist_]
+            with contextlib.redirect_stdout(o_h):
+                check_delivered_cli({})
+            g_["check_delivered"] = lambda c_, with_readme=False: [hist_, "deliverables/SUMMARY.pdf is missing (x)"]
+            with contextlib.redirect_stdout(o_m):
+                check_delivered_cli({})
+        finally:
+            g_["check_delivered"], g_["readme_problems"] = keep_
+        out.append(("attack review E M1: a README.md no delivery line fingerprints is reported 'not verified', never ok",
+                    rc_nv == 0 and "delivered check: README.md not verified" in o_.getvalue()
+                    and "delivered check: ok" not in o_.getvalue()))
+        out.append(("re-review E L3: a rewritten or removed delivery line is NOT ok with advice that delivering again "
+                    "does not clear it (never 'deliver again' alone); with other problems too, those are sent to "
+                    "--deliver",
+                    "delivering again does not clear that" in o_h.getvalue() and "NOT ok: deliver again" not in
+                    o_h.getvalue() and "for the rest" not in o_h.getvalue()
+                    and "delivering again does not clear that" in o_m.getvalue() and "for the rest, deliver again" in
+                    o_m.getvalue()))
+    finally:
+        make_report.disclosure_keys, integrity.applied_tool_patches, REPO, AUDITS = keep
+        shutil.rmtree(tmp, ignore_errors=True)
+    return out
+
+
+def _intake_terms_controls():
+    """DESIGN-E2 fix 3 (forgery review 2026-11 F4): the involvement level, the mode and the ownership version are the
+    first committed pin's when it records them; a pin without the key, no pin, or a --selftest process without the
+    opt-in read the working values as before; the cache keeps only a found pin."""
+    import integrity, shutil, tempfile
+    import project as _p      # the module integrity.py reads (this file may run as __main__)
+    out, tmp = [], tempfile.mkdtemp(prefix="terms-")
+    keep_flag = _p._TERMS_FROM_PIN
+    try:
+        G = lambda *a: subprocess.run(["git", "-C", tmp, *a], capture_output=True, text=True)
+        G("init", "-q"); G("config", "user.email", "t@t"); G("config", "user.name", "t")
+
+        def pin_(name, doc, commit=True):
+            d = os.path.join(tmp, name)
+            os.makedirs(d, exist_ok=True)
+            json.dump(doc, open(os.path.join(d, "TOOLING_PIN.json"), "w"))
+            if commit:
+                G("add", "-A"); G("commit", "-qm", f"pin {name}")
+            return d
+        a = pin_("A", {"config": {"involvement": "involved", "mode": "release"}, "ownership": 4})
+        b = pin_("B", {"config": {"mode": "release"}})
+        c = os.path.join(tmp, "C"); os.makedirs(c)
+        cf = lambda d, **k: dict({"rounds_dir": d, "_terms_from_pin": True, "involvement": "hands-off",
+                                  "mode": "dev"}, **k)
+        _TERMS_CACHE.clear()
+        lv_a, md_a, df_a = involvement(cf(a)), mode(cf(a)), terms_differ(cf(a))
+        lv_b, md_b = involvement(cf(b)), mode(cf(b))
+        no_opt = (involvement({"rounds_dir": a, "involvement": "hands-off"}), mode({"rounds_dir": a}))
+        sv_ = (integrity.scope_value(cf(a), "involvement"), integrity.scope_value(cf(a), "mode"))
+        itp_ = integrity.intake_terms_problems(a, {"config": cf(a), "ownership": 4}, cf(a))
+        lv_c0 = involvement(cf(c))
+        pin_("C", {"config": {"involvement": "statements-only", "mode": "release"}, "ownership": 4})
+        lv_c1 = involvement(cf(c))
+        out.append(("E2 fix 3: a first pin saying involved/release outweighs a config saying hands-off/dev (and "
+                    "terms_differ names both); a pin without the key reads the config; no opt-in in a --selftest "
+                    "process reads the config",
+                    (lv_a, md_a) == ("involved", "release")
+                    and df_a == [("involvement", "hands-off", "involved"), ("mode", "dev", "release")]
+                    and (lv_b, md_b) == ("hands-off", "release") and no_opt == ("hands-off", "dev")))
+        out.append(("COMPAT-E M1: with the first pin's terms in force, the pin check still compares the raw working "
+                    "values -- a config and a working pin saying hands-off/dev under a first pin of involved/release "
+                    "give FAIL[pin] for both keys, from the pin and from the config",
+                    sv_ == ("hands-off", "dev")
+                    and sum(1 for s_, m_ in itp_ if s_ == "FAIL" and m_.startswith("[pin] `involvement`")) == 2
+                    and sum(1 for s_, m_ in itp_ if s_ == "FAIL" and m_.startswith("[pin] `mode`")) == 2))
+        out.append(("E2 fix 3 (L6): no committed pin reads the config and is not cached; once the pin is committed the "
+                    "same process reads the pin's terms",
+                    lv_c0 == "hands-off" and lv_c1 == "statements-only"))
+        json.dump({"config": {}, "ownership": 2}, open(os.path.join(a, "TOOLING_PIN.json"), "w"))   # working pin lowered
+        d_ = pin_("D", {"config": {}})                                                             # first pin: no key
+        json.dump({"config": {}, "ownership": 4}, open(os.path.join(d_, "TOOLING_PIN.json"), "w"))
+        _p._TERMS_FROM_PIN = True
+        pv = (integrity.pinned_version(a), integrity.pinned_version(d_))
+        _p._TERMS_FROM_PIN = False
+        pv_off = integrity.pinned_version(a)
+        out.append(("E2 fix 3 (M4): a first pin of 4 under a working pin of 2 gives 4; a first pin without the "
+                    "`ownership` key reads the working pin (4), no crash; a --selftest process without the opt-in "
+                    "reads the working pin",
+                    pv == (4, 4) and pv_off == 2))
+    finally:
+        _p._TERMS_FROM_PIN = keep_flag
+        _TERMS_CACHE.clear()
+        shutil.rmtree(tmp, ignore_errors=True)
+    return out
+
+
 def _release_controls(fake):
     """The run-mode classifier (RELEASE, CLASSIFICATION.md): [(check, passed)]."""
     rel, dev = {"mode": "release"}, {"mode": "dev"}
     import stops as _stops
     R_ = "2026-10-19-full-1a2b3c4"
+
+    def total_(c):      # A1: closer(c, None) == closer(c), and no exception (a TypeError before the fix)
+        try:
+            return closer(c, None) == closer(c)
+        except TypeError:
+            return False
     out = [("every cause code has a release class and kind; every class is F, P, I, H or N; class H is kind human "
             "and class N kind disclose, both ways (U2 §4: one table)",
             set(CAUSES) <= set(RELEASE) and {v[0] for v in RELEASE.values()} <= set("FPIHN")
@@ -3735,6 +5516,10 @@ def _release_controls(fake):
                 for c in list(RELEASE) + ["no-such-code"] for lv in INVOLVEMENT_LEVELS)
             and not any(release_cure(dict(fake, mode="dev", involvement=lv), [c]) for c in RELEASE
                         for lv in INVOLVEMENT_LEVELS)),
+           ("A1 (STATUS A1, De Medts): closer is total: a round of None reads as the default \"<R>\", so a --note "
+            "stop opened with no --round and a closer with no {R} records its code's closer instead of a TypeError",
+            all(total_(c) for c in list(CLOSER) + ["no-such-code"]) and total_("drift")
+            and closer("drift") == "python3 audits/fingerprint.py --check"),
            ("B1a reclassified only codes whose cure exists today: lane-output, tool-call and git-error are reruns "
             "(H before); B10 (ADDENDUM N1): deliver, unverified and deliver-stale are preconditions of --deliver, "
             "with no closer; B1c: head-moved and gitmeta are restores (tree-equality revert, Stage 1 snapshot); "
@@ -3823,96 +5608,383 @@ def round_kind(round_dir):
 
 # names a proof could read a docstring through: a project using one is never "comment-only"
 DOC_READERS = re.compile(r"findDocString|getDocString|docString|addDocString|doc_string|DocString")
+# DESIGN-M7: Verso docstrings are elaborated, so with `doc.verso` set (in a project Lean file or in the lakefile's
+# options) a docstring is not inert and only Lean's "same" counts (the source basis is off)
+VERSO = re.compile(r"doc\.verso")
+
+# --- the comment-only lexer (DESIGN-M7 §2.2). It follows Lean 4's tokenizer (v4.35.0, read from
+# Lean/Parser/Basic.lean and Init/Meta/Defs.lean): `whitespace` (`--` and `/-` are comments wherever whitespace
+# is consumed; `/--`, `/-!` are doc comments whose body starts after the third character), `finishCommentBlock`
+# (only `/-` and `-/` count inside), `strLitFnAux`, `charLitFnAux` (a `'` at a token start opens a char literal
+# unless `''` follows), `rawStrLitFnAux` and `identFnAux` (`isIdFirst`/`isIdRest`: a `'` inside an identifier is a
+# prime). Where it cannot be sure, the file is ambiguous and the change is NOT comment-only (fails closed).
+CO_OPEN_OK = "()[]{}⟨⟩,"     # A1: after these, `--`/`/-` is taken as a comment (off in a strict project, review L1)
 
 
-def code_only(text):
-    """The Lean `text` with every comment and docstring replaced by ONE space (it separates tokens;
-    not blanked to its length, so editing a comment does not move the code after it), trailing
-    blanks stripped and lines left empty dropped. String and char literal CONTENT is kept (unlike phase0.strip_comments), and a newline
-    inside a string is kept as a literal sentinel, so a change inside a string is a code change.
-    Leading indentation of code lines is kept (tactic blocks are indentation-sensitive)."""
-    out, i, depth, n = [], 0, 0, len(text)
+def _co_letterlike(c):
+    """Lean's isLetterLike (Init/Meta/Defs.lean, v4.35.0)."""
+    v = ord(c)
+    return ((0x3b1 <= v <= 0x3c9 and v != 0x3bb) or (0x391 <= v <= 0x3a9 and v not in (0x3a0, 0x3a3))
+            or 0x3ca <= v <= 0x3fb or 0x1f00 <= v <= 0x1ffe or 0x2100 <= v <= 0x214f or 0x1d49c <= v <= 0x1d59f
+            or (0xc0 <= v <= 0xff and v not in (0xd7, 0xf7)) or 0x100 <= v <= 0x17f)
+
+
+def _co_id_first(c):
+    """Lean's isIdFirst: an ASCII letter, `_`, or a letter-like character."""
+    return ("a" <= c <= "z") or ("A" <= c <= "Z") or c == "_" or _co_letterlike(c)
+
+
+def _co_id_rest(c):
+    """Lean's isIdRest: isIdFirst, an ASCII digit, `'`, `!`, `?`, or a subscript letter or digit."""
+    v = ord(c)
+    return (_co_id_first(c) or "0" <= c <= "9" or c in "'!?" or 0x2080 <= v <= 0x209c or 0x1d62 <= v <= 0x1d6a
+            or v == 0x2c7c)
+
+
+def _co_block_end(t, i):
+    """i at `/-`: the index after the matching `-/` (finishCommentBlock: only `/-` nests and `-/` closes), or None
+    when it is never closed. The body starts after the THIRD character, whatever it is (review of the M7 build, H1):
+    Lean's `whitespace` reads `/-`, then steps over the next character unread (`s.next c i`: `-` and `!` make a doc
+    comment, anything else a plain one), so the `/-` of `/-/-` is never an opener and `/-/- -/` is closed."""
+    n, j, d = len(t), i + 3, 1
+    while j < n:
+        if t.startswith("-/", j):
+            d -= 1; j += 2
+            if d == 0:
+                return j
+            continue
+        if t.startswith("/-", j):
+            d += 1; j += 2; continue
+        j += 1
+    return None
+
+
+def _co_string_end(t, i):
+    """i at `"`: the index after the closing quote (a `\\` escapes the next character), or None (unterminated)."""
+    j, n = i + 1, len(t)
+    while j < n:
+        if t[j] == "\\":
+            j += 2; continue
+        if t[j] == '"':
+            return j + 1
+        j += 1
+    return None
+
+
+_CO_HEX = "0123456789abcdefABCDEF"
+
+
+def _co_char_end(t, i):
+    """i at `'`: the index after the char literal Lean's charLitFnAux reads here, or None (not a literal: Lean
+    either reads a token or fails to parse, and a file that does not compile is refused by the Lean stage)."""
+    n = len(t)
+    if i + 1 >= n:
+        return None
+    j = i + 1
+    if t[j] == "\\":
+        q = t[j + 1] if j + 1 < n else ""
+        if q and q in "\\\"'rnt":
+            j += 2
+        elif q == "x" and all(x in _CO_HEX for x in t[j + 2:j + 4]) and len(t[j + 2:j + 4]) == 2:
+            j += 4
+        elif q == "u" and all(x in _CO_HEX for x in t[j + 2:j + 6]) and len(t[j + 2:j + 6]) == 4:
+            j += 6
+        else:
+            return None
+    else:
+        j += 1
+    return j + 1 if j < n and t[j] == "'" else None
+
+
+def _co_interp_end(t, i, depth=0):
+    """i at `"`, read as an interpolated string (interpolatedStrFn: `{…}` is a term, with its own strings, chars,
+    comments and braces; `\\` escapes): the index after the closing quote, or None."""
+    j, n = i + 1, len(t)
+    while j < n:
+        c = t[j]
+        if c == "\\":
+            j += 2; continue
+        if c == '"':
+            return j + 1
+        if c == "{":
+            k = _co_until_brace(t, j + 1, depth + 1)
+            if k is None:
+                return None
+            j = k; continue
+        j += 1
+    return None
+
+
+def _co_until_brace(t, i, depth):
+    """Code from i to the matching `}` (inside an interpolation): the index after it, or None."""
+    n, b = len(t), 0
+    if depth > 8:
+        return None
     while i < n:
-        if depth == 0:
-            if text.startswith("--", i):
-                j = text.find("\n", i)
-                i = n if j == -1 else j
-                out.append(" ")
-                continue
-            if text[i] == '"':
-                j = i + 1
-                while j < n and text[j] != '"':
-                    j += 2 if text[j] == "\\" else 1
-                out.append(text[i:j + 1].replace("\n", "\x00"))
-                i = j + 1
-                continue
-            m = re.match(r"'(\\.|[^\\'\n])'", text[i:i + 4])
-            if m and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] in "_'!?")):
-                out.append(m.group(0)); i += len(m.group(0)); continue
-        if text.startswith("/-", i):
-            if depth == 0:
-                out.append(" ")     # a comment separates tokens: `a/--/b` is `a b`, never `ab`
-            depth += 1; i += 2; continue
-        if depth and text.startswith("-/", i):
-            depth -= 1; i += 2; continue
-        if depth == 0:
-            out.append(text[i])
-        elif text[i] == "\n":
-            out.append("\n")
+        if t.startswith("--", i):
+            k = t.find("\n", i); i = n if k == -1 else k; continue
+        if t.startswith("/-", i):
+            k = _co_block_end(t, i)
+            if k is None:
+                return None
+            i = k; continue
+        c = t[i]
+        if c == '"':
+            k = _co_interp_end(t, i, depth)
+            if k is None:
+                return None
+            i = k; continue
+        if c == "'" and not (i and _co_id_rest(t[i - 1])) and not t.startswith("''", i):
+            k = _co_char_end(t, i)
+            if k:
+                i = k; continue
+        if c == "{":
+            b += 1
+        elif c == "}":
+            if b == 0:
+                return i + 1
+            b -= 1
         i += 1
-    lines = [l.rstrip() for l in "".join(out).split("\n")]
-    return "\n".join(l for l in lines if l.strip())
+    return None
 
 
-def lexer_ambiguous(text):
-    """Why code_only's lexer may mistake code for a comment in `text` (re-check R3), or None: a `«…»`
-    name holding `--`, `/-`, `-/` or a quote; a raw string `r"…"`/`r#"…"#` in code; an interpolated
-    string with a quote inside its braces. The Lean stage compares what the .olean keeps, which is not
-    everything (an `example`, a `#guard`), so a change the lexer misreads there is refused, not passed."""
+_CO_NUMBER = re.compile(r"0[xX][0-9a-fA-F_]*|0[bB][01_]*|0[oO][0-7_]*"
+                        r"|[0-9][0-9_]*(?:\.(?!\.)[0-9_]*)?(?:[eE][+-]?[0-9][0-9_]*)?")
+_CO_RAW = re.compile(r'r#*"')
+# a literal's (string, char, «name») newline in the code view: a sentinel, escaped so no text maps onto another
+# (review of the M7 build, L1: a raw NUL in a string read the same as a newline)
+_CO_LIT = {0: "\x00\x00", 10: "\x00n"}
+# review of the M7 build, L2: an uncertain `'` whose two readings differ locally (a char literal or `''` follows) is
+# "live"; with up to this many live ones every mixed reading is compared, with more the file is ambiguous
+_CO_LIVE_MAX = 4
+
+
+def _co_read(text, policy="lean", open_ok=CO_OPEN_OK):
+    """One reading of `text`: (code view, [(kind, start, end)] of its comments and strings, [ambiguity], the number
+    of live uncertain `'`). The code view is `text` with every comment character blanked to a space (newlines kept: L7,
+    and review L3, every code character keeps its column) and a newline inside a string or char literal replaced by
+    a sentinel. A `'` right after a code character other than an ASCII identifier character is uncertain (a user
+    token may hold it, as `⁻¹'` does; the identifier tables differ between Lean versions); `policy` says how this
+    reading takes it: "lean" as Lean's tokenizer does, "code" as part of a name or token, "char" as a char literal
+    when one is there; a tuple of "prime"/"char" gives the choice for each live one in turn (review of the M7
+    build, L2: mixed readings), "lean" past its end. Only a live `'` (a char literal or `''` follows it) is
+    counted: for any other the two choices read alike."""
+    out, spans, amb = [], [], []
+    n, i, unc = len(text), 0, 0
+    prev = None         # the code character just before i (None after whitespace or a comment: a token starts)
+    ident = False       # i continues an identifier (its last character was an isIdRest one)
+    idcont = False      # a `.` at i followed by an identifier start continues the identifier (isIdCont)
+    while i < n:
+        c = text[i]
+        if c in "\n \t\r":
+            out.append(c); i += 1; prev = None; ident = idcont = False; continue
+        if text.startswith("--", i) or text.startswith("/-", i):
+            if prev is not None and prev not in open_ok:
+                amb.append(f"`{text[i:i + 2]}` right after code at offset {i}: a notation token could contain it")
+            if text.startswith("/--/", i):
+                amb.append(f"`/--/` at offset {i}")
+            if c == "-":
+                k = text.find("\n", i)
+                k = n if k == -1 else k
+            else:
+                k = _co_block_end(text, i)
+                if k is None:
+                    amb.append(f"a comment at offset {i} is never closed")
+                    k = n
+            spans.append(("comment", i, k))
+            out.append("".join("\n" if x == "\n" else " " for x in text[i:k]))
+            i = k; prev = None; ident = idcont = False; continue
+        if c == '"':
+            k = _co_string_end(text, i)
+            if k is None:
+                amb.append(f"a string at offset {i} is never closed")
+                k = n
+            if "{" in text[i:k] and _co_interp_end(text, i) != k:
+                amb.append(f"a string at offset {i} reads differently as an interpolated string")
+            spans.append(("string", i, k))
+            out.append(text[i:k].translate(_CO_LIT))
+            i = k; prev = '"'; ident = idcont = False; continue
+        if c == "'":
+            if ident and prev is not None and prev < "\x80":
+                take = "prime"              # inside an ASCII identifier: certain
+            elif prev is None or prev in open_ok:
+                take = "char"               # a token start: certain
+            else:
+                lean_take = "prime" if ident else "char"
+                if text.startswith("''", i) or _co_char_end(text, i) is not None:
+                    take = (policy[unc] if unc < len(policy) else lean_take) if isinstance(policy, tuple) else \
+                        {"code": "prime", "char": "char"}.get(policy, lean_take)
+                    unc += 1
+                else:
+                    take = lean_take
+            if take == "char":
+                if text.startswith("''", i):
+                    out.append("''"); i += 2; prev = "'"; ident = idcont = False; continue
+                k = _co_char_end(text, i)
+                if k is not None:
+                    out.append(text[i:k].translate(_CO_LIT))
+                    i = k; prev = "'"; ident = idcont = False; continue
+            out.append(c); i += 1; prev = c; idcont = ident
+            continue
+        if c == "r" and _CO_RAW.match(text, i) and not (ident and prev is not None and prev < "\x80"):
+            amb.append(f"a raw string at offset {i}")
+        if ident and _co_id_rest(c):
+            pass
+        elif c == "." and idcont and i + 1 < n and (_co_id_first(text[i + 1]) or text[i + 1] == "«"):
+            ident = idcont = False
+        elif c == "«":
+            k = text.find("»", i + 1)
+            if k == -1:
+                amb.append(f"a name at offset {i} is never closed")
+                k = n - 1
+            out.append(text[i:k + 1].translate(_CO_LIT))
+            i = k + 1; prev = "»"; ident = False; idcont = True; continue
+        elif not ident and "0" <= c <= "9":
+            m = _CO_NUMBER.match(text, i)
+            out.append(m.group(0)); i = m.end(); prev = m.group(0)[-1]; ident = idcont = False; continue
+        elif _co_id_first(c):
+            ident = idcont = True
+        else:
+            ident = idcont = False
+        out.append(c); prev = c; i += 1
+    return "".join(out), spans, amb, unc
+
+
+def _co_lex(text, strict=False):
+    """(code view with trailing blanks and blank lines dropped, [ambiguity]) of the Lean `text` (DESIGN-M7)."""
+    open_ok = "" if strict else CO_OPEN_OK
+    code, spans, amb, unc = _co_read(text, "lean", open_ok)
+    if unc:
+        # review M4: an uncertain `'` -- every reading must place the comments and strings alike; review of the M7
+        # build, L2: every mixed reading too. Each reading is a choice per live `'` it meets (a choice can change
+        # which later `'` are live), so the readings are enumerated as a tree, at most 2**_CO_LIVE_MAX of them
+        work, done = [()], 0
+        while work:
+            pol = work.pop()
+            r_ = _co_read(text, pol, open_ok)
+            if r_[3] > len(pol):
+                work += [pol + ("prime",), pol + ("char",)]
+                continue
+            done += 1
+            if r_[1] != spans:
+                amb.append("a `'` right after code reads either as a char literal or as part of a name or token, "
+                           "and the readings place comments or strings differently")
+                break
+            if done >= 2 ** _CO_LIVE_MAX and work:
+                amb.append("`'` right after code each read either as a char literal or as part of a name or token: "
+                           "too many readings to compare")
+                break
     for m in re.finditer(r"«[^»]*»", text):
         if any(x in m.group(0) for x in ("--", "/-", "-/", '"', "'")):
-            return f"the name {m.group(0)[:30]!r}"
-    if re.search(r"(?<![\w'.!])r#*\"", code_only(text)):
-        return "a raw string"
-    if re.search(r'!"[^\n]*\{[^}\n]*["\']', text):
-        return "an interpolated string with a quote in its braces"
-    return None
+            amb.append(f"the name {m.group(0)[:30]!r}")
+    lines = [l.rstrip(" \t\r") for l in code.split("\n")]
+    return "\n".join(l for l in lines if l.strip(" \t\r")), amb
+
+
+def code_only(text, strict=False):
+    """The Lean `text` with comments and docstrings removed, as DESIGN-M7 §2.2 reads it: every comment character
+    blanked to a space, so each code character keeps its column (tactic blocks are column-sensitive), then
+    trailing blanks and lines left empty dropped. String and char literal CONTENT is kept (unlike
+    phase0.strip_comments), a newline inside one as a sentinel, so a change inside a string is a code change.
+    `strict`: the project declares a token holding a comment marker (review L1), so `(--` is ambiguous too."""
+    return _co_lex(text, strict)[0]
+
+
+def lexer_ambiguous(text, strict=False):
+    """Why code_only's lexer may mistake code for a comment in `text`, or None (the first reason): `--` or `/-`
+    right after code (a notation token may hold it: A1), `/--/` (A2), a string that reads differently as an
+    interpolated string (A3), a `«…»` name holding `--`, `/-`, `-/` or a quote, a raw string (A4), an unterminated
+    comment, string or name (review L2), or a `'` whose readings as a char literal or a prime disagree (review M4).
+    The Lean stage compares what the .olean keeps, which is not everything (an `example`, a `#guard`), and on the
+    source basis the lexer alone vouches for binder annotations and names: a change it may misread is refused."""
+    amb = _co_lex(text, strict)[1]
+    return amb[0] if amb else None
+
+
+_CO_SYNTAX_CMD = re.compile(r"(?<![\w.'])(?:notation\d*|syntax|macro|macro_rules|elab|elab_rules|infixl?|infixr"
+                            r"|prefix|postfix|declare_syntax_cat)(?![\w'!?])")
+
+
+def _co_marker_token(text):
+    """Review L1: does `text` declare syntax (notation, syntax, macro, infix, …) and hold, in its code, a string
+    literal containing `--` or `/-`? Then a user token may start with a bracket and hold a comment marker
+    (`notation "[--" x "]"`), and the bracket exemption of A1 is off for the whole project."""
+    code = code_only(text)
+    return bool(_CO_SYNTAX_CMD.search(code)) and bool(re.search(r'"[^"\n\x00]*(?:--|/-)', code))
 
 
 def comment_only_since(cfg, base, repo=None, lean_cmd=None):
     """(True, [changed file]) when every change from commit `base` to the working tree touches only
-    comments and docstrings of the project's Lean files; else (False, [reason]). Fails closed: a git
-    error, a file outside `lean_files` (a build file, a new or deleted file), a file whose code
-    differs with its comments removed (code_only), a project file naming a docstring reader
-    (DOC_READERS: a proof could depend on a docstring), or a Lean comparison that differs or cannot
-    run each make it False. The working tree is compared, so uncommitted edits count.
+    comments and docstrings of the project's Lean files; else (False, [reason]). The 2-tuple form of
+    comment_only_detail, which decides (and says on which basis)."""
+    d = comment_only_detail(cfg, base, repo, lean_cmd)
+    return d["ok"], d["what"]
 
-    Two stages. The text stage (code_only) is a quick filter only: its lexer does not model all of
-    Lean (`«…»` names, raw and interpolated strings, user tokens), so it can mistake code for a
-    comment (review of fix-mini2, H1); a file where it may (lexer_ambiguous) fails closed, as the Lean
-    stage does not see an `example` (re-check R3). What decides is the Lean stage, lean_identical: every changed
-    file is compiled before and after, and the compiled modules must be identical in every part
-    except docstrings and source positions -- every declaration's type and value (statements,
-    proofs, definition bodies), the declarations themselves, imports, attributes, notations and
-    options' effects. `lean_cmd`: the command that runs Lean (default `lake env lean`, after
-    `lake build`; the Lean selftest passes plain `lean` on a core-only fixture)."""
+
+def comment_only_detail(cfg, base, repo=None, lean_cmd=None):
+    """Are all changes from commit `base` to the working tree comments and docstrings only? A dict:
+      ok      the answer
+      what    [changed file] when ok, else [reason]
+      basis   when ok and something changed: "compiled" (Lean found the compiled modules identical in every part
+              olean_parts.lean compares) or "source" (DESIGN-M7: the code with comments removed is identical, and
+              Lean found only the compiled bytes different, every declaration, type and value hash and
+              extension part equal); else None
+      lean    the Lean stage's reasons on the source basis (each of kind "layout"), else []
+    Fails closed: a git error, a file outside `lean_files` (a build file, a new or deleted file), a file whose code
+    differs with its comments removed (code_only), one the lexer cannot read for sure (lexer_ambiguous), a project
+    file naming a docstring reader (DOC_READERS: a proof could depend on a docstring), or a Lean comparison that
+    finds a declaration, type, value or extension part different, or cannot run (a version that does not
+    compile, a failed build), or a reason without a kind, each make it False. The working tree is compared, so
+    uncommitted edits count.
+
+    Two stages. The text stage (_comment_only_text) runs first; any reason there and Lean is not run. Then the Lean
+    stage, lean_identical: every changed file is compiled before and after, and the compiled modules must be
+    identical in every part except docstrings and source positions -- every declaration's type and value
+    (statements, proofs, definition bodies), the declarations themselves, imports, attributes, notations and
+    options' effects. Lean only vetoes: when its only finding is that the compiled bytes differ (kind "layout",
+    with O1's field when it names one that identical source can produce), the change is comment-only on the
+    source basis, disclosed as such, unless the project elaborates docstrings (Verso). Review of fix-mini2 H1
+    stands: when Lean cannot run, nothing but the lexer vouches, so it is refused. `lean_cmd`: the command that
+    runs Lean (default `lake env lean`, after `lake build`; the Lean selftest passes plain `lean` on a core-only
+    fixture)."""
     repo = repo or REPO
     why, changed, texts = _comment_only_text(cfg, base, repo)
     if why or not changed:
-        return (not why), (why or changed)
+        return {"ok": not why, "what": why or changed, "basis": None, "lean": []}
     why = lean_identical(repo, texts, lean_cmd)
-    return (not why), (why or changed)
+    if not why:
+        return {"ok": True, "what": changed, "basis": "compiled", "lean": []}
+    if all(reason_kind(w) == "layout" for w in why):
+        v = _verso(cfg, repo)
+        if v is None:
+            return {"ok": True, "what": changed, "basis": "source", "lean": list(why)}
+        why = list(why) + [v]
+    return {"ok": False, "what": list(why), "basis": None, "lean": []}
+
+
+def _verso(cfg, repo):
+    """DESIGN-M7 (review L4): the reason the project elaborates docstrings (`doc.verso` in a project Lean file or
+    in the lakefile, whose `leanOptions` set it for every module), or None."""
+    for rel in list(cfg.get("lean_files", [])) + ["lakefile.lean", "lakefile.toml"]:
+        try:
+            t = open(os.path.join(repo, rel), encoding="utf-8").read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if VERSO.search(t):
+            return (f"{rel}: sets `doc.verso`, so docstrings are elaborated: only identical compiled modules make a "
+                    "change comment-only")
+    return None
 
 
 def _comment_only_text(cfg, base, repo):
-    """The text stage of comment_only_since: ([reason], [changed file], {file: (old, new)})."""
+    """The text stage of comment_only_detail: ([reason], [changed file], {file: (old, new)})."""
     git = lambda *a: subprocess.run(["git", "-C", repo, *a], capture_output=True, text=True)
     r = git("diff", "--name-status", "--no-renames", base, "--")
     u = git("ls-files", "--others", "--exclude-standard")
     if r.returncode != 0 or u.returncode != 0:
         return [f"git could not compare {base} with the working tree: {(r.stderr or u.stderr).strip()[:160]}"], [], {}
     lean = set(cfg.get("lean_files", []))
-    why, changed, texts = [], [], {}
+    why, changed, texts, edits = [], [], {}, []
     for line in r.stdout.splitlines():
         st, _, path = line.partition("\t")
         if path.startswith(".formalization-work/") or path.startswith("deliverables/"):
@@ -3930,15 +6002,25 @@ def _comment_only_text(cfg, base, repo):
             why.append(f"{path}: cannot read ({e})"); continue
         if old.returncode != 0:
             why.append(f"{path}: not in {base}"); continue
-        if code_only(old.stdout) != code_only(new):
+        edits.append((path, old.stdout, new))
+    current = {}
+    for rel in lean:
+        try:
+            current[rel] = open(os.path.join(repo, rel), encoding="utf-8").read()
+        except (OSError, UnicodeDecodeError):
+            pass
+    # review L1: a project token holding a comment marker (`notation "[--" x "]"`) turns the bracket exemption off
+    strict = any(_co_marker_token(t) for t in list(current.values()) + [o for _, o, _ in edits])
+    for path, old_t, new in edits:
+        if code_only(old_t, strict) != code_only(new, strict):
             why.append(f"{path}: its code differs, not only its comments")
         else:
-            amb = lexer_ambiguous(old.stdout) or lexer_ambiguous(new)
+            amb = lexer_ambiguous(old_t, strict) or lexer_ambiguous(new, strict)
             if amb:
                 why.append(f"{path}: {amb}: the text filter cannot tell code from comment there, and the "
                            f"compiled module does not keep everything (an `example`): not comment-only")
         changed.append(path)
-        texts[path] = (old.stdout, new)
+        texts[path] = (old_t, new)
     for path in u.stdout.split():
         if path in lean:
             why.append(f"{path}: untracked")
@@ -3950,6 +6032,83 @@ def _comment_only_text(cfg, base, repo):
 
 
 OLEAN_PARTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "olean_parts.lean")
+# O1: the diagnostic run only when the compiled bytes differ while every type and value hash agrees (_parts_differ).
+# It compares every field of every constant and names each difference; it decides whether that reason can be a
+# byte-layout one (bytes_only_kind). Review of the M7 build, H2: it fails closed -- when it fails, times out, has no
+# budget left or prints nothing complete, the reason is "not-run" (a review round, never a stop)
+OLEAN_DIFF = os.path.join(os.path.dirname(os.path.abspath(__file__)), "olean_diff.lean")
+# attack review L6: the diagnostic's whole budget per refusal (one lean_identical call), in seconds; past it the
+# bytes-only reason is "not-run" (review of the M7 build, H2)
+OLEAN_DIFF_BUDGET = 60
+
+
+def _run_group(argv, cwd, timeout):
+    """subprocess.run(argv, capture_output=True, text=True, timeout=timeout), but in a process group of its own:
+    on a timeout (or anything else that leaves this call while it runs) the whole group is killed, not only its
+    leader. `lake env lean` runs `lean` as a child, which a plain run's kill leaves running, orphaned, beside the
+    next comparison (REREVIEW-M7 NEW-2: host memory). Raises what subprocess.run raises."""
+    import signal
+    p = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, start_new_session=True)
+    try:
+        out, err = p.communicate(timeout=timeout)
+    except BaseException:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)     # the leader is not reaped yet, so its pid is still this group's
+        except OSError:
+            pass
+        try:
+            p.communicate(timeout=10)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+        raise
+    return subprocess.CompletedProcess(argv, p.returncode, out, err)
+
+
+class LeanReason(str):
+    """A reason of lean_identical, with its kind (DESIGN-M7 §3.1); a plain `str` everywhere it is joined or printed:
+      "semantic"  a declaration, a type or value, or an extension part differs; not a .lean file
+      "layout"    only the compiled constants' bytes differ (every declaration, type and value hash and every
+                  extension part equal), and O1 ran and every difference it names is one identical source can
+                  produce (review M1)
+      "not-run"   Lean could not compare: a failed build, a version that does not compile, olean_parts failing, or
+                  (bytes only) O1 not run, failed, timed out or printed no complete answer (review of the M7 build, H2)
+    A reason without a kind (a plain str) counts as "semantic" (reason_kind): fails closed."""
+    def __new__(cls, text, kind):
+        r = super().__new__(cls, text)
+        r.kind = kind
+        return r
+
+
+def reason_kind(w):
+    """The kind of a lean_identical reason; anything without one is "semantic" (fails closed)."""
+    k = getattr(w, "kind", None)
+    return k if k in ("semantic", "layout", "not-run") else "semantic"
+
+
+# the bytes-only reason (_parts_differ), and O1's texts that identical source can produce (review M1): "no field
+# differs ...: only the serialized form (sharing) differs" (printed only after every field of every constant compared
+# equal) and "binder names (not their annotations) ...". O1 names every difference, joined by "; "; the reason is
+# "layout" only when each one is of these two (review of the M7 build, H2); any other (imports, the module flag,
+# declaration order, auxiliary names, their number, universe parameter names, the kind, reducibility hints, safety,
+# the mutual block, inductive, constructor or recursor data, binder annotations, binder names or annotations
+# undecided) makes it "semantic"; no O1 text (not run, failed, timed out) makes it "not-run"
+BYTES_ONLY = "its declarations or imports differ (compiled form)"
+O1_LAYOUT = ("no field differs", "binder names (not their annotations)")
+
+
+def bytes_only_kind(reason):
+    """"layout" when `reason` is _parts_differ's bytes-only reason and every O1 finding in it is benign, "not-run"
+    when it carries no O1 text (review of the M7 build, H2: O1 failing never accepts), else "semantic" (re-derived
+    from the text, so a cached reason is judged by the current rule)."""
+    _, sep, rest = str(reason).partition(": " + BYTES_ONLY)
+    if not sep:
+        return "semantic"
+    if not rest:
+        return "not-run"
+    if not rest.startswith(": ") or not rest[2:].strip():
+        return "semantic"
+    return "layout" if all(f.startswith(O1_LAYOUT) for f in rest[2:].split("; ")) else "semantic"
 
 
 def lean_identical(repo, texts, lean_cmd=None):
@@ -3968,24 +6127,49 @@ def lean_identical(repo, texts, lean_cmd=None):
     key = hashlib.sha256(json.dumps([cmd, sorted(texts.items()),
                                      open(OLEAN_PARTS, encoding="utf-8").read()]).encode()).hexdigest()
     cache = os.path.join(repo, FW, "comment-only-cache.json")
+    # DESIGN-M7: a bytes-only result is cached too, under its own key (it also depends on olean_diff.lean), and its
+    # reasons are judged again by the current rule when read
     try:
-        if json.load(open(cache)).get(key) == "same":
+        _o1 = open(OLEAN_DIFF, encoding="utf-8").read()
+    except OSError:
+        _o1 = ""
+    lkey = hashlib.sha256((key + _o1).encode()).hexdigest()
+    try:
+        c0 = json.load(open(cache))
+        if c0.get(key) == "same":
             return []
+        lay = (c0.get(lkey) or {}).get("layout") if isinstance(c0.get(lkey), dict) else None
+        if isinstance(lay, list) and lay and all(isinstance(x, str) for x in lay):
+            return [LeanReason(x, bytes_only_kind(x)) for x in lay]
+        # review of the M7 build, L5: a refusal Lean gave on these texts is read back too, as a refusal (never as
+        # "same" or layout), so the report's renders do not compile the same refused texts again
+        ref = (c0.get(lkey) or {}).get("refused") if isinstance(c0.get(lkey), dict) else None
+        # REREVIEW-M7 NEW-1: a refusal cached before only definite results were is not read back when it holds a
+        # not-run reason (O1's absence): Lean compares again
+        if (isinstance(ref, list) and ref and all(isinstance(x, str) for x in ref)
+                and not any(bytes_only_kind(x) == "not-run" for x in ref)):
+            return [LeanReason(x, "semantic") for x in ref]
     except (OSError, ValueError, AttributeError):
         pass
     mods = [t[:-len(".lean")].replace("/", ".") for t in sorted(texts) if t.endswith(".lean")]
     if lean_cmd is None:
         # the changed modules (hence their imports) as built from the working tree
-        b = subprocess.run(["lake", "build", *mods], cwd=repo, capture_output=True, text=True)
+        try:
+            b = subprocess.run(["lake", "build", *mods], cwd=repo, capture_output=True, text=True)
+        except (OSError, subprocess.SubprocessError) as e:     # review of the M7 build, L4: no `lake` on PATH
+            return [LeanReason(f"Lean comparison not run: `lake build` could not run ({e})", "not-run")]
         if b.returncode != 0:
-            return ["Lean comparison not run: `lake build` failed: " + (b.stdout + b.stderr).strip()[-300:]]
-    why = []
+            return [LeanReason("Lean comparison not run: `lake build` failed: " + (b.stdout + b.stderr).strip()[-300:],
+                               "not-run")]
+    why, env_fail = [], False      # env_fail: a compile or olean_parts failure (perhaps transient): not cached
+    import time
+    diag_until = time.monotonic() + OLEAN_DIFF_BUDGET
     d = tempfile.mkdtemp(prefix="comment-only-lean-")
     try:
         for path, (old, new) in sorted(texts.items()):
             mod = path[:-len(".lean")].replace("/", ".") if path.endswith(".lean") else None
             if not mod:
-                why.append(f"{path}: not a .lean file"); continue
+                why.append(LeanReason(f"{path}: not a .lean file", "semantic")); continue
             parts = []
             for tag, txt in (("old", old), ("new", new)):
                 root = os.path.join(d, tag, "src")
@@ -3995,23 +6179,25 @@ def lean_identical(repo, texts, lean_cmd=None):
                 ol = os.path.join(d, tag, "m.olean")
                 out = os.path.join(d, tag, "parts-" + mod)
                 try:
-                    c = subprocess.run(cmd + ["--root=" + root, "-o", ol, src], cwd=repo,
-                                       capture_output=True, text=True, timeout=7200)
-                    p = c.returncode == 0 and subprocess.run(
-                        cmd + ["--run", OLEAN_PARTS, ol, out, mod], cwd=repo,
-                        capture_output=True, text=True, timeout=600)
-                except (OSError, subprocess.TimeoutExpired) as e:
-                    why.append(f"{path}: Lean comparison could not run ({e})"); break
+                    c = _run_group(cmd + ["--root=" + root, "-o", ol, src], repo, 7200)
+                    p = c.returncode == 0 and _run_group(cmd + ["--run", OLEAN_PARTS, ol, out, mod], repo, 600)
+                except (OSError, subprocess.SubprocessError) as e:
+                    env_fail = True
+                    why.append(LeanReason(f"{path}: Lean comparison could not run ({e})", "not-run")); break
                 if c.returncode != 0:
-                    why.append(f"{path}: the {tag} version does not compile, so it cannot be compared: "
-                               + " ".join((c.stdout + c.stderr).split())[:200]); break
+                    env_fail = True
+                    why.append(LeanReason(f"{path}: the {tag} version does not compile, so it cannot be compared: "
+                                          + " ".join((c.stdout + c.stderr).split())[:200], "not-run")); break
                 if p.returncode != 0:
-                    why.append(f"{path}: olean_parts failed on the {tag} version: "
-                               + " ".join((p.stdout + p.stderr).split())[:200]); break
+                    env_fail = True
+                    why.append(LeanReason(f"{path}: olean_parts failed on the {tag} version: "
+                                          + " ".join((p.stdout + p.stderr).split())[:200], "not-run")); break
                 parts.append(out)
             if len(parts) < 2:
                 continue
-            why += _parts_differ(path, *parts)
+            ols = [os.path.join(d, tag, "m.olean") for tag in ("old", "new")]
+            why += _parts_differ(path, *parts, diag=lambda ols=ols: _olean_diff(
+                cmd, repo, *ols, timeout=diag_until - time.monotonic()))
     finally:
         shutil.rmtree(d, ignore_errors=True)
     if not why:
@@ -4025,11 +6211,70 @@ def lean_identical(repo, texts, lean_cmd=None):
             json.dump(c_, open(cache, "w"))
         except OSError:
             pass
+    elif all(reason_kind(w) == "layout" for w in why):
+        try:
+            os.makedirs(os.path.dirname(cache), exist_ok=True)
+            try:
+                c_ = json.load(open(cache))
+            except (OSError, ValueError):
+                c_ = {}
+            c_[lkey] = {"layout": [str(w) for w in why]}
+            json.dump(c_, open(cache, "w"))
+        except OSError:
+            pass
+    elif not env_fail and not any(reason_kind(w) == "not-run" for w in why):
+        # review of the M7 build, L5: what _parts_differ refused (a type, value or part, or O1's answer) is cached
+        # as a refusal; a compile or olean_parts failure is not (it may be the host's, not the texts'), and neither
+        # is O1's absence -- a timeout, a kill, a budget run out, a failure (REREVIEW-M7 NEW-1: only a definite
+        # result is cached)
+        try:
+            os.makedirs(os.path.dirname(cache), exist_ok=True)
+            try:
+                c_ = json.load(open(cache))
+            except (OSError, ValueError):
+                c_ = {}
+            c_[lkey] = {"refused": [str(w) for w in why]}
+            json.dump(c_, open(cache, "w"))
+        except OSError:
+            pass
     return why
 
 
-def _parts_differ(path, a, b):
-    """The reasons the parts olean_parts.lean wrote into directories a and b differ ([] if none)."""
+def _olean_diff(cmd, repo, old, new, timeout=OLEAN_DIFF_BUDGET):
+    """O1: every difference olean_diff.lean finds between the two compiled modules, joined by "; " (the ones
+    identical source cannot produce first, so a cut at 300 characters never hides one), or None when it cannot run,
+    fails, times out (`timeout` seconds: what is left of the refusal's budget; none left: not run) or prints no
+    complete answer (each finding on a DIFF line, then END with their number). None makes the reason "not-run"
+    (review of the M7 build, H2)."""
+    if not timeout or timeout < 1:
+        return None
+    try:
+        r = _run_group(cmd + ["--run", OLEAN_DIFF, old, new], repo, min(timeout, OLEAN_DIFF_BUDGET))
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if r.returncode != 0:
+        return None
+    lines = r.stdout.splitlines()
+    found = [" ".join(l[len("DIFF\t"):].split()) for l in lines if l.startswith("DIFF\t")]
+    ends = [l for l in lines if l.startswith("END\t")]
+    if not found or not all(found) or not ends or ends[-1] != f"END\t{len(found)}":
+        return None
+    bad = [f for f in found if not f.startswith(O1_LAYOUT)]
+    if bad:
+        return "; ".join(bad + [f for f in found if f not in bad])[:300]
+    if len(found) > 1 and any(f.startswith(O1_LAYOUT[0]) for f in found):
+        return None     # "no field differs" beside a difference: not a consistent answer
+    text = "; ".join(found)
+    if len(text) <= 300:
+        return text
+    return f"{O1_LAYOUT[1]} differ, and nothing else does, in {len(found)} places"
+
+
+def _parts_differ(path, a, b, diag=None):
+    """The reasons the parts olean_parts.lean wrote into directories a and b differ ([] if none). `diag`: called
+    only when the constants' bytes differ while every type and value hash agrees; a string it returns is added to
+    that reason (O1); anything else -- None, an exception -- leaves today's text, of kind "not-run" (review of the
+    M7 build, H2: O1 failing never accepts)."""
     def index(d):
         rows = [l.split("\t") for l in open(os.path.join(d, "index.tsv"), encoding="utf-8").read().splitlines()]
         return ({r[1]: r[2:] for r in rows if r[0] == "const"},
@@ -4039,17 +6284,650 @@ def _parts_differ(path, a, b):
     (ca, ea, _), (cb, eb, _) = index(a), index(b)
     why = []
     if set(ca) != set(cb):
-        why.append(f"{path}: declarations differ: " + ", ".join(sorted(set(ca) ^ set(cb)))[:300])
+        why.append(LeanReason(f"{path}: declarations differ: " + ", ".join(sorted(set(ca) ^ set(cb)))[:300], "semantic"))
     else:
         diff = sorted(n for n in ca if ca[n] != cb[n])
         if diff:
-            why.append(f"{path}: the type or value of {', '.join(diff)[:300]} differs")
+            why.append(LeanReason(f"{path}: the type or value of {', '.join(diff)[:300]} differs", "semantic"))
         elif data(a, "constants.olean") != data(b, "constants.olean"):
-            why.append(f"{path}: its declarations or imports differ (compiled form)")
+            extra = None
+            if diag is not None:
+                try:
+                    extra = diag()
+                except Exception:       # noqa: BLE001 -- fails closed: no O1 text is "not-run"
+                    extra = None
+            r_ = f"{path}: {BYTES_ONLY}" + (f": {extra}" if isinstance(extra, str) and extra.strip() else "")
+            why.append(LeanReason(r_, bytes_only_kind(r_)))     # DESIGN-M7: the one reason that can be "layout"
     for e in sorted(set(ea) | set(eb)):
         if e not in ea or e not in eb or ea[e][0] != eb[e][0] or data(a, ea[e][1]) != data(b, eb[e][1]):
-            why.append(f"{path}: its {e} entries differ (attributes, notation, compiled code or similar)")
+            why.append(LeanReason(f"{path}: its {e} entries differ (attributes, notation, compiled code or similar)",
+                                  "semantic"))
     return why
+
+
+def _parts_differ_controls():
+    """O1 (Lean-free): _parts_differ on synthetic part directories. The diagnostic is asked only when the constants'
+    bytes differ while every hash agrees; what it returns is appended; when it fails, raises or prints nothing the
+    reason's text is exactly today's (review M7) and its kind "not-run" (review of the M7 build, H2); a real
+    difference never calls it; equal parts give []. _olean_diff against a stand-in for Lean (a shell script): a
+    failure, a missing or wrong END, an empty finding, a timeout give None; every finding is kept, the ones identical
+    source cannot produce first (no stop at the first difference)."""
+    import tempfile, shutil
+    d = tempfile.mkdtemp(prefix="parts-differ-")
+    out = []
+    try:
+        def mk(name, const_bytes, idx_extra=""):
+            p = os.path.join(d, name)
+            os.makedirs(p)
+            open(os.path.join(p, "constants.olean"), "wb").write(const_bytes)
+            open(os.path.join(p, "ext0.olean"), "wb").write(b"e")
+            open(os.path.join(p, "index.tsv"), "w").write("ext\tLean.x\t1\text0.olean\nconst\tA.a\t1\t2\n" + idx_extra)
+            return p
+        a, b, c = mk("a", b"x"), mk("b", b"y"), mk("c", b"x")
+        today = "F.lean: its declarations or imports differ (compiled form)"
+        calls = []
+
+        def ok_diag():
+            calls.append(1)
+            return "binder names or annotations in the value of `A.a` differ"
+
+        def boom():
+            raise OSError("lean")
+        r_ok = _parts_differ("F.lean", a, b, diag=ok_diag)
+        r_none = _parts_differ("F.lean", a, b, diag=lambda: None)
+        r_boom = _parts_differ("F.lean", a, b, diag=boom)
+        r_nodiag = _parts_differ("F.lean", a, b)
+        r_same = _parts_differ("F.lean", a, c, diag=ok_diag)
+        hb = mk("h", b"y", "")
+        open(os.path.join(hb, "index.tsv"), "w").write("ext\tLean.x\t1\text0.olean\nconst\tA.a\t1\t3\n")
+        n0 = len(calls)
+        r_real = _parts_differ("F.lean", a, hb, diag=ok_diag)
+        out.append(("O1: the bytes differ with every hash equal: the diagnostic's field is added to the same refusal; "
+                    "it fails, raises or says nothing: exactly today's reason; equal parts: no reason, no diagnostic",
+                    r_ok == [today + ": binder names or annotations in the value of `A.a` differ"]
+                    and r_none == r_boom == r_nodiag == [today] and r_same == [] and len(calls) == 1))
+        out.append(("O1 (review of the M7 build, H2): with no O1 text (it failed, raised, said nothing or was not "
+                    "asked) the bytes-only reason is \"not-run\", never layout",
+                    [reason_kind(x) for x in r_none + r_boom + r_nodiag] == ["not-run"] * 3))
+        out.append(("O1: a real type or value difference never asks the diagnostic",
+                    r_real == ["F.lean: the type or value of A.a differs"] and len(calls) == n0))
+        out.append(("O1: _olean_diff fails soft (a missing command gives None, never an exception)",
+                    _olean_diff(["/nonexistent-lean-binary"], d, "x", "y") is None))
+        # attack review L6: past the budget the diagnostic is not run (a command that would hang: `sleep`)
+        import time
+        t0 = time.monotonic()
+        r_spent = _olean_diff(["sleep", "30"], d, "x", "y", timeout=0)
+        r_slow = _olean_diff(["sh", "-c", "exec sleep 5", "sh"], d, "x", "y", timeout=1.5)
+        out.append(("O1 (attack review L6): no budget left: not run; a run past its budget: None (not-run), "
+                    "within the time left", r_spent is None and r_slow is None and time.monotonic() - t0 < 4))
+        # review of the M7 build, H2: a stand-in for `lean --run olean_diff.lean` printing what FAKE_OUT holds
+        fake = os.path.join(d, "fakelean.sh")
+        open(fake, "w").write('#!/bin/sh\nprintf "%b" "$FAKE_OUT"\nexit "${FAKE_RC:-0}"\n')
+        os.chmod(fake, 0o755)
+        nm, an = ("binder names (not their annotations) in the type of `A.a` differ",
+                  "binder annotations in the value of `A.b` differ")
+        sh = "no field differs (…): only the serialized form (sharing) differs"
+
+        def fk(o, rc=0):
+            os.environ["FAKE_OUT"], os.environ["FAKE_RC"] = o, str(rc)
+            try:
+                return _olean_diff([fake], d, "x", "y")
+            finally:
+                os.environ.pop("FAKE_OUT", None); os.environ.pop("FAKE_RC", None)
+        f_two = fk(f"DIFF\t{nm}\nDIFF\t{an}\nEND\t2\n")
+        f_one = fk(f"DIFF\t{nm}\nEND\t1\n")
+        f_sh = fk(f"DIFF\t{sh}\nEND\t1\n")
+        f_bad = [fk(f"DIFF\t{nm}\nEND\t1\n", rc=1), fk(f"DIFF\t{nm}\n"), fk(f"DIFF\t{nm}\nDIFF\t{an}\nEND\t1\n"),
+                 fk("DIFF\t \nEND\t1\n"), fk("END\t0\n"), fk(f"DIFF\t{sh}\nDIFF\t{nm}\nEND\t2\n")]
+        f_long = fk("".join(f"DIFF\t{nm.replace('A.a', 'A.a' + str(k))}\n" for k in range(20)) + "END\t20\n")
+        kd = lambda x: bytes_only_kind(today + ": " + x) if x else bytes_only_kind(today)
+        out.append(("O1 (review of the M7 build, H2): every finding is kept, the one identical source cannot produce "
+                    "first, and it decides (a names-only finding before it masks nothing); one names-only finding or "
+                    "the sharing text alone is layout; a failure, no END, a wrong count, an empty finding, no finding "
+                    "or the sharing text beside a finding is None (not-run); many names-only findings stay layout",
+                    f_two == f"{an}; {nm}" and kd(f_two) == "semantic" and kd(f_one) == "layout"
+                    and kd(f_sh) == "layout" and f_bad == [None] * 6 and kd(None) == "not-run"
+                    and kd(f_long) == "layout" and len(f_long) <= 300
+                    and bytes_only_kind(today + ": " + nm + "; the kind of `A.b` differs (def, opaque)") == "semantic"
+                    and bytes_only_kind(today + ": " + (nm + "; ") * 20 + "imports differ") == "semantic"))
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+    return out
+
+
+# DESIGN-M7: the lexer's unit cases (the design's tests_m7 and the review's adv.py), each (name, old, new, the text
+# stage's verdict "same", strict). strict: the project declares a token holding a comment marker (review L1).
+_M7_B = ("/-- Lemma 1. -/\ntheorem a (n : Nat) (h : 0 < n) : 0 < n := by\n  exact h\n"
+         "def s : String := \"x -- y\"\ndef ab := 1\n")
+_M7_CASES = [
+    # accepted: comments and docstrings only
+    ("docstring text and a new line comment", _M7_B, _M7_B.replace(
+        "/-- Lemma 1. -/", "/-- Lemma 1. True only vacuously:\nits hypothesis never holds. -/\n-- note"), True),
+    ("trailing line comment added", _M7_B, _M7_B.replace("  exact h\n", "  exact h  -- closes it\n"), True),
+    ("module doc added", _M7_B, "/-! # Module\nnotes -/\n\n" + _M7_B, True),
+    ("nested block comment edited", _M7_B + "/- a /- b -/ c -/\n", _M7_B + "/- a /- bbb -/ ccc\n more -/\n", True),
+    ("docstring with nested comment and quotes", _M7_B, _M7_B.replace("/-- Lemma 1. -/", '/-- Lemma "1" /- x -/ `a` -/'),
+     True),
+    ("blank lines", _M7_B, _M7_B.replace("def ab", "\n\ndef ab"), True),
+    ("comment lines between code lines in a tactic block", "theorem t : True := by\n  skip\n  trivial\n",
+     "theorem t : True := by\n  skip\n  -- why\n  /- more\n  -/\n  trivial\n", True),
+    ("image token '' and primes", "def f' := Set.image f '' s\n", "def f' := Set.image f '' s -- img\n", True),
+    ("char literal of a quote", "def c := '\"'\n-- x\n", "def c := '\"'\n-- y\n", True),
+    ("escaped char literal", "def c := '\\x41'\n-- x\n", "def c := '\\x41'\n-- yy\n", True),
+    ("L7 a multi-line comment's first line edited: the code after it keeps its column",
+     "  tac1\n  /- x\n  -/ tac2\n", "  tac1\n  /- xxxxxxx\n  -/ tac2\n", True),
+    ("review: CRLF line ends, a comment edited", "def x := 1 -- a\r\ndef y := 2\r\n", "def x := 1 -- bb\r\ndef y := 2\r\n",
+     True),
+    ("review: CRLF and LF line ends (Lean normalizes them)", "def x := 1\r\n", "def x := 1\n", True),
+    ("review: `---`", "def x := 1 --- a\n", "def x := 1 --- b\n", True),
+    ("review: a comment inside a syntax quotation", "def q := `(1 -- a\n)\n", "def q := `(1 -- b\n)\n", True),
+    ("review: a docstring becomes a plain comment", "/-- doc -/\ndef x := 1\n", "/- doc -/\ndef x := 1\n", True),
+    ("review: a docstring added", "theorem a : True := trivial\n", "/-- Theorem 1.2 -/\ntheorem a : True := trivial\n",
+     True),
+    ("review: a comment moved to the end of the line before", "  simp\n  -- x\n  ring\n", "  simp -- x\n  ring\n", True),
+    ("review: `(--` and `,--` are comments", "def x := (-- a\n  [1,-- a\n 2])\n", "def x := (-- b\n  [1,-- b\n 2])\n", True),
+    ("review: a token cannot start with `--` (whitespace is consumed first)",
+     "infix:50 \" --> \" => f\nexample : 1 --> 2 := rfl\n", "infix:50 \" --> \" => f\nexample : 1 --> 3 := rfl\n", True),
+    ("M4: `f?'` is one identifier in Lean (isIdRest holds `?`), so what follows its string is a comment",
+     "example : (f?'\"', \" -- a\").2 = \" -- a\" := rfl\n", "example : (f?'\"', \" -- b\").2 = \" -- b\" := rfl\n", True),
+    ("M4: a token holding a prime (`⁻¹'`) is no char literal", "example : f ⁻¹' s = t := rfl -- a\n",
+     "example : f ⁻¹' s = t := rfl -- bb\n", True),
+    ("M4: a Latin-1 letter is an identifier character (`é'`)", "def é' := 1 -- a\n", "def é' := 1 -- b\n", True),
+    # refused: real changes (mini2-B(c), the design's §6)
+    ("proof changed", _M7_B, _M7_B.replace("exact h", "exact (h)"), False),
+    ("statement changed", _M7_B, _M7_B.replace("(h : 0 < n)", "(h : 1 ≤ n)"), False),
+    ("string literal content", _M7_B, _M7_B.replace('"x -- y"', '"x -- z"'), False),
+    ("indentation", _M7_B, _M7_B.replace("  exact h", "    exact h"), False),
+    ("a comment splitting a token", _M7_B, _M7_B.replace("def ab := 1", "def a/--/b := 1"), False),
+    ("attribute added", _M7_B, _M7_B.replace("theorem a", "@[simp] theorem a"), False),
+    ("set_option added", _M7_B, "set_option maxHeartbeats 400000 in\n" + _M7_B, False),
+    ("notation changed", "notation:50 a \" ≺ \" b => a < b\n", "notation:60 a \" ≺ \" b => a < b\n", False),
+    ("#eval changed", _M7_B + "#eval 1\n", _M7_B + "#eval 2\n", False),
+    ("whitespace between tokens", _M7_B, _M7_B.replace("(n : Nat)", "(n  : Nat)"), False),
+    ("a comment becomes code", _M7_B + "-- def z := 1\n", _M7_B + "def z := 1\n", False),
+    ("code becomes a comment", _M7_B, _M7_B.replace("def ab := 1", "-- def ab := 1"), False),
+    ("a docstring closed earlier, exposing code", _M7_B + "/-- a -/\ndef q := 1\n", _M7_B + "/-- a -/\ndef q := 1 -/\n",
+     False),
+    ("H1 `/--/` then a line comment hides code", "/--/ -- -/ example : 2 + 2 = 4 := rfl\n",
+     "/--/ -- -/ example : 2 + 2 = 5 - 1 := rfl\n", False),
+    ("H2 the column after a leading comment", "  constructor\n  /-a-/ trivial\n", "  constructor\n  /-aaaaaa-/ trivial\n",
+     False),
+    ("H3 the column after a multi-line comment", "  tac1\n  /- x\n  -/ tac2\n", "  tac1\n  /- x\n      -/ tac2\n", False),
+    ("H4 a token containing `--`", 'notation a " <-- " b => a + b\nexample : 1 <-- 2 = 3 := rfl\n',
+     'notation a " <-- " b => a + b\nexample : 1 <-- 2 = 4 := rfl\n', False),
+    ("H5 an interpolation with a `'}'` char across a line", 'def s := s!"{\n\'}\' ++ "-- x"}"\n',
+     'def s := s!"{\n\'}\' ++ "-- y"}"\n', False),
+    ("H6 throwError braces holding a string", 'def f : MetaM Unit := throwError "a {"}"} -- b"\n',
+     'def f : MetaM Unit := throwError "a {"}"} -- c"\n', False),
+    ("a `«k--»` name", 'def «k--» : Nat := 1\ntheorem t : «k--» = 1 := rfl\n',
+     'def «k--» : Nat := 2\ntheorem t : «k--» = 2 := rfl\n', False),
+    ("a raw string", 'def r : String := r#"a"--b"#\n', 'def r : String := r#"a"--bbbb"#\n', False),
+    ("an interpolated string with a quote", 'def s : String := s!"{\'"\'} -- one"\n',
+     'def s : String := s!"{\'"\'} -- three"\n', False),
+    ("A4 a raw string alone", 'def r : String := r#"a" -- b"#\n', 'def r : String := r#"a" -- bbbb"#\n', False),
+    ("A4 a «» name alone", 'def «x -- y» : Nat := 1\n', 'def «x -- z» : Nat := 1\n', False),
+    ("A1 `/-` right after code", "def x := f/-c-/ y\n", "def x := f/-cc-/ y\n", False),
+    ("L3 `--` inside a block comment is no line comment", "/- a -- b -/ def x := 1\n", "/- a -- b -/ def x := 2\n",
+     False),
+    ("L4 an escaped quote in a string", 'def s := "a\\" -- b"\n', 'def s := "a\\" -- c"\n', False),
+    ("L5 a char literal holding `-`", "def c := '-' -- x\ndef d := 1\n", "def c := '-' -- x\ndef d := 2\n", False),
+    ("L2 a doc comment nests", "/-- a /- b -/ c -/ def x := 1\n", "/-- a /- b -/ c -/ def x := 2\n", False),
+    ("L5 a prime is no char literal", 'def t := f x\'"\' --a"\n', 'def t := f x\'"\' --b"\n', False),
+    ("review L3: a mid-line comment widened moves the code after it",
+     "  all_goals /-c-/ skip\n            trivial\n", "  all_goals /-cccc-/ skip\n            trivial\n", False),
+    ("review L3: a docstring before code on its line, widened", "/-- d -/ def x := 1\n", "/-- dd -/ def x := 1\n", False),
+    ("M4: `!'\"'` (a standalone `!` then a char literal)",
+     "example : (!'\"'.isAlpha, \" -- a\") = (true, \" -- a\") := rfl\n",
+     "example : (!'\"'.isAlpha, \" -- b\") = (true, \" -- b\") := rfl\n", False),
+    ("M4: `λ'\"'` (λ is not an identifier character)", "example := (λ'\"' => \" -- a\")\n",
+     "example := (λ'\"' => \" -- b\")\n", False),
+    ("M4: `1'\"'` (a number, then a char literal)", "example : f 1'\"' \" -- a\" = \" -- a\" := rfl\n",
+     "example : f 1'\"' \" -- b\" = \" -- b\" := rfl\n", False),
+    ("M4: `℘'\"'` (℘ is letter-like in Lean)", "example : ℘'\"' -- a\" = \"' -- a\" := rfl\n",
+     "example : ℘'\"' -- b\" = \"' -- b\" := rfl\n", False),
+    ("M4: a raw string after a digit", "example : f 1r\"\\\" \" -- a\" = 1 := rfl\n",
+     "example : f 1r\"\\\" \" -- b\" = 1 := rfl\n", False),
+    ("M4: a raw string after `λ`", "example := (λr#\"\\\"# => \" -- a\")\n", "example := (λr#\"\\\"# => \" -- b\")\n", False),
+    ("M4: a raw string after `!`", "example := (!r\"a\" == \" -- a\")\n", "example := (!r\"a\" == \" -- b\")\n", False),
+    ("review L2: an unterminated comment swallowing a code change", "def x := 1\n/- \ndef y := 2",
+     "def x := 1\n/- \ndef y := 3", False),
+    ("review L2: an unterminated comment at the end", "def x := 1\n/- open", "def x := 1\n/- open more", False),
+    ("review L2: an unterminated string", 'def x := 1\ndef s := " -- a\n', 'def x := 1\ndef s := " -- b\n', False),
+    ("review: tab indentation for spaces", "  exact h\n", "\texact h\n", False),
+    ("review: a no-break space in code", "def x := 1\n", "def x :=\xa01\n", False),
+    ("review: a stray `-/` in code", "def x := 1\n", "def x := 1 -/\n", False),
+    ("review: `/---/`", "/---/ def x := 1\n", "/---/ def x := 2\n", False),
+    ("review: `/-!` nests", "/-! a /- -/ b -/ def x := 1\n", "/-! a /- -/ b -/ def x := 2\n", False),
+    ("review: a string gap", "def s := \"a\\\n  -- b\"\n", "def s := \"a\\\n  -- c\"\n", False),
+    ("review: the char literal '\\''", "def c := '\\'' -- x\ndef d := 1\n", "def c := '\\'' -- x\ndef d := 2\n", False),
+    ("review: a name literal `a--b", "def n := `a--b\n", "def n := `a--c\n", False),
+    ("review: a comment between tokens at a line start keeps the column", "  /- -/exact h\n", "  /-    -/exact h\n", False),
+    ("review: an interpolation brace across a line", "def s := s!\"{1 +\n 2} -- a\"\n", "def s := s!\"{1 +\n 2} -- b\"\n",
+     False),
+    ("review: a «» name holding a brace", "def «a{» := 1\n", "def «a{» := 2\n", False),
+    ("review of the M7 build, H1: `/-/- -/` is one closed comment (Lean steps over the character after `/-`), so "
+     "the `example` after it is code", "/-/- -/ example : 1 = 1 := rfl -- -/\n", "/-/- -/ example : 2 = 2 := rfl -- -/\n",
+     False),
+    ("review of the M7 build, H1: a binder annotation after `/-/- -/`",
+     "/-/- -/ theorem t (n : Nat) : n = n := rfl -- -/\n", "/-/- -/ theorem t {n : Nat} : n = n := rfl -- -/\n", False),
+    ("review of the M7 build, H1: `/-/- x -/` then code on the next lines",
+     "/-/- x -/\nexample : 1 = 1 := rfl\n-- -/\n", "/-/- x -/\nexample : 1 = 2 := rfl\n-- -/\n", False),
+    ("review of the M7 build, L1: a newline in a string and a raw NUL are different code",
+     'example : True := by\n  let _s := "a\nb"\n  trivial\n', 'example : True := by\n  let _s := "a\x00b"\n  trivial\n',
+     False),
+    ("review of the M7 build, L2: a mixed reading of two uncertain `'` (`⁻¹'` a token, then a char literal)",
+     "example : f ⁻¹''\"'\" -- a\"\n", "example : f ⁻¹''\"'\" -- b\"\n", False),
+    ("M4: `⁻¹'\"'` reads as a token part (then a string) or a char literal (then a comment): the readings disagree",
+     "example : f ⁻¹'\"' -- a\" = s := rfl\n", "example : f ⁻¹'\"' -- b\" = s := rfl\n", False),
+]
+_M7_STRICT = [     # review L1, with the project's token holding `[--`: the bracket exemption is off
+    ("L1: a bracket-led user token `[--`", 'notation "[--" x "]" => x\nexample : [-- 1 ] = 1 := rfl\n',
+     'notation "[--" x "]" => x\nexample : [-- 2 ] = 1 := rfl\n', False),
+]
+_M7_LEX = [     # (name, text, expected code view, expect an ambiguity)
+    ("A1 `(--` is a comment after a bracket", "def x := (-- c\n  1)\n", "def x := (\n  1)", False),
+    ("L2 `/--/` opens a doc comment whose body starts after `/--`", "/--/ a -/\ndef x := 1\n", "def x := 1", True),
+    ("L2 `/-!/ a -/` is a module doc", "/-!/ a -/\ndef x := 1\n", "def x := 1", False),
+    ("L6, review L3: a comment is blanked to its width", "def y := a /-c-/b\n", "def y := a      b", False),
+    ("L7 code after a leading comment keeps its column", "  /-ab-/ t\n", "         t", False),
+    ("a string's newline is a sentinel, escaped (review of the M7 build, L1)", 'def s := "a\nb\x00"\n',
+     'def s := "a\x00nb\x00\x00"', False),
+    ("review of the M7 build, H1: `/-/- -/` closes at its first `-/`", "/-/- -/ x -- -/\n", "        x", False),
+    ("review of the M7 build, H1: the `/` after `/-` is skipped, so `/-/-/` is closed at once", "/-/-/ a -/ b\n",
+     "      a -/ b", False),
+]
+
+
+def _m7_lexer_controls():
+    """DESIGN-M7 §9.1 (Lean-free): every unit case of the design and of its review; each lexer-output case; the
+    strict project (review L1); the base compared with itself."""
+    def same(a, b, strict=False):
+        return (code_only(a, strict) == code_only(b, strict)
+                and not (lexer_ambiguous(a, strict) or lexer_ambiguous(b, strict)))
+    bad = [n for n, a, b, want in _M7_CASES if same(a, b) != want]
+    bad += [n for n, a, b, want in _M7_STRICT if same(a, b, _co_marker_token(a)) != want or not same(a, b)]
+    lex = [n for n, t, code, amb in _M7_LEX if code_only(t) != code or bool(lexer_ambiguous(t)) != amb]
+    return [
+        ("DESIGN-M7: the lexer passes each comment-only change and refuses each code change or doubtful reading "
+         f"({len(_M7_CASES) + len(_M7_STRICT)} cases" + (f"; WRONG: {bad}" if bad else "") + ")", not bad),
+        ("DESIGN-M7: the lexer's code view: `/--/`, `/-!/`, a comment blanked to its width, the column after a "
+         "leading comment, a string's newline" + (f"; WRONG: {lex}" if lex else ""), not lex),
+        ("DESIGN-M7 (review L1): a project declaring a token that holds a comment marker is strict; one with a "
+         "comment-marker string but no syntax command, or a notation without one, is not",
+         _co_marker_token(_M7_STRICT[0][1]) and not _co_marker_token(_M7_B)
+         and not _co_marker_token('notation:50 a " ≺ " b => a < b\n')),
+        ("DESIGN-M7: an unchanged file is the same and never ambiguous", same(_M7_B, _M7_B)
+         and lexer_ambiguous(_M7_B) is None),
+    ]
+
+
+def _m7_controls():
+    """DESIGN-M7 §9.1 (Lean-free): the kinds _parts_differ gives (with O1's texts, review M1), the combination in
+    comment_only_detail with lean_identical stubbed, the Verso guard (a Lean file or the lakefile), the cache of a
+    bytes-only result, and changes_after_last_audit's basis keys."""
+    import tempfile, shutil
+    g_ = globals()
+    d = tempfile.mkdtemp(prefix="m7-")
+    out = []
+    keep = (g_["lean_identical"], g_["comment_only_detail"], g_["REPO"])
+    try:
+        # --- _parts_differ's kinds
+        def mk(name, const_bytes, h="2", ext=b"e"):
+            p = os.path.join(d, "parts", name)
+            os.makedirs(p)
+            open(os.path.join(p, "constants.olean"), "wb").write(const_bytes)
+            open(os.path.join(p, "ext0.olean"), "wb").write(ext)
+            open(os.path.join(p, "index.tsv"), "w").write(f"ext\tLean.x\t1\text0.olean\nconst\tA.a\t1\t{h}\n")
+            return p
+        a, b = mk("a", b"x"), mk("b", b"y")
+        hv, ex = mk("h", b"y", h="3"), mk("e", b"x", ext=b"f")
+        nd = mk("n", b"x")
+        open(os.path.join(nd, "index.tsv"), "w").write("ext\tLean.x\t1\text0.olean\nconst\tA.b\t1\t2\n")
+        kinds = lambda rs: [reason_kind(r) for r in rs]
+        o1 = {None: "not-run", "no field differs (imports, …): only the serialized form (sharing) differs":
+              "layout", "binder names (not their annotations) in the type of `A.a` differ": "layout",
+              "no field compared here differs (imports, …): only the serialized form (sharing) differs": "semantic",
+              "binder names (not their annotations) in the type of `A.a` differ; binder annotations in the value of "
+              "`A.b` differ": "semantic",
+              "other fields of `A.a` differ (reducibility hints, safety, …)": "semantic",
+              "the recursor rules of `A.rec` differ": "semantic", "the module-system flag differs": "semantic",
+              "binder annotations in the type of `A.a` differ": "semantic",
+              "binder names or annotations in the value of `A.a` differ": "semantic", "imports differ": "semantic",
+              "the order of the declarations differs": "semantic", "the auxiliary constant names differ": "semantic",
+              "the number of declarations differs": "semantic", "the universe parameter names of `A.a` differ":
+              "semantic", "the kind of `A.a` differs": "semantic", "something new": "semantic"}
+        got = {k: kinds(_parts_differ("F.lean", a, b, diag=lambda k=k: k)) for k in o1}
+        out.append(("DESIGN-M7 (review M1): the bytes-only reason is \"layout\" with the sharing text or binder names "
+                    "only; \"semantic\" with any field identical source cannot produce (imports, order, auxiliary "
+                    "names, their number, universe names, the kind, other fields, recursor rules, the module flag, "
+                    "binder annotations, undecided), also beside a benign one or in the old wording; \"not-run\" with "
+                    "no O1 text (review of the M7 build, H2)",
+                    all(got[k] == [v] for k, v in o1.items())))
+        out.append(("DESIGN-M7: a differing declaration set, type or value, or extension part is \"semantic\"",
+                    kinds(_parts_differ("F.lean", a, nd)) == ["semantic"]
+                    and kinds(_parts_differ("F.lean", a, hv)) == ["semantic"]
+                    and kinds(_parts_differ("F.lean", a, ex)) == ["semantic"]
+                    and kinds(_parts_differ("F.lean", b, ex)) == ["not-run", "semantic"]
+                    and reason_kind("a plain reason") == "semantic"
+                    and reason_kind(LeanReason("x", "bogus")) == "semantic"))
+        # --- comment_only_detail with lean_identical stubbed, on a git fixture
+        r = os.path.join(d, "repo")
+        os.makedirs(r)
+        g = lambda *x: subprocess.run(["git", "-C", r, *x], capture_output=True, text=True)
+        g("init", "-q"); g("config", "user.email", "t@t"); g("config", "user.name", "t")
+        open(os.path.join(r, "A.lean"), "w").write(_M7_B)
+        open(os.path.join(r, "lakefile.toml"), "w").write("name = \"x\"\n")
+        g("add", "-A"); g("commit", "-qm", "base")
+        base = g("rev-parse", "HEAD").stdout.strip()
+        cfg = {"lean_files": ["A.lean"]}
+        doc = _M7_B.replace("/-- Lemma 1. -/", "/-- Lemma 1, longer. -/")
+        lay = LeanReason("A.lean: " + BYTES_ONLY + ": " + O1_LAYOUT[0], "layout")
+        calls = []
+
+        def stub(reasons):
+            def f(repo, texts, lean_cmd=None):
+                calls.append(1)
+                return list(reasons)
+            return f
+
+        def det(reasons, txt=doc):
+            g_["lean_identical"] = stub(reasons)
+            open(os.path.join(r, "A.lean"), "w").write(txt)
+            try:
+                return comment_only_detail(cfg, base, r)
+            finally:
+                open(os.path.join(r, "A.lean"), "w").write(_M7_B)
+                g_["lean_identical"] = keep[0]
+        d_same, d_lay = det([]), det([lay])
+        d_mix = det([lay, LeanReason("A.lean: its Lean.x entries differ (…)", "semantic")])
+        d_nr = det([LeanReason("A.lean: the old version does not compile, so it cannot be compared: x", "not-run")])
+        d_plain = det(["A.lean: " + BYTES_ONLY])
+        n0 = len(calls)
+        d_code = det([lay], _M7_B.replace("exact h", "exact (h)"))
+        no_call = len(calls) == n0
+        out.append(("DESIGN-M7 §3.1: Lean's [] gives comment-only on the compiled basis; only bytes-only reasons give "
+                    "it on the source basis, with the reasons; a semantic one among them, not-run, a plain str, or a "
+                    "text difference (Lean never asked) is NOT comment-only",
+                    d_same == {"ok": True, "what": ["A.lean"], "basis": "compiled", "lean": []}
+                    and d_lay == {"ok": True, "what": ["A.lean"], "basis": "source", "lean": [lay]}
+                    and not d_mix["ok"] and d_mix["basis"] is None and not d_nr["ok"] and not d_plain["ok"]
+                    and not d_code["ok"] and no_call
+                    and comment_only_since(cfg, base, r)[0] is True))
+        # review L1 through the text stage: a token declared in ANOTHER project file makes `[--` ambiguous here
+        open(os.path.join(r, "N.lean"), "w").write('notation "[--" x "]" => x\n')
+        open(os.path.join(r, "A.lean"), "w").write(_M7_B + "example : [-- 1 ] = 1 := rfl\n")
+        g("add", "-A"); g("commit", "-qm", "token")
+        base = g("rev-parse", "HEAD").stdout.strip()
+        open(os.path.join(r, "A.lean"), "w").write(_M7_B + "example : [-- 2 ] = 1 := rfl\n")
+        st_why = _comment_only_text({"lean_files": ["A.lean", "N.lean"]}, base, r)[0]
+        st_alone = _comment_only_text(cfg, base, r)[0]
+        open(os.path.join(r, "A.lean"), "w").write(_M7_B)
+        os.remove(os.path.join(r, "N.lean"))
+        g("add", "-A"); g("commit", "-qm", "untoken")
+        base = g("rev-parse", "HEAD").stdout.strip()
+        out.append(("DESIGN-M7 (review L1): a project file declaring a token that holds `--` makes `[--` in another file "
+                    "ambiguous (the text stage refuses); without that file it reads as a comment",
+                    any("right after code" in w for w in st_why) and st_alone == []))
+        # Verso (review L4: the lakefile too)
+        open(os.path.join(r, "lakefile.toml"), "w").write("name = \"x\"\nleanOptions = { doc.verso = true }\n")
+        g("commit", "-qam", "verso")
+        base = g("rev-parse", "HEAD").stdout.strip()
+        v_lake, v_lake_same = det([lay]), det([])
+        open(os.path.join(r, "lakefile.toml"), "w").write("name = \"x\"\n")
+        open(os.path.join(r, "A.lean"), "w").write("set_option doc.verso true\n" + _M7_B)
+        g("commit", "-qam", "verso2")
+        base = g("rev-parse", "HEAD").stdout.strip()
+        vb = "set_option doc.verso true\n" + _M7_B
+        g_["lean_identical"] = stub([lay])
+        open(os.path.join(r, "A.lean"), "w").write(vb.replace("Lemma 1.", "Lemma 1, longer."))
+        v_file = comment_only_detail(cfg, base, r)
+        g_["lean_identical"] = keep[0]
+        out.append(("DESIGN-M7 (review L4): with `doc.verso` set in a project Lean file or in the lakefile, a "
+                    "bytes-only result is NOT comment-only (Lean's \"same\" still is)",
+                    not v_lake["ok"] and any("doc.verso" in w for w in v_lake["what"]) and not v_file["ok"]
+                    and v_lake_same["ok"] and v_lake_same["basis"] == "compiled"))
+        # --- the cache of a bytes-only result: read back as layout (never as "same"), re-judged by the current rule
+        import hashlib
+        texts = {"A.lean": (_M7_B, doc)}
+        key = hashlib.sha256(json.dumps([["false"], sorted(texts.items()),
+                                         open(OLEAN_PARTS, encoding="utf-8").read()]).encode()).hexdigest()
+        lkey = hashlib.sha256((key + open(OLEAN_DIFF, encoding="utf-8").read()).encode()).hexdigest()
+        cpath = os.path.join(r, FW, "comment-only-cache.json")
+        os.makedirs(os.path.dirname(cpath), exist_ok=True)
+        json.dump({lkey: {"layout": [str(lay)]}}, open(cpath, "w"))
+        c_lay = lean_identical(r, texts, ["false"])
+        json.dump({lkey: {"layout": ["A.lean: " + BYTES_ONLY + ": imports differ"]}}, open(cpath, "w"))
+        c_sem = lean_identical(r, texts, ["false"])
+        json.dump({lkey: {"layout": []}, key: "layout"}, open(cpath, "w"))
+        c_bad = lean_identical(r, texts, ["false"])
+        json.dump({key: "same"}, open(cpath, "w"))
+        c_same = lean_identical(r, texts, ["false"])
+        os.remove(cpath)
+        out.append(("DESIGN-M7 §3.4: a cached bytes-only result is read back as layout (never as \"same\"), judged "
+                    "again by the current rule; an empty or old-form entry recompiles (here: not-run); \"same\" is []",
+                    c_lay == [str(lay)] and kinds(c_lay) == ["layout"] and kinds(c_sem) == ["semantic"]
+                    and kinds(c_bad) == ["not-run"] and c_same == []))
+        # --- changes_after_last_audit carries the basis and the reasons
+        rd = os.path.join(r, "R", f"2026-01-01-{base[:11]}")
+        os.makedirs(rd)
+        json.dump({"_meta": {"kind": "diff"}}, open(os.path.join(rd, "TARGET.json"), "w"))
+        open(os.path.join(r, "A.lean"), "w").write(vb.replace("Lemma 1.", "Lemma 1, longer."))
+        g("commit", "-qam", "doc")
+        g_["REPO"] = r
+        res = {}
+        for basis, ok_ in (("source", True), ("compiled", True), (None, False)):
+            g_["comment_only_detail"] = lambda c_, b_, *a_, basis=basis, ok_=ok_: {
+                "ok": ok_, "what": ["A.lean"], "basis": basis, "lean": [lay] if basis == "source" else []}
+            res[basis] = changes_after_last_audit(cfg, [rd])
+        out.append(("DESIGN-M7: changes_after_last_audit carries the basis and, on the source basis, Lean's reasons",
+                    res["source"]["comment_only"] and res["source"]["comment_only_basis"] == "source"
+                    and res["source"]["comment_only_lean"] == [str(lay)]
+                    and res["compiled"]["comment_only_basis"] == "compiled" and res["compiled"]["comment_only_lean"] == []
+                    and not res[None]["comment_only"] and res[None]["comment_only_basis"] is None))
+    finally:
+        g_["lean_identical"], g_["comment_only_detail"], g_["REPO"] = keep
+        shutil.rmtree(d, ignore_errors=True)
+    return out
+
+
+_M7_FAKE_LEAN = r'''#!/usr/bin/env python3
+# A stand-in for `lean` (the review of the M7 build, fakelean.py): compiling writes the source as the "olean";
+# olean_parts writes equal hashes and the source bytes, so any text change is a bytes-only difference (what
+# `Expr.hash` gives for a binder change); olean_diff prints FAKE_O1 ("fail": exits 1; "hang": sleeps)
+import sys, os, time
+a = sys.argv[1:]
+log = os.environ.get("FAKE_LOG")
+if log:
+    open(log, "a").write(" ".join(os.path.basename(x) for x in a[:2]) + "\n")
+if a and a[0] == "--run":
+    script = os.path.basename(a[1])
+    if script == "olean_parts.lean":
+        ol, out, mod = a[2:5]
+        os.makedirs(out, exist_ok=True)
+        open(os.path.join(out, "constants.olean"), "wb").write(open(ol, "rb").read())
+        open(os.path.join(out, "index.tsv"), "w").write("const\tA.t\t1\t2\n")
+        sys.exit(0)
+    if script == "olean_diff.lean":
+        mode = os.environ.get("FAKE_O1", "fail")
+        if mode == "fail":
+            sys.exit(1)
+        if mode == "hang":
+            time.sleep(30)
+        if mode == "hangkid":       # a child of its own, as `lake env` starts `lean` (REREVIEW-M7 NEW-2)
+            import subprocess
+            k = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+            open(os.environ["FAKE_KID"], "w").write(str(k.pid))
+            time.sleep(30)
+        print("DIFF\t" + mode.replace("|", "\nDIFF\t"))
+        print("END\t%d" % (mode.count("|") + 1))
+        sys.exit(0)
+src = a[-1]
+ol = a[a.index("-o") + 1]
+open(ol, "wb").write(open(src, "rb").read())
+sys.exit(0)
+'''
+
+
+def _m7_fail_closed_controls():
+    """Review of the M7 build, H2 and L4/L5 (Lean-free, a stand-in for Lean): through comment_only_detail, a
+    bytes-only difference is comment-only only when O1 ran and every finding is benign; O1 failing, hanging past
+    the budget, or a benign finding before a real one is NOT comment-only. A missing `lake` is not-run, no crash.
+    A refusal is cached and read back as a refusal without compiling again; a compile failure is not cached."""
+    import tempfile, shutil, hashlib, time, sys as _sys
+    d = tempfile.mkdtemp(prefix="m7-fc-")
+    out, g_ = [], globals()
+    keep_env = {k: os.environ.get(k) for k in ("FAKE_O1", "FAKE_LOG", "FAKE_KID", "PATH")}
+    keep_budget = g_["OLEAN_DIFF_BUDGET"]
+    try:
+        fake = os.path.join(d, "fakelean.py")
+        open(fake, "w").write(_M7_FAKE_LEAN)
+        cmd = [_sys.executable, "-I", fake]
+        r = os.path.join(d, "repo")
+        os.makedirs(r)
+        git = lambda *x: subprocess.run(["git", "-C", r, *x], capture_output=True, text=True)
+        git("init", "-q"); git("config", "user.email", "t@t"); git("config", "user.name", "t")
+        old = "/-- d -/\ntheorem t (n : Nat) : n = n := rfl\n"
+        open(os.path.join(r, "A.lean"), "w").write(old)
+        git("add", "-A"); git("commit", "-qm", "b")
+        base = git("rev-parse", "HEAD").stdout.strip()
+        cfg = {"lean_files": ["A.lean"]}
+        open(os.path.join(r, "A.lean"), "w").write(old.replace("/-- d -/", "/-- dd -/"))
+        cache = os.path.join(r, FW, "comment-only-cache.json")
+        nm = "binder names (not their annotations) in the type of `A.s` differ"
+        an = "binder annotations in the type of `A.t` differ"
+        res = {}
+        for mode in ("fail", "hang", nm, f"{nm}|{an}", an, "the kind of `A.t` differs (def, opaque)"):
+            os.environ["FAKE_O1"] = mode
+            g_["OLEAN_DIFF_BUDGET"] = 2
+            try:
+                os.remove(cache)
+            except OSError:
+                pass
+            res[mode] = comment_only_detail(cfg, base, r, lean_cmd=cmd)
+        out.append(("review of the M7 build, H2: on the source basis O1 must have run and found only benign fields: "
+                    "O1 failing or hanging past its budget, a binder annotation (also after a binder-names finding) "
+                    "or the kind is NOT comment-only; binder names alone is comment-only on the source basis",
+                    res[nm]["ok"] and res[nm]["basis"] == "source"
+                    and not any(res[m]["ok"] for m in res if m != nm)
+                    and [reason_kind(w) for w in res["fail"]["what"]] == ["not-run"]))
+        # L5: a definite refusal (O1 names a binder annotation) is cached and read back without compiling again
+        log = os.path.join(d, "log")
+        os.environ["FAKE_LOG"] = log
+        os.environ["FAKE_O1"] = an
+        try:
+            os.remove(cache)
+        except OSError:
+            pass
+        r1 = comment_only_detail(cfg, base, r, lean_cmd=cmd)
+        n1 = len(open(log).read().splitlines())
+        r2 = comment_only_detail(cfg, base, r, lean_cmd=cmd)
+        n2 = len(open(log).read().splitlines())
+        out.append(("review of the M7 build, L5: a definite refusal (here O1 naming a binder annotation) is cached, "
+                    "and read back as a refusal without running Lean again", not r1["ok"] and not r2["ok"] and n1 > 0
+                    and n2 == n1 and str(r2["what"][0]) == str(r1["what"][0])))
+        def _rmc():
+            try:
+                os.remove(cache)
+            except OSError:
+                pass
+        # REREVIEW-M7 NEW-1: O1's absence (failing, or hanging past the budget) is not cached: once O1 answers, the
+        # same texts are comment-only; a not-run refusal an older cache holds is not read back
+        res1 = {}
+        for mode in ("fail", "hang"):
+            _rmc()
+            os.environ["FAKE_O1"] = mode
+            first = comment_only_detail(cfg, base, r, lean_cmd=cmd)
+            n_a = len(open(log).read().splitlines())
+            os.environ["FAKE_O1"] = nm
+            res1[mode] = (first["ok"], comment_only_detail(cfg, base, r, lean_cmd=cmd)["ok"],
+                          len(open(log).read().splitlines()) > n_a)
+        os.environ["FAKE_O1"] = "fail"
+        _rmc()
+        old_r = comment_only_detail(cfg, base, r, lean_cmd=cmd)
+        c_old = json.load(open(cache)) if os.path.exists(cache) else {}
+        texts_ = {"A.lean": (old, old.replace("/-- d -/", "/-- dd -/"))}
+        k_ = hashlib.sha256(json.dumps([cmd, sorted(texts_.items()),
+                                        open(OLEAN_PARTS, encoding="utf-8").read()]).encode()).hexdigest()
+        lk_ = hashlib.sha256((k_ + open(OLEAN_DIFF, encoding="utf-8").read()).encode()).hexdigest()
+        os.environ["FAKE_O1"] = nm
+        json.dump({lk_: {"refused": [f"A.lean: {BYTES_ONLY}: {an}"]}}, open(cache, "w"))   # the key is the one used
+        n_s = len(open(log).read().splitlines())
+        sem = comment_only_detail(cfg, base, r, lean_cmd=cmd)
+        key_ok = not sem["ok"] and len(open(log).read().splitlines()) == n_s
+        json.dump({lk_: {"refused": [str(w) for w in old_r["what"]]}}, open(cache, "w"))   # as the L5 build cached it
+        n_b = len(open(log).read().splitlines())
+        readback = comment_only_detail(cfg, base, r, lean_cmd=cmd)
+        out.append(("REREVIEW-M7 NEW-1: O1 failing or timing out is not cached as a refusal (the next call runs Lean "
+                    "again and, O1 answering benign, accepts); an older cache's not-run refusal is not read back",
+                    res1 == {"fail": (False, True, True), "hang": (False, True, True)} and c_old == {}
+                    and [reason_kind(w) for w in old_r["what"]] == ["not-run"] and key_ok
+                    and readback["ok"] and len(open(log).read().splitlines()) > n_b))
+        # REREVIEW-M7 NEW-2: a timed-out O1 is killed with its whole process group (no `lean` left running)
+        kid = os.path.join(d, "kid")
+        os.environ["FAKE_KID"] = kid
+        os.environ["FAKE_O1"] = "hangkid"
+        _rmc()
+        t0 = time.monotonic()
+        hk = comment_only_detail(cfg, base, r, lean_cmd=cmd)
+        took = time.monotonic() - t0
+        def _dead(pid):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            if not os.path.isdir("/proc"):      # macOS branch: a zombie, or gone, has no BSD info (libproc)
+                if sys.platform == "darwin":
+                    import lanecheck
+                    return lanecheck._bsdinfo(lanecheck._libproc(), pid) is None
+                r_ = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+                return r_.returncode != 0 or r_.stdout.strip().startswith("Z")
+            try:        # a zombie is dead too
+                return open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[0] == "Z"
+            except OSError:
+                return True
+        kpid = int(open(kid).read()) if os.path.exists(kid) else None
+        gone_ = False
+        for _ in range(50):
+            if kpid is not None and _dead(kpid):
+                gone_ = True
+                break
+            time.sleep(0.1)
+        if kpid is not None and not gone_:
+            try:
+                os.kill(kpid, 9)
+            except OSError:
+                pass
+        os.environ.pop("FAKE_KID", None)
+        out.append(("REREVIEW-M7 NEW-2: O1 hanging past its budget is killed with its children (the process group), "
+                    "and the call returns at the budget, not when a child ends",
+                    not hk["ok"] and kpid is not None and gone_ and took < 20))
+        os.environ.pop("FAKE_LOG", None)
+        # a compile failure is not cached (it may be the host's)
+        _rmc()
+        texts = {"A.lean": (old, old.replace("/-- d -/", "/-- dd -/"))}
+        lean_identical(r, texts, ["false"])
+        out.append(("review of the M7 build, L5: a version that does not compile is not cached",
+                    not os.path.exists(cache) or json.load(open(cache)) == {}))
+        # L4: no `lake` on PATH (an empty directory as PATH: nothing can run)
+        empty = os.path.join(d, "empty")
+        os.makedirs(empty)
+        os.environ["PATH"] = empty
+        try:
+            nolake = lean_identical(r, texts)
+        except Exception as e:      # noqa: BLE001 -- the control reports it
+            nolake = e
+        os.environ["PATH"] = keep_env["PATH"] or ""
+        out.append(("review of the M7 build, L4: with no `lake` on PATH the Lean stage is not-run, never a crash",
+                    isinstance(nolake, list) and [reason_kind(w) for w in nolake] == ["not-run"]))
+    finally:
+        g_["OLEAN_DIFF_BUDGET"] = keep_budget
+        for k, v in keep_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        shutil.rmtree(d, ignore_errors=True)
+    return out
 
 
 def _comment_only_controls():
@@ -4102,8 +6980,8 @@ def _comment_only_controls():
         g("reset", "-q", "--hard", base)
         out.append(("re-check R3: an `example` hidden from the text filter by a `«x/-»` name, a raw string or an "
                     "interpolated string fails closed (the .olean does not keep it); a plain `«x»` does not",
-                    any("«x/-»" in w for w in hid) and any("«x/-»" in w for w in hid_doc)
-                    and lexer_ambiguous('def r := r#"a"--b"#\n') == "a raw string"
+                    bool(hid) and any("«x/-»" in w for w in hid_doc)     # DESIGN-M7: the name is read as code
+                    and str(lexer_ambiguous('def r := r#"a"--b"#\n')).startswith("a raw string")
                     and lexer_ambiguous('def s := s!"{\'"\'} -- one"\n') is not None
                     and lexer_ambiguous(base_txt + "def «x y» := 1\n") is None))
         lake = case(doc, lambda: open(os.path.join(d, "lakefile.toml"), "w").write("y\n"))
@@ -4141,6 +7019,342 @@ _CO_ATTACKS = [
 ]
 
 
+ADJ_STUB = r'''import json, os, sys, time
+ctl = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ctl.json")))
+script, args = sys.argv[1], sys.argv[2:]
+c = ctl.get(script, {})
+print("stub", script, *args, flush=True)
+time.sleep(c.get("sleep", 0))
+if script == "phase0":
+    mode = c.get("mode") or ("read-only" + (", statement round" if "--statements" in args else ""))
+    print(f"# Phase 0 for project toy (--project toy); mode: {mode}")
+    if c.get("crash"):
+        print("Traceback (most recent call last):\nValueError: boom")
+        sys.exit(1)
+    print("PHASE 0: GREEN" if c.get("rc", 0) == 0 else "PHASE 0: RED (1 check(s))")
+else:
+    print(c.get("out", "REPEATED OUT-OF-LANE NOTES\n  (none)\n\nsummary: 0 outstanding fail(s), 0 never passed, "
+                       "0 lane/item gap(s), 0 repeated decision(s), 0 scope drift(s), 0 unrecorded round(s), "
+                       "0 NotDoneYet still unexamined"))
+if c.get("rc", 0) < 0:
+    sys.stdout.flush()
+    os.kill(os.getpid(), -c["rc"])        # killed by that signal (a negative code, as subprocess reports it)
+sys.exit(c.get("rc", 0))
+'''
+# E2E fix 1: the coverage section of a real run's adjudicator-checks log (a statement round whose correspondence
+# lane returned one Fail; item names replaced), which the verifier called a crash: audit_coverage.py exits 1 by
+# design after this report
+ADJ_COV_E2E = """note: canonical lane(s) with no data in any round: substantiveness, prior-art -- expected: every round so far is a statement round, which runs only correspondence, non-vacuity, paper-faithfulness (by design; not UNCOVERED)
+rolled up 3 lane-round(s) from audits/toy
+
+========================================================================
+OUTSTANDING FAILS (1) — failed, and no Pass since the last Fail
+  [correspondence] Toy.T   (last seen 2026-01-01-full-abcdef0)
+
+AMBIGUOUS (0) — a reading choice; each is a question for the human
+  none
+
+NEVER PASSED (0) — seen, but no lane round ever returned Pass
+  none
+
+NEVER EXAMINED — item is known to some lane, but this lane has never seen it
+  correspondence: 0
+  paper-faithfulness: 0
+  non-vacuity: 0
+
+STALE PASSES (0) — passed earlier, but changed since (vs. 2026-01-01-full-abcdef0)
+  none
+
+SCOPE DRIFT (1) — lane's declared scope vs the target step 3 sent
+  2026-01-01-full-abcdef0 paper-faithfulness: -0 dropped, +0 added, 1 renamed
+      renamed (cosmetic, not gated) Definition (a, tex l.7 -> Definition (b, tex l
+  none
+
+summary: 1 outstanding fail(s), 0 never passed, 0 lane/item gap(s), 0 repeated decision(s), 0 scope drift(s), 0 unrecorded round(s), 0 NotDoneYet still unexamined
+"""
+
+
+def _adj_checks_controls():
+    """C3 fix round 1 (COMPAT-C H1, ATTACK-C M1/M2/L2/L4/L5): the background adjudicator checks, end to end on
+    a toy project with both scripts stubbed (no Lean): the real CLI, the detached worker, the lock, the log."""
+    import tempfile, shutil, signal
+    d = tempfile.mkdtemp(prefix="adjchk-")
+    out = []
+    try:
+        repo, aud = os.path.join(d, "repo"), os.path.join(d, "repo", "audits")
+        rd = "audits/toy"
+        R, R2 = "2026-01-01-full-abcdef0", "2026-01-02-abcdef1"
+        os.makedirs(os.path.join(repo, rd, R))
+        os.makedirs(os.path.join(repo, rd, R2))
+        def tj(r, kind):
+            json.dump({"_meta": {"kind": kind}}, open(os.path.join(repo, rd, r, "TARGET.json"), "w"))
+        tj(R, "full")
+        tj(R2, "statements")
+        g = lambda where, *a: subprocess.run(["git", "-C", where, "-c", "user.name=t", "-c", "user.email=t@t",
+                                              *a], capture_output=True, text=True)
+        open(os.path.join(repo, "A.lean"), "w").write("x\n")
+        open(os.path.join(repo, ".gitignore"), "w").write("audits/\n.formalization-work/\n")
+        for w in (repo, aud):
+            g(w, "init", "-q")
+            g(w, "add", "-A")
+            g(w, "commit", "-q", "-m", "init")
+        stub = os.path.join(d, "stub.py")
+        open(stub, "w").write(ADJ_STUB)
+        ctlp = os.path.join(d, "ctl.json")
+        def ctl(**kw):
+            json.dump(kw, open(ctlp, "w"))
+        ctx = {"repo": repo, "audits": aud, "name": "toy", "rounds_dir": rd, "stub": stub, "poll": 0.1, "grace": 0.3,
+               "test": True}
+        env = dict(os.environ, **{ADJ_TEST_ENV: json.dumps(ctx)})
+        me = os.path.abspath(__file__)
+        def run(*a, timeout=60):
+            r = subprocess.run([sys.executable, "-B", me, *a, "--selftest"], cwd=repo, env=env, capture_output=True,
+                               text=True, timeout=timeout)
+            return r.returncode, r.stdout
+        fw = os.path.join(repo, FW)
+        log = lambda r=R, own=False: os.path.join(fw, f"adjudicator-{r}{'-own' if own else ''}.log")
+        lock = os.path.join(fw, ADJ_LOCK)
+        def gone(t=20):
+            end = time.time() + t
+            while time.time() < end and os.path.exists(lock):
+                time.sleep(0.05)
+            return not os.path.exists(lock)
+
+        # 1. normal completion; the start returns at once with the header in place
+        # REVIEW-FLOOR LOW-5: "at once" is the property itself, not wall time (a 1.4 s bound against a 1.5 s stub
+        # flaked under load): when the start returns, the log has its header and no END line yet (Phase 0 sleeps 5 s)
+        ctl(phase0={"sleep": 5})
+        rc, o = run("--adjudicator-checks", "--round", R)
+        hdr = open(log()).read().splitlines()
+        quick = bool(hdr) and "END" not in hdr
+        rc2, o2 = run("--adjudicator-checks", "--round", R2)          # 2. a second start while one runs
+        rc3, o3 = run("--adjudicator-checks", "--round", R, "--own")
+        rcw, ow = run("--wait-adjudicator-checks", "--round", R, "--timeout", "30")
+        out.append(("C3: --adjudicator-checks starts the checks in the background and returns at once, the log's "
+                    "header already written (round, run, id, both HEADs, TARGET.json's kind, the exact commands)",
+                    rc == 0 and quick and "--wait-adjudicator-checks --round " + R in o
+                    and hdr[0].startswith(f"ADJUDICATOR CHECKS round {R} (operator run) id ")
+                    and hdr[1] == "HEAD " + _adj_heads(ctx)[0] and hdr[2] == "AUDITS " + _adj_heads(ctx)[1]
+                    and hdr[3] == "KIND full (TARGET.json _meta.kind)"
+                    and hdr[4] == f"CMD phase0: python3 {stub} phase0 --readonly --project toy"))
+        out.append(("C3: a second start while one runs is refused, for any round and for --own (one lock: never "
+                    "two Phase 0 runs of this mechanism at once), naming the wait command",
+                    rc2 == 1 and rc3 == 1 and "already running" in o2 and f"--wait-adjudicator-checks --round {R}" in o3
+                    and not os.path.exists(log(R2)) and not os.path.exists(log(R, True))))
+        txt = open(log()).read()
+        out.append(("C3: --wait-adjudicator-checks waits for END and accepts the log: both HEAD pairs current, "
+                    "the commands and Phase 0's mode as TARGET.json says, Phase 0's verdict and every exit code "
+                    "recorded",
+                    rcw == 0 and "current:" in ow and "PHASE 0: GREEN" in ow and txt.endswith("END\n")
+                    and "phase0 exit 0" in txt and "coverage exit 0" in txt and "HEAD " + _adj_heads(ctx)[0] + " (end)"
+                    in txt and gone()))
+
+        # 3. a bounded wait times out (exit 3), then the next wait succeeds; a statement round gets --statements
+        ctl(phase0={"sleep": 2})
+        run("--adjudicator-checks", "--round", R2)
+        t0 = time.time()
+        rcw1, ow1 = run("--wait-adjudicator-checks", "--round", R2, "--timeout", "0.3")
+        bounded = time.time() - t0 < 1.8
+        rcw2, ow2 = run("--wait-adjudicator-checks", "--round", R2, "--timeout", "30")
+        out.append(("C3: a wait is bounded: at its timeout it exits 3 (still running: wait again); the next wait "
+                    "ends 0; a statement round's Phase 0 runs with --statements (from TARGET.json)",
+                    rcw1 == 3 and bounded and "still running" in ow1 and rcw2 == 0
+                    and "--readonly --statements --project toy" in open(log(R2)).read() and gone()))
+
+        # 4. RED is current (the adjudicator STOPs on it); a crash is stale, never a bare END
+        ctl(phase0={"rc": 1})
+        run("--adjudicator-checks", "--round", R, "--foreground")
+        rr, orr = run("--wait-adjudicator-checks", "--round", R, "--timeout", "5")
+        ctl(phase0={"crash": True})
+        rcf, _ = run("--adjudicator-checks", "--round", R, "--foreground")
+        rc4, o4 = run("--wait-adjudicator-checks", "--round", R, "--timeout", "5")
+        ctl(audit_coverage={"rc": 2})
+        run("--adjudicator-checks", "--round", R, "--foreground")
+        rc5, o5 = run("--wait-adjudicator-checks", "--round", R, "--timeout", "5")
+        out.append(("C3: a RED Phase 0 is a current log (its verdict reported); a Phase 0 crash (exit 1, no "
+                    "verdict line) or a coverage exit other than 0 is stale: run the checks yourself (--own)",
+                    rr == 0 and "PHASE 0: RED" in orr and rcf == 1 and rc4 == 1 and "STALE" in o4
+                    and "no verdict" in o4 and f"--adjudicator-checks --round {R} --own" in o4
+                    and rc5 == 1 and "coverage roll-up exited 2" in o5))
+
+        # 4b. E2E fix 1: each check judged by its own documented exits. The real case: the coverage roll-up's
+        # report of an outstanding Fail, exit 1 by design, is a current log (the adjudicator decides the Fail);
+        # the same report with exit 0, cut before its summary line, after a crash line, or killed, is stale; so
+        # is a Phase 0 that exited 2 or crashed itself (a child's crash line inside a GREEN Phase 0 is not its own)
+        def cov_case(**c):
+            ctl(**c)
+            run("--adjudicator-checks", "--round", R, "--foreground")
+            return run("--wait-adjudicator-checks", "--round", R, "--timeout", "5")
+        e_ok = cov_case(audit_coverage={"out": ADJ_COV_E2E, "rc": 1})
+        e_rc0 = cov_case(audit_coverage={"out": ADJ_COV_E2E, "rc": 0})
+        e_cut = cov_case(audit_coverage={"out": ADJ_COV_E2E.split("summary:")[0], "rc": 1})
+        e_tb = cov_case(audit_coverage={"out": "Traceback (most recent call last):\nKeyError: x\n"
+                                               "FAIL[uncoded] audit_coverage.py crashed (KeyError: x)", "rc": 1})
+        e_sig = cov_case(audit_coverage={"out": ADJ_COV_E2E, "rc": -9})
+        e_p2 = cov_case(phase0={"rc": 2})
+        e_p0c = cov_case(phase0={"mode": "read-only\nFAIL[uncoded] phase0.py crashed (ValueError: x)"})
+        e_kid = cov_case(phase0={"mode": "read-only\nFAIL[uncoded] dependencies.py crashed (ValueError: x)"})
+        ctl()
+        out.append(("E2E fix 1: a coverage roll-up that exits 1 after its summary line (the real case: one "
+                    "outstanding Fail) is a current log, reported as findings to adjudicate; exit 0 with that summary, "
+                    "exit 1 without it, a traceback, a signal, a Phase 0 exit 2 or a crash of Phase 0 itself are stale",
+                    e_ok[0] == 0 and "current:" in e_ok[1] and "1 outstanding fail(s)" in e_ok[1]
+                    and "not a crash" in e_ok[1]
+                    and e_rc0[0] == 1 and "summary line says 1 outstanding" in e_rc0[1]
+                    and e_cut[0] == 1 and "without its one summary line" in e_cut[1]
+                    and e_tb[0] == 1 and "crashed" in e_tb[1]
+                    and e_sig[0] == 1 and "signal" in e_sig[1]
+                    and e_p2[0] == 1 and "no verdict matching its exit code 2" in e_p2[1]
+                    and e_p0c[0] == 1 and "Phase 0 crashed" in e_p0c[1]
+                    and e_kid[0] == 0 and "current:" in e_kid[1]))
+
+        # 5. HEAD change during the run (Lean repo, then audits repo); a stale log from before a commit
+        ctl(phase0={"sleep": 1.5})
+        run("--adjudicator-checks", "--round", R)
+        open(os.path.join(repo, "A.lean"), "a").write("y\n")
+        g(repo, "commit", "-qam", "during")
+        rc6, o6 = run("--wait-adjudicator-checks", "--round", R, "--timeout", "30")
+        gone()
+        run("--adjudicator-checks", "--round", R)
+        open(os.path.join(aud, "n.txt"), "w").write("n\n")
+        g(aud, "add", "-A")
+        g(aud, "commit", "-qm", "during")
+        rc7, o7 = run("--wait-adjudicator-checks", "--round", R, "--timeout", "30")
+        gone()
+        ctl()
+        run("--adjudicator-checks", "--round", R, "--foreground")
+        ok_before = run("--wait-adjudicator-checks", "--round", R, "--timeout", "5")[0]
+        open(os.path.join(repo, "A.lean"), "a").write("z\n")
+        g(repo, "commit", "-qam", "after")
+        rc8, o8 = run("--wait-adjudicator-checks", "--round", R, "--timeout", "5")
+        out.append(("C3: a HEAD change during the run (Lean or audits repository) is stale even though the log "
+                    "ends in END; so is a finished log from before a later commit",
+                    rc6 == 1 and "HEAD line at the start is not the current" in o6
+                    and rc7 == 1 and "AUDITS line at the start is not the current" in o7
+                    and ok_before == 0 and rc8 == 1 and "STALE" in o8))
+
+        # 6. mode mismatch vs TARGET.json: a wrong mode line; TARGET.json's kind changed after the run
+        ctl(phase0={"mode": "author"})
+        run("--adjudicator-checks", "--round", R, "--foreground")
+        rc9, o9 = run("--wait-adjudicator-checks", "--round", R, "--timeout", "5")
+        ctl()
+        run("--adjudicator-checks", "--round", R, "--foreground")
+        tj(R, "statements")
+        rc10, o10 = run("--wait-adjudicator-checks", "--round", R, "--timeout", "5")
+        tj(R, "full")
+        out.append(("C3: a mode mismatch with TARGET.json is stale: Phase 0's mode line not `read-only` "
+                    "(an author-mode output), or a kind changed since the run (KIND and command differ)",
+                    rc9 == 1 and "mode line" in o9 and rc10 == 1 and "KIND line" in o10
+                    and "did not run exactly" in o10))
+
+        # 7. a killed worker (no END, no live holder) is stale at once; its dead lock is taken over
+        ctl(phase0={"sleep": 30})
+        run("--adjudicator-checks", "--round", R)
+        pid = (_adj_lock(lock) or {}).get("pid")
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except (OSError, TypeError):
+            pass
+        time.sleep(0.3)
+        t0 = time.time()
+        rc11, o11 = run("--wait-adjudicator-checks", "--round", R, "--timeout", "30")
+        fast = time.time() - t0 < 5
+        ctl()
+        rc12, _ = run("--adjudicator-checks", "--round", R, "--own", "--foreground")
+        rc13, o13 = run("--wait-adjudicator-checks", "--round", R, "--own", "--timeout", "5")
+        op_log = open(log()).read()
+        out.append(("C3: a killed run (no END, its process gone) is stale at once, not waited on forever; its "
+                    "lock is taken over by the next start; the adjudicator's own run (--own) writes "
+                    "adjudicator-<R>-own.log and leaves the operator's log alone",
+                    pid is not None and rc11 == 1 and fast and "no run is writing it" in o11 and rc12 == 0
+                    and rc13 == 0 and "-own.log" in o13 and "(own run)" in open(log(R, True)).read()
+                    and "(operator run)" in op_log and not op_log.endswith("END\n")))
+
+        # 8. no log; another round's log; the worker cannot be run by hand; a stubbed log fails a real verify
+        rc14, o14 = run("--wait-adjudicator-checks", "--round", R2, "--own", "--timeout", "5")
+        shutil.copy(log(R2), log(R))
+        rc15, o15 = run("--wait-adjudicator-checks", "--round", R, "--timeout", "5")
+        rc16, o16 = run("--adjudicator-checks-worker", "--round", R, "--id", "0" * 16)
+        run("--adjudicator-checks", "--round", R, "--foreground")
+        real = dict(ctx, stub=None)
+        good = open(log()).read()
+        why, _, _ = adj_verify(real, R, False, good)
+        h0 = _adj_heads(ctx)[0]
+        why_end, _, _ = adj_verify(ctx, R, False, good.replace(f"HEAD {h0} (end)", "HEAD " + "0" * 40 + " (end)"))
+        why_ok, _, _ = adj_verify(ctx, R, False, good)
+        rc17, o17 = run("--wait-adjudicator-checks", "--round", "../x")
+        out.append(("C3: no log, another round's log, a worker started by hand, a bad round name, a HEAD line "
+                    "before END that differs are refused or stale; a log of stubbed commands never verifies outside the selftest (the real commands are "
+                    "expected)",
+                    rc14 == 1 and "no log" in o14 and rc15 == 1 and "first line" in o15 and rc16 == 2
+                    and any("did not run exactly `python3 audits/phase0.py --readonly --project toy`" in w for w in why)
+                    and why_ok == [] and any("HEAD line at the end" in w for w in why_end)
+                    and rc17 == 2))
+        # 9. the own run with --foreground started in the background (Bash run_in_background) and waited on at once
+        ctl(phase0={"sleep": 1})
+        os.remove(log(R, True))
+        bg = subprocess.Popen([sys.executable, "-B", me, "--adjudicator-checks", "--round", R, "--own", "--foreground",
+                               "--selftest"], cwd=repo, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        r18 = subprocess.run([sys.executable, "-B", me, "--wait-adjudicator-checks", "--round", R, "--own", "--timeout",
+                              "30", "--selftest"], cwd=repo, capture_output=True, text=True, timeout=60,
+                             env=dict(env, **{ADJ_TEST_ENV: json.dumps(dict(ctx, grace=5))}))
+        rc18, o18 = r18.returncode, r18.stdout
+        bg.wait(timeout=30)
+        out.append(("C3: --own --foreground started in the background and waited on at once: the wait allows a "
+                    "short grace for its header, then waits for END and accepts it", rc18 == 0 and "current:" in o18))
+        out.append(("C3: the test hook is honoured only by a --selftest process",
+                    _adj_ctx_guard(env)))
+        out.append(("C3: every --adjudicator-checks / --wait-adjudicator-checks command the protocol prints is plain "
+                    "and matches the project's allow rule for project.py (claude_settings.ALLOW), no deny rule",
+                    _adj_allowed()))
+    except Exception as e:      # noqa: BLE001 -- a failing control, not a crash
+        out.append((f"C3: the background-checks controls ran ({type(e).__name__}: {e})", False))
+    finally:
+        try:
+            pid = (_adj_lock(os.path.join(d, "repo", FW, ADJ_LOCK)) or {}).get("pid")
+            if pid:
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except (OSError, TypeError, ValueError, NameError):
+            pass
+        shutil.rmtree(d, ignore_errors=True)
+    return out
+
+
+def _adj_ctx_guard(env):
+    code = ("import sys, json; sys.path.insert(0, %r); import project as p\n"
+            "try:\n    c = p._adj_ctx('no-such-project-x')\n    print(c.get('test'))\n"
+            "except p.SelectionError:\n    print('refused')" % AUDITS)
+    a = subprocess.run([sys.executable, "-B", "-c", code], env=env, capture_output=True, text=True).stdout.split()
+    b = subprocess.run([sys.executable, "-B", "-c", code, "--selftest"], env=env, capture_output=True,
+                       text=True).stdout.split()
+    return a == ["refused"] and b == ["True"]
+
+
+ADJ_DOCS = ("AUDIT_PROTOCOL.md", "RUN.md", "run/stage4-rounds.md", "run/stage2-statements.md", "run/codex.md")
+
+
+def _adj_allowed():
+    import claude_settings as cs
+    found = []
+    for f in ADJ_DOCS:
+        for m in re.finditer(r"`?(python3 audits/project\.py --(?:wait-)?adjudicator-checks[^`\n]*)`?",
+                             open(os.path.join(AUDITS, f), encoding="utf-8").read()):
+            found.append(m.group(1).strip())
+    for own in (False, True):
+        found += [_adj_cmd("adjudicator-checks", "2026-01-01-abcdef0", own),
+                  _adj_cmd("wait-adjudicator-checks", "2026-01-01-abcdef0", own)]
+    def ok(c):
+        c = re.sub(r"<[^<>]+>", "R", c)
+        if re.search(r"[;&|<>$`()\\\n]", c) or not c.startswith("python3 "):
+            return False
+        allow = [r[5:-3] for r in cs.ALLOW if r.startswith("Bash(") and r.endswith(":*)")]
+        deny = [r[5:-3] for r in cs.DENY if r.startswith("Bash(") and r.endswith(":*)")]
+        hit = lambda p: c == p or c.startswith(p + " ")
+        return any(hit(p) for p in allow) and not any(hit(p) for p in deny)
+    docs = [c for c in found if "adjudicator-checks" in c]
+    return len(docs) >= 6 and all(ok(c) for c in found) and "Bash(python3 audits/project.py:*)" in cs.ALLOW
+
+
 def _comment_only_lean_controls():
     """review of fix-mini2 H1, with Lean (`project.py --selftest --lean`): the Lean stage accepts a
     change to comments and docstrings, and refuses each code change the text stage misreads."""
@@ -4170,7 +7384,8 @@ def _comment_only_lean_controls():
         open(f, "w").write(plain); g("commit", "-qam", "plain")
         base_p = g("rev-parse", "HEAD").stdout.strip()
         doc = ("-- a new comment\n\n" + plain.replace("/-- doc -/", "/-- doc, now longer:\n two lines. -/")
-               .replace("/-a-/", "/-aaaaaaaaaaaa-/").replace("private theorem", "/-- new -/\nprivate theorem"))
+               .replace("  · trivial\n", "  · trivial -- aaaaaaaaaaaa\n")
+               .replace("private theorem", "/-- new -/\nprivate theorem"))
         ok = run(doc, plain, base_p)
         g("reset", "-q", "--hard", base)
         out.append(("review of fix-mini2 H1: Lean confirms a change to comments and docstrings only (lines "
@@ -4187,6 +7402,47 @@ def _comment_only_lean_controls():
         lw = lean_identical(d, {"Foo/A.lean": (plain, plain.replace("def y := 1", "def y := 2"))}, lean_cmd=["lean"])
         out.append(("review of fix-mini2 H1: the Lean stage by itself reports a changed definition body",
                     any("differs" in w for w in lw)))
+        # DESIGN-M7 §9.5 (UNVERIFIED-LEAN: written without a Lean run; these run in a real project's
+        # `project.py --selftest --lean`). The docstring-only change above has a basis; binder names alone change only
+        # the compiled bytes (O1 names them: layout); a binder annotation is O1's "binder annotations" (or a hash
+        # difference): semantic either way; a `panic!` moved by a new comment line changes a value: NOT comment-only.
+        g("reset", "-q", "--hard", base_p)
+        open(f, "w").write(doc)
+        dd = comment_only_detail(cfg, base_p, d, lean_cmd=["lean"])
+        g("reset", "-q", "--hard", base)
+        out.append(("DESIGN-M7 (UNVERIFIED-LEAN): a docstring-only change is comment-only on the compiled or the "
+                    "source basis", dd["ok"] and dd["basis"] in ("compiled", "source")))
+        m7 = ("theorem bn (n : Nat) : n = n := rfl\ntheorem ba (n : Nat) : n = n := rfl\n"
+              "def pf (n : Nat) : Nat := if n = 0 then panic! \"x\" else n\n")
+        names = lean_identical(d, {"Foo/A.lean": (m7, m7.replace("bn (n : Nat) : n = n", "bn (m : Nat) : m = m"))},
+                               lean_cmd=["lean"])
+        ann = lean_identical(d, {"Foo/A.lean": (m7, m7.replace("ba (n : Nat)", "ba {n : Nat}"))}, lean_cmd=["lean"])
+        out.append(("DESIGN-M7 (UNVERIFIED-LEAN, review M1): binder names alone: one bytes-only reason, kind layout, "
+                    "O1 naming binder names (not annotations); a binder annotation: semantic "
+                    f"(got {[str(w)[:160] for w in names + ann]})",
+                    [reason_kind(w) for w in names] == ["layout"] and "binder names (not their annotations)" in names[0]
+                    and ann and all(reason_kind(w) == "semantic" for w in ann)
+                    and any("binder annotations in" in w or "type or value of" in w for w in ann)))
+        open(f, "w").write(m7); g("add", "-A"); g("commit", "-qm", "m7")
+        base_m7 = g("rev-parse", "HEAD").stdout.strip()
+        open(f, "w").write("-- a new first line\n" + m7)
+        pm = comment_only_detail(cfg, base_m7, d, lean_cmd=["lean"])
+        g("reset", "-q", "--hard", base)
+        out.append(("DESIGN-M7 (UNVERIFIED-LEAN): a `panic!` moved down by a new comment line is NOT comment-only (its "
+                    "value holds the line: the semantic veto)",
+                    not pm["ok"] and any(reason_kind(w) == "semantic" and "pf" in w for w in pm["what"])))
+        # review of the M7 build, H2 (UNVERIFIED-LEAN): O1 compares every field, not only types and values: `abbrev`
+        # for `def` (equal type and value, other reducibility hints) names "other fields"; `def` for `theorem` names
+        # the kind; never the sharing text
+        hk = "abbrev hv : Nat := 1\ntheorem ka : True := trivial\n"
+        hints = lean_identical(d, {"Foo/A.lean": (hk, hk.replace("abbrev hv", "def hv"))}, lean_cmd=["lean"])
+        kind = lean_identical(d, {"Foo/A.lean": (hk, hk.replace("theorem ka", "def ka"))}, lean_cmd=["lean"])
+        out.append(("review of the M7 build, H2 (UNVERIFIED-LEAN): O1 names other fields (`abbrev` for `def`) and the "
+                    f"kind (`def` for `theorem`), both semantic (got {[str(w)[:160] for w in hints + kind]})",
+                    hints and kind and all(reason_kind(w) == "semantic" for w in hints + kind)
+                    and any("other fields of" in w for w in hints)
+                    and any("the kind of" in w or "type or value of" in w for w in kind)
+                    and not any(O1_LAYOUT[0] in w for w in hints + kind)))
     finally:
         shutil.rmtree(d, ignore_errors=True)
     return out
@@ -4238,6 +7494,9 @@ def changes_after_last_audit(cfg, rounds):
       commits                  [oneline] after it touching lean_files or BUILD_FILES
       dirty                    [path] uncommitted changes to those files
       problem                  a sentence when the answer cannot be trusted, else None
+      comment_only             every such change is comments and docstrings only (comment_only_detail)
+      comment_only_basis       then "compiled" or "source" (DESIGN-M7: checked on the source), else None
+      comment_only_lean        on the source basis, the Lean stage's reasons (the bytes-only ones), else []
     One implementation, used by make_report.py and decisions.py, so the two cannot disagree."""
     # a directory with no TARGET.json examined nothing: an empty-scope round (scope.py exit 3), or
     # one holding only fresh-reader prompts. Counting it hid a commit no reviewer saw (small-paper run).
@@ -4271,7 +7530,10 @@ def changes_after_last_audit(cfg, rounds):
     out["commits"] = [l.strip() for l in log.stdout.splitlines() if l.strip()]
     out["dirty"] = [l[3:].strip() for l in st.stdout.splitlines() if l.strip()]
     # mini2 audit (time): a change after the last round that is mechanically comment-only needs no round
-    out["comment_only"] = bool(out["commits"] or out["dirty"]) and comment_only_since(cfg, h)[0]
+    d = comment_only_detail(cfg, h) if (out["commits"] or out["dirty"]) else None
+    out["comment_only"] = bool(d and d["ok"])
+    out["comment_only_basis"] = d["basis"] if out["comment_only"] else None
+    out["comment_only_lean"] = [str(w) for w in d["lean"]] if out["comment_only"] else []
     return out
 
 
@@ -4296,9 +7558,16 @@ USAGE = """usage:
   project.py --stage [--project NAME]                print the current stage and the file to read (resume)
   project.py --intake-save < TEXT                    Stage 0: save the intake answer before anything else (resume)
   project.py --intake-move [--project NAME]          Stage 1 step 5: move it under RUN_LOG.md's ## Intake
+  project.py --adjudicator-checks --round R [--own] [--foreground] [--project NAME]
+                                             start the adjudicator's Phase 0 (read-only; --statements from the
+                                             round's TARGET.json) and coverage roll-up in the background, into
+                                             .formalization-work/adjudicator-R[-own].log (one run at a time)
+  project.py --wait-adjudicator-checks --round R [--own] [--timeout S] [--project NAME]
+                                             wait at most S seconds (default 540) for that log's END, then verify
+                                             it: exit 0 current, 1 stale (run them yourself, --own), 3 still running
   project.py --comment-only [BASE]                 are all Lean changes since BASE (default: the last proof round's commit)
                                                      comments and docstrings only? exit 0 yes, 1 no (fails closed)
-  project.py --selftest"""
+  project.py --selftest [--floor]                 (--floor: the math gate's floor control on --deliver only)"""
 
 
 def main(argv):
@@ -4306,6 +7575,13 @@ def main(argv):
         import integrity
         with integrity.run_history_hidden(AUDITS):     # the fixtures never see the run's applied tool patches
             return selftest()
+    if argv == ["--selftest", "--floor"]:      # DESIGN-FLOOR: the math gate's floor control only (floor mutant MG2)
+        checks = _floor_controls(tb=True)
+        for name, ok in checks:
+            print(f"  {'ok  ' if ok else 'FAIL'}  {name}")
+        ok = all(c for _, c in checks)
+        print("selftest:", "ok" if ok else "FAILED")
+        return 0 if ok else 1
     if argv == ["--selftest", "--lean"]:
         checks = _comment_only_lean_controls()
         for name, ok in checks:
@@ -4320,6 +7596,8 @@ def main(argv):
         i = argv.index("--project")
         name = argv[i + 1] if i + 1 < len(argv) else None
         argv = argv[:i] + argv[i + 2:]
+    if argv[:1] in (["--adjudicator-checks"], ["--wait-adjudicator-checks"], ["--adjudicator-checks-worker"]):
+        return adj_cli(argv, name)
     if argv[:1] == ["--scratch"] and len(argv) == 2:
         try:
             print(scratch(argv[1]))
@@ -4345,10 +7623,17 @@ def main(argv):
         base = rest[0] if rest else (changes_after_last_audit(cfg, rounds(cfg)) or {}).get("commit")
         if not base:
             print("FAIL: no proof-examining round to compare with; give a commit"); return 2
-        ok, what = comment_only_since(cfg, base)
-        print(("ok: comments and docstrings only since " if ok else "NO: not comment-only since ") + base)
+        d = comment_only_detail(cfg, base)
+        ok, what = d["ok"], d["what"]
+        print(("ok: comments and docstrings only since " if ok else "NO: not comment-only since ") + base
+              + {"compiled": " (checked with Lean: the compiled modules are identical)",
+                 "source": " (checked on the source: with comments and docstrings removed each changed file reads "
+                           "exactly as before; Lean found the same declarations, types, values and attributes, but "
+                           "the compiled files are not byte-for-byte identical)"}.get(d["basis"], ""))
         for w in what:
             print("  " + w)
+        for w in d["lean"]:
+            print("  Lean: " + w)
         return 0 if ok else 1
     if argv[:1] == ["--compile-source"] and len(argv) == 2:
         try:

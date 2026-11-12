@@ -594,12 +594,17 @@ def render_tool_patch(text, cfg, rd, tp, n, m, pin_commit, at=None):
     stop = begin.get("stop")
     sd = J(os.path.join(rd, "stops", str(stop), "STOP.json")) or {}
     verdict = os.path.join(d, f"review-{n}-{m}.json")
+    rel_ = os.path.relpath(os.path.join(audits, "tool_patch.py"), project.REPO)
+    tool_ = rel_ if rel_ == "audits/tool_patch.py" else os.path.join(audits, "tool_patch.py")
     subs = {"<NETWORK-RULE>": ("The source is UNPUBLISHED. Do not use the network at all." if cfg.get("confidential")
                                else "You may consult public references, but never send repository text anywhere."),
             "<TP>": tp, "<ATTEMPT>": str(n), "<STOP>": str(stop), "<AUDITS-DIR>": audits, "<PIN-COMMIT>": str(pin_commit),
             "<ROUNDS-DIR-ABS>": rd, "<VERDICT-FILE>": verdict,
             "<PATCH-SHA>": tpm.sha_bytes(patch.encode("utf-8")),
-            "<FACTS-CMD>": f"python3 {os.path.join(audits, 'tool_patch.py')} facts --tp {tp} --attempt {n} --out <your scratch dir>/FACTS.json"}
+            # INT-REVIEW LOW-4: `python3 audits/tool_patch.py ...`, the form the allow rule `Bash(python3
+            # audits/tool_patch.py:*)` covers (the reviewer runs in the project's top-level directory, as the session
+            # does), when the pinned tools are the project's own audits/; an absolute path only otherwise
+            "<FACTS-CMD>": f"python3 {tool_} facts --tp {tp} --attempt {n} --out <your scratch dir>/FACTS.json"}
     out = common + "\n\n" + body
     for k, v in subs.items():
         out = out.replace(k, v)

@@ -238,7 +238,9 @@ def flag_lane(flag):
 # folding, no ".json" or "-lane" guessing (NARROW H1: a row of another lane, or a lane cell spelled
 # differently, removed an open re-vote from the human's list while every settle check ignored it).
 
-Row = collections.namedtuple("Row", "lane item decision verdict reason base problem")
+# `text`: the decision cell as written (A5: a QUESTION row may put its whole text there); defaulted, so a Row built
+# with the seven fields above is unchanged
+Row = collections.namedtuple("Row", "lane item decision verdict reason base problem text", defaults=("",))
 OUTCOMES_LANE = "outcomes"      # AUDIT_PROTOCOL step 4 B': the outcome check's rows
 RECORD_JSON = ("TARGET.json", "FINGERPRINTS.json", "SIGNOFF.json", "INFORMAL.json", "ABANDONED.json")
 _EDGE_RE = re.compile(r"^[\s*_`]+|[\s*_`]+$")
@@ -397,7 +399,7 @@ def decision_rows(rd, text=None):
                        + (f": {why_i}" if why_i else "") + "; copy the item exactly as TARGET.json, the "
                        f"lane's JSON or the project's index names it (no other spelling is read)")
         out.append(Row(lane or clean_cell(raw_l), item or clean_cell(raw_i), dec, clean_cell(cell("verdict")),
-                       cells[-1], lane_base(lane or clean_cell(raw_l)), problem))
+                       cells[-1], lane_base(lane or clean_cell(raw_l)), problem, cell("decision")))
     return out
 
 
@@ -1581,8 +1583,8 @@ def _lane_pids(prompt_dir):
 def stray_loops(kill=False, since=None, repo=None, prompt_dir=None):
     """This user's shells running a polling loop, started after `since` (epoch seconds; the
     round's scope time), never this process or its ancestors, and never a process started with
-    FORMALIZE_PAPER_OPERATOR=1 in its environment (a monitor the operator started on purpose,
-    RUN.md rule 9). A loop counts when its cwd is inside the repository, or when its parent chain
+    FORMALIZE_PAPER_OPERATOR=1 in its environment (a monitor the operator or the adjudicator
+    started on purpose, RUN.md rule 9). A loop counts when its cwd is inside the repository, or when its parent chain
     reaches a lane process of this round (whatever its cwd). Listed always; ended only with --kill."""
     if PROC:
         r = subprocess.run(["ps", "-u", str(os.getuid()), "-o", "pid=,etimes=,args="], capture_output=True, text=True)

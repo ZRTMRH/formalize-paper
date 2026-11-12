@@ -18,6 +18,13 @@ maintainers; the numbered items T1–T35 say what each limitation means for you 
 
 ## Tooling
 
+- **`phase0.strip_comments` diverges from Lean's tokenizer on literals** (REREVIEW-M7 NEW-3, pre-existing):
+  raw strings (`r#""--"# x`), `«--»` names, a char literal right after another (`'"''"'"--"`) and comments
+  inside `s!"{…}"` interpolation are read so that code after them counts as a comment. Consumers: Phase 0's text
+  `sorry` scan (which the Lean axiom sweep backs) and scope's Stage 4
+  diff-round skip (a wrong skip leads to Stage 5's full round). The comment-only decision uses its own lexer
+  (`project._co_lex`), which the M7 fuzzers found no hole in. Not fixed: phase0.py is in the proof-validity
+  core, which a run cannot patch, and a change there needs a maintainer release with its own review.
 - **Linux only.** The checks read Linux's `/proc` (the scan for reviewer processes in
   `lanecheck.py` and `stops.py`), and the install steps use `apt`. Supported: Debian or Ubuntu, or
   Ubuntu under WSL2 on Windows. On macOS (this branch) the same facts come from `libproc`, without
@@ -172,10 +179,12 @@ maintainers; the numbered items T1–T35 say what each limitation means for you 
   are built against a well-meaning agent's mistakes, not a deliberate forger (the threat model of
   this release). The cheap partial defences: no row of PAPER_DEFECTS, SKIPPED, VACUOUS or DEVIATIONS is ever
   removed and a cited row must exist; a refutation proved in the Lean needs its `false` defect row;
-  the involvement level, mode and ownership version are the first committed pin's; a `by`-less
-  approval counts as the human's only in a run pinned before the field existed; and the summary
-  lists every answer and approval recorded as yours, each with the audit commit that recorded it
-  ("Answers recorded as yours"), so you can refute one and keep the hashes as a receipt. Under
+  the involvement level, mode and ownership version are the first committed pin's (for a run whose
+  first pin predates a key: the working value); a `by`-less approval counts as the human's only in a
+  run pinned before the field existed; and the delivered README's section "What the checking code
+  found", written by the checking program at delivery, lists every answer and approval recorded as
+  yours, each with the audit commit that recorded it, so you can refute one and keep the hashes as a
+  receipt. Under
   hands-off nothing in the delivered report rules a forgery out. If the result matters, have a
   separate session run a fresh full audit round on the delivered commit. *Not done:* printing audit
   and project hashes in every checkpoint message to the human (receipts taken before delivery),
@@ -318,6 +327,38 @@ maintainers' table in `TRADEOFFS.md`, which says why each was accepted and how i
   `http.sslVerify=false` and `remote.*.receivepack` are not compared, and files a reviewer writes
   under ignored directories (e.g. `.lake` build files) are not tracked. *For you:* in principle a
   stale build file could be used by a check; no case has been seen. *In the report:* no.
+
+### What remains (forgery review 2026-11)
+
+Batch E (DESIGN-E2) built fixes 2-6 of `FORGERY-REVIEW-2026-11.md`. Still open, each disclosed:
+- **F2 / fix 1, not built:** the math gate lives in files outside `tool_patch.CORE` (`stops.math_gate`,
+  `integrity_blocks`, `project._deliver`); a hand edit of them, or a stdlib-shadowing module such as
+  `audits/fnmatch.py`, is FAIL[tooling], a note. The README section's "The checking software" says the software
+  changed, but the agent runs that program. The floor mutants MG2-MG4 and MG6-MG9 harden only the tool-patch route.
+- **F6:** self-sealed verdicts with an invented agent id, now behind tool patches and core faults too.
+- **F7:** a row superseded under a forged "adjudicate R".
+- **F9:** a transient edit of a prompt renderer.
+- **F10:** the PDF checkers' verdicts are recorded by the operator.
+- **Fix 4's residual (forged):** a forged core-fault review can still cover a real drift of an approved statement,
+  a kernel-skipping token other than `sorry` (a debug option, `run_cmd`, `implemented_by`, ...), a `sorry` while a
+  "leave unproved" line or an open re-approval is active, or a goal named in a leave line. Each such delivery shows
+  every result as "not verified: ..." in the README's code-written section and names the check that could not run.
+- **Fix 4's residual (honest):** a scanner false positive while the axiom sweep also fails is cured by rewording the
+  Lean, not by a core fault.
+- **Fix 2:** the status mark compares wording mechanically: a summary that rewords a status, keeps its first part
+  and still overstates is not marked; the code's table is always shown beside it, and the sentence under it says
+  only that the first words were found (fix round E1: it no longer says "in the same words"; HTML comments are
+  not read and every row naming a result is compared). The reasons under "Status wording" are the formalizing
+  agent's own words.
+- **Fix 5 (merges):** records committed honestly on a side branch and merged are judged under the merge's subject,
+  and the release self-cure reverts them with it (fail closed; no real record has a merge).
+- The deliverables folder can be written by hand without `--deliver`; `--check-delivered` then checks only
+  consistency with a RUN_LOG line the agent also controls. Editing or removing a logged README fingerprint is now
+  seen in RUN_LOG.md's history (fix round E1), but a forged new delivery line appended in a commit that looks
+  like `--deliver`'s, or a rewritten history, still passes.
+- Fix 7, an independent `--verify-delivery`: not built.
+- Running the core scripts with `python3 -P`: not worth it (the scripts re-insert their directory; Python 3.10 lacks
+  `-P`); putting `audits/` after the stdlib on `sys.path` belongs with fix 1.
 
 ### The delivered documents
 

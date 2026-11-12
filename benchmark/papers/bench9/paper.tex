@@ -1,0 +1,187 @@
+\documentclass[11pt]{amsart}
+\usepackage{amssymb}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+\DeclareMathOperator{\ord}{ord}
+\DeclareMathOperator{\Fix}{Fix}
+
+\title{Involutions in groups of even order: a counting note}
+\author{Marta K. Oyelaran}
+\address{Department of Mathematics, Larkfield College, Ashbury, UK}
+\email{m.oyelaran@larkfield.ac.uk}
+\date{}
+
+\begin{document}
+
+\begin{abstract}
+We give a short self-contained account of the classical fact that a finite group of even
+order contains an element of order $2$. The argument is the usual pairing of an element with
+its inverse, organised so that it yields the slightly sharper statement that the number of
+elements of order $2$ is odd. We also record two applications.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+
+The statement that every finite group of even order contains an element of order $2$ is the
+case $p=2$ of Cauchy's theorem, and it is often the first nontrivial fact about finite groups
+that students meet. The standard proof pairs each element $g$ with its inverse $g^{-1}$: the
+elements that are not paired with themselves come in pairs, so the elements with $g=g^{-1}$
+are even in number, and since the identity is one of them there must be another.
+
+The purpose of this note is to write this argument out carefully, separating the
+combinatorial input (a parity statement about involutions of a finite set,
+Lemma~\ref{lem:parity}) from the group-theoretic input (Lemmas~\ref{lem:div}--\ref{lem:ord2}).
+Our main result is Theorem~\ref{thm:main}. In Section~\ref{sec:app} we describe groups in which
+every element is its own inverse and recall a theorem of Frobenius.
+
+Throughout, $G$ denotes a finite group with identity $e$, written multiplicatively, and $|G|$
+is its order. For an integer $m\ge 0$ we write $g^m$ for the $m$-fold product, with $g^0=e$.
+
+\section{Orders of elements and a parity lemma}
+
+\begin{definition}\label{def:ord}
+Let $g\in G$. The \emph{order} of $g$, written $\ord(g)$, is the least positive integer $n$
+such that $g^n=e$. Since $G$ is finite, two of the powers $g, g^2, g^3,\dots$ coincide, so
+such an $n$ exists.
+\end{definition}
+
+\begin{lemma}\label{lem:div}
+Let $g\in G$ and let $m\ge 0$ be an integer. Then $g^m=e$ if and only if $m$ divides $\ord(g)$.
+\end{lemma}
+
+\begin{proof}
+Put $n=\ord(g)$. If $n\mid m$, say $m=kn$, then $g^m=(g^n)^k=e$. Conversely, suppose
+$g^m=e$ and write $m=qn+r$ with $0\le r<n$. Then $g^r=g^m\,(g^n)^{-q}=e$, and since $r<n$
+the minimality of $n$ forces $r=0$. Hence $n\mid m$.
+\end{proof}
+
+\begin{lemma}\label{lem:inv}
+Let $G$ be a finite abelian group and $g\in G$. Then $\ord(g^{-1})=\ord(g)$.
+\end{lemma}
+
+\begin{proof}
+For every $k\ge 0$ we have $(g^{-1})^k=(g^k)^{-1}$, so $(g^{-1})^k=e$ if and only if $g^k=e$.
+The least positive $k$ with this property is therefore the same for $g$ and for $g^{-1}$.
+\end{proof}
+
+\begin{lemma}\label{lem:selfinv}
+Let $g\in G$. Then $g=g^{-1}$ if and only if $g^2=e$.
+\end{lemma}
+
+\begin{proof}
+Multiply the equation $g=g^{-1}$ on the left by $g$, and conversely multiply $g^2=e$ on the
+left by $g^{-1}$.
+\end{proof}
+
+\begin{lemma}\label{lem:ord2}
+Let $g\in G$. Then $g^2=e$ if and only if $\ord(g)=2$.
+\end{lemma}
+
+\begin{proof}
+If $\ord(g)=2$ then $g^2=e$ by definition. Conversely, if $g^2=e$ then $\ord(g)$ divides $2$
+by Lemma~\ref{lem:div}, so $\ord(g)=2$.
+\end{proof}
+
+We now turn to the combinatorial input. An \emph{involution} of a set $X$ is a map
+$\sigma\colon X\to X$ with $\sigma\circ\sigma=\mathrm{id}_X$; its set of fixed points is
+$\Fix\sigma=\{x\in X:\sigma(x)=x\}$.
+
+\begin{lemma}\label{lem:parity}
+Let $X$ be a finite set and $\sigma$ an involution of $X$. Then
+$|X|\equiv|\Fix\sigma|\pmod 2$.
+\end{lemma}
+
+\begin{proof}
+If $x\notin\Fix\sigma$ then also $\sigma(x)\notin\Fix\sigma$, since $\sigma(\sigma(x))=x\neq
+\sigma(x)$. Thus $X\setminus\Fix\sigma$ is a union of the sets $\{x,\sigma(x)\}$ with
+$x\notin\Fix\sigma$; two such sets are either equal or disjoint, and each has exactly two
+elements. If $m$ denotes the number of these sets, then $X\setminus\Fix\sigma$ is the disjoint
+union of $m$ two-element sets and $|X|=|\Fix\sigma|+m$. Hence $|X|\equiv|\Fix\sigma|\pmod 2$.
+\end{proof}
+
+\begin{corollary}\label{cor:fix}
+Let $X$ be a finite set of even cardinality and $\sigma$ an involution of $X$. Then
+$|\Fix\sigma|$ is even; in particular, $\sigma$ has at least two fixed points.
+\end{corollary}
+
+\begin{proof}
+The first assertion is Lemma~\ref{lem:parity}, and an even number of fixed points is at least
+two.
+\end{proof}
+
+\begin{theorem}\label{thm:main}
+Let $G$ be a finite group of even order. Then the number of elements of order $2$ in $G$ is
+odd. In particular, $G$ contains an element of order $2$.
+\end{theorem}
+
+\begin{proof}
+Let $\sigma\colon G\to G$ be the map $\sigma(g)=g^{-1}$. Since $(g^{-1})^{-1}=g$, $\sigma$ is
+an involution of $G$, and by Lemma~\ref{lem:selfinv} its fixed point set is
+$F=\{g\in G: g^2=e\}$. As $|G|$ is even, $|F|$ is even by Corollary~\ref{cor:fix}. The
+identity lies in $F$ and has order $1$, while by Lemma~\ref{lem:ord2} every $g\in F$ with
+$g\neq e$ has order $2$; conversely every element of order $2$ lies in $F$. Hence the set of
+elements of order $2$ is exactly $F\setminus\{e\}$, which has $|F|-1$ elements, an odd number.
+An odd number is nonzero, which gives the last assertion.
+\end{proof}
+
+\section{Applications}\label{sec:app}
+
+We use the following two classical results.
+
+\begin{theorem}[Cauchy~\cite{Cauchy}]\label{thm:cauchy}
+If a prime $p$ divides $|G|$, then $G$ contains an element of order $p$.
+\end{theorem}
+
+\begin{proposition}\label{prop:exp2}
+Suppose that $g^2=e$ for every $g\in G$. Then $G$ is abelian and $|G|$ is a power of $2$.
+\end{proposition}
+
+\begin{proof}
+By Lemma~\ref{lem:selfinv} every element of $G$ equals its own inverse. For $a,b\in G$ we get
+$ab=(ab)^{-1}=b^{-1}a^{-1}=ba$, so $G$ is abelian. If an odd prime $p$ divided $|G|$, then by
+Theorem~\ref{thm:cauchy} there would be $g\in G$ with $\ord(g)=p$; but $g^2=e$, so $p$ divides
+$2$ by Lemma~\ref{lem:div}, which is absurd. Hence $|G|$ has no odd prime divisor, that is,
+$|G|=2^k$ for some $k\ge 0$.
+\end{proof}
+
+\begin{theorem}[Frobenius~\cite{Frobenius}]\label{thm:frob}
+Let $G$ be a finite group and $n$ a positive integer. Then the number of elements $x\in G$
+with $x^n=e$ is a multiple of $n$.
+\end{theorem}
+
+\begin{corollary}\label{cor:modp}
+Let $p$ be a prime dividing $|G|$. Then the number of elements of order $p$ in $G$ is
+congruent to $-1$ modulo $p$.
+\end{corollary}
+
+\begin{proof}
+Let $S=\{x\in G: x^p=e\}$; by Theorem~\ref{thm:frob} with $n=p$, $|S|\equiv 0\pmod p$. By
+Lemma~\ref{lem:div}, an element $x\in S$ has $\ord(x)\in\{1,p\}$, and $\ord(x)=1$ exactly when
+$x=e$. Conversely every element of order $p$ lies in $S$. So the number of elements of order
+$p$ is $|S|-1\equiv-1\pmod p$.
+\end{proof}
+
+\begin{remark}
+For $p=2$, Corollary~\ref{cor:modp} recovers Theorem~\ref{thm:main}; the point of
+Section~2 is that the case $p=2$ needs nothing beyond the pairing argument.
+\end{remark}
+
+\begin{thebibliography}{9}
+\bibitem{Cauchy} A.-L. Cauchy, \emph{M\'emoire sur les arrangements que l'on peut former
+avec des lettres donn\'ees}, Exercices d'analyse et de physique math\'ematique \textbf{3}
+(1844), 151--252.
+\bibitem{Frobenius} G. Frobenius, \emph{Verallgemeinerung des Sylowschen Satzes},
+Sitzungsber. K\"onigl. Preuss. Akad. Wiss. Berlin (1895), 981--993.
+\end{thebibliography}
+
+\end{document}

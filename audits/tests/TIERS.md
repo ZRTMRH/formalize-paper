@@ -41,8 +41,9 @@ from the clone (below).
 ## Test switches
 
 `FORMALIZE_TEST_MODE` and `FORMALIZE_TEST_INVOLVEMENT` (`project._test_level`) change the mode
-and level of the project config only in a process whose own argv has `--selftest`; a real command
-with them set keeps its config's mode and level, and `project.problems` still refuses a mode
+and level of the project config only in a process whose command is `--selftest` (its first
+argument once `--project NAME` is set aside); a real command with them set, also one that carries
+`--selftest` after another flag (`--deliver --selftest`), keeps its config's mode and level, and `project.problems` still refuses a mode
 other than the installation's (MAINTAINING A3). `project.py --selftest` checks both, also from a
 separate process, and mutants TM1-TM3 make the mode switch leak.
 

@@ -20,7 +20,9 @@ Each round, in order:
      Lean commit came after the last audited round that changed no declaration a lane reviews (a
      theorem turned into an `example`), which `--deliver` would refuse (`deliver-stale`), or an item
      awaits the next adjudication (`adj-record`: a result left unproved since the last round, a route
-     change recorded since, an unsettled Fail). Then run `python3 audits/prompt.py 3 --full` instead:
+     change recorded since, a Fail or Ambiguous no adjudicator has decided yet (no decision row), a
+     fault in an adjudicator's record). A row already decided (ADOPT, DEFER, a QUESTION answered) is
+     never listed: no round can clear it. Then run `python3 audits/prompt.py 3 --full` instead:
      the full round audits that commit, and its adjudicator settles the item.
    - **The first round after Stage 3 is the full-scope round**: `scope.py` refuses a diff round
      while no earlier round examined proofs. Run `python3 audits/prompt.py 3 --full` instead (it
@@ -37,8 +39,19 @@ Each round, in order:
    is sealed (or reissued); NOTE lines (NOTE[independence], NOTE[independence-path],
    NOTE[lane-fault]) are the adjudicator's to settle, by a one-line clearance in ADOPTED.md or a
    re-vote, and its commit refuses until every NOTE is settled.
-4. **Adjudicate.** `python3 audits/prompt.py 4 --round <R> --write`, then spawn one new
-   general-purpose subagent with the printed sentence. Wait for it. It commits `adjudicate <R>`.
+4. **Adjudicate.** `python3 audits/prompt.py 4 --round <R> --write`. Then (Claude Code) start the
+   adjudicator's two long checks, Phase 0 read-only and the coverage roll-up, in the background,
+   after the round's last commit and before the spawn (a plain call; it returns at once):
+   ```
+   python3 audits/project.py --adjudicator-checks --round <R>
+   ```
+   It returns once the run has started and its log (`.formalization-work/adjudicator-<R>.log`)
+   is in place; it takes `--statements` from the round's TARGET.json, and it refuses while an earlier run of it is still going (wait for that one with the
+   `--wait-adjudicator-checks` command it prints, then start again). Then spawn one new
+   general-purpose subagent with the printed sentence; it waits for the log and verifies it before it
+   decides. Until the adjudicator returns, change nothing in the project or the audits repository.
+   Under Codex, or if a permission prompt refuses the command, skip it: the adjudicator runs the
+   checks itself. Wait for the adjudicator. It commits `adjudicate <R>`.
    A later `FAIL[dead-witness]` or `FAIL[record-cite]` in its records: a record correction
    (RUN.md failure table, record-fix), not a new round; any other fault of its records
    (`adj-record`) waits for the next round's adjudicator. That includes a hypothesis the
@@ -55,7 +68,8 @@ Each round, in order:
      --round <R> --kill`.
    - Then, once every re-vote lane is sealed or set aside, write the re-vote adjudicator's
      prompt, `python3 audits/prompt.py 4 --round <R> --revotes --write` (it carries the re-vote
-     rules; append nothing), and spawn a fresh general-purpose subagent with the printed line. It
+     rules; append nothing), start its checks in the background exactly as in step 4 (the same
+     command; it replaces the log), and spawn a fresh general-purpose subagent with the printed line. It
      commits `adjudicate <R> revotes`. A REVOTE NEEDED row settles its item (a carried Fail, a
      lane fault) only through a decision in that commit, made after the re-vote lane's seal; the
      settle check refuses anything else (a re-vote counts only if its sealed verdict judged the item;
