@@ -86,8 +86,28 @@ DENY = ["Edit(/audits/*.py)", "Edit(/audits/*.lean)", "Edit(/audits/*.md)", "Edi
     + RENDER_DENY
 
 
+# DESIGN-RAM: the memory guard's starter, a SessionStart hook (startup, resume, /clear, compact). It cannot deny or
+# block anything: SessionStart is no permission event, its output is silenced, it always exits 0, and a timeout or an
+# error only lets the session start (fail open). Outside a project (no audits/lean_slot.py) it is a silent exit 0.
+HOOK_CMD = 'python3 -B "$CLAUDE_PROJECT_DIR/audits/lean_slot.py" guard --ensure >/dev/null 2>&1; exit 0'
+HOOK = {"hooks": [{"type": "command", "command": HOOK_CMD, "timeout": 10}]}
+
+
 class Refused(ValueError):
     pass
+
+
+def _hook_state(data):
+    """'present', 'missing', or 'odd' (the "hooks" key is not in the expected form: the hook is not added, a note
+    says so, never a refusal: the pinned scripts start the guard too)."""
+    hooks = data.get("hooks", {})
+    if not isinstance(hooks, dict) or not isinstance(hooks.get("SessionStart", []), list):
+        return "odd"
+    for e in hooks.get("SessionStart", []):
+        hs = e.get("hooks") if isinstance(e, dict) else None
+        if isinstance(hs, list) and any(isinstance(h, dict) and h.get("command") == HOOK_CMD for h in hs):
+            return "present"
+    return "missing"
 
 
 def _strict_object(pairs):
@@ -145,7 +165,13 @@ def merged(text):
     if perms.get("defaultMode") == "bypassPermissions":
         notes.append("WARNING: permissions.defaultMode is bypassPermissions; the protocol must not run "
                      "that way (INSTALL.md, 'Permissions'); left unchanged, change it yourself")
-    if not missing and not missing_deny and env.get(KEY) == VALUE:
+    hook = _hook_state(data)
+    if hook == "missing":
+        notes.append("added the memory guard's SessionStart hook")
+    elif hook == "odd":
+        notes.append("note: \"hooks\" is not in the usual form, so the memory guard's SessionStart hook was not added "
+                     "(the protocol's scripts start the guard anyway)")
+    if not missing and not missing_deny and env.get(KEY) == VALUE and hook != "missing":
         return None, notes or ["already set"]
     env = dict(env)
     env[KEY] = VALUE
@@ -155,6 +181,10 @@ def merged(text):
     data = dict(data)
     data["env"] = env
     data["permissions"] = perms
+    if hook == "missing":
+        hooks = dict(data.get("hooks", {}))
+        hooks["SessionStart"] = list(hooks.get("SessionStart", [])) + [HOOK]
+        data["hooks"] = hooks
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n", notes
 
 
@@ -240,14 +270,25 @@ def selftest():
                       "env": {"FOO": "bar"}, "hooks": {}})
     t, note = merged(src)
     d = json.loads(t)
-    say("other top-level keys kept", lambda: d.get("model") == "x" and d.get("hooks") == {})
+    say("other top-level keys kept", lambda: d.get("model") == "x" and d.get("hooks") == {"SessionStart": [HOOK]})
     say("other permission rules kept, ours appended",
         lambda: d["permissions"]["allow"] == ["Bash(ls:*)"] + ALLOW and d["permissions"]["deny"] == ["Bash(rm:*)"] + DENY)
     say("other env variables kept", lambda: d["env"] == {"FOO": "bar", KEY: VALUE})
     say("key order kept", lambda: list(d) == ["permissions", "model", "env", "hooks"])
     t2, _ = merged(json.dumps({"model": "x"}))
     say("env added when absent, other keys kept",
-        lambda: json.loads(t2) == {"model": "x", "env": {KEY: VALUE}, "permissions": {"allow": ALLOW, "deny": DENY}})
+        lambda: json.loads(t2) == {"model": "x", "env": {KEY: VALUE}, "permissions": {"allow": ALLOW, "deny": DENY},
+                                   "hooks": {"SessionStart": [HOOK]}})
+    other = {"hooks": [{"type": "command", "command": "echo hi"}]}
+    t3, _ = merged(json.dumps({"hooks": {"SessionStart": [other], "PreToolUse": [other]}}))
+    say("DESIGN-RAM: the guard's SessionStart hook is appended once; the person's own hooks are kept; it only runs "
+        "`guard --ensure`, silenced, and always exits 0; no permission decision anywhere",
+        lambda: json.loads(t3)["hooks"] == {"SessionStart": [other, HOOK], "PreToolUse": [other]}
+        and merged(t3)[0] is None and HOOK_CMD.endswith("; exit 0") and ">/dev/null 2>&1" in HOOK_CMD
+        and "guard --ensure" in HOOK_CMD and "permissionDecision" not in json.dumps(json.loads(t3)))
+    say("DESIGN-RAM: a \"hooks\" in another form is left as it is with a note (never a refusal)",
+        lambda: (lambda r: json.loads(r[0])["hooks"] == ["x"] and any("not added" in n for n in r[1]))(
+            merged(json.dumps({"hooks": ["x"]}))))
     say("idempotent: a second merge changes nothing", lambda: merged(t)[0] is None)
     say("a different value is replaced and reported",
         lambda: (lambda r: env_of(r[0])[KEY] == VALUE and "replaced" in r[1][0])(merged(json.dumps({"env": {KEY: "0"}}))))

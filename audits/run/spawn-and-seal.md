@@ -35,7 +35,12 @@ one home of these rules; the stage files point here.
   asked for smaller waves (more lanes probing Lean at once ran out of memory). When the human says
   at intake (question 7) that the machine has 16 GB of RAM or less, at most 3 subagents of any
   kind run at once (RUN.md, "Cost"): a wave is then at most 3 lanes. Spawn the next wave
-  when the lanes of the previous one have returned and been sealed.
+  when the lanes of the previous one have returned and been sealed. Never more than 20 subagents
+  of any kind at once (Claude Code's limit; the others queue); Codex: its own thread limit
+  (`agents.max_threads`, `codex.md`).
+- **Read the spawn lines whole.** Read `prompt.py --lanes --write`'s output whole: never pipe it
+  (`| tail`, `| head`; RUN.md rule 12); when the harness saves a long output to a file, read that
+  file in parts with `sed -n`. A line lost is a reissue (below).
 - **Every other subagent** (adjudicator, informalizer, sign-off writer, fresh reader, escalation
   check) is `general-purpose`. Never `subagent_type: "fork"`: a fork inherits your whole context.
 - Wait for children with the harness's blocking wait, not by polling. A polling loop
@@ -83,7 +88,9 @@ new round.
 ## A child that failed mechanically
 
 A crash, a service or capacity error ("Selected model is at capacity", overloaded, 5xx), a usage
-limit, no verdict file, or no `LANE_COMPLETION` line is a mechanical failure, never a verdict.
+limit, no verdict file, or no `LANE_COMPLETION` line is a mechanical failure, never a verdict. So is
+a child that returns "waiting on its own background work" (Claude Code kills a subagent's background
+tasks when it returns): stop its task and re-run it with its original line.
 Re-run only that child, with its original printed line (for a lane: the same envelope from this
 conversation), after making sure the old child has stopped; record the retry and the new child id
 under "Mechanical failures". Keep every completed judgment: seal the children that finished and

@@ -90,7 +90,8 @@ So re-running a reader gains nothing: the findings it would wash away must still
      finding past the reader-fix budget. Never a fault of a generated document's own text ("generator
      fault"): `readers.py --check` refuses that (below). Quote the
      finding also in the notice `<rounds dir>/KNOWN_FAULTS-<key>.md` (delivered folded into
-     `RUN_RECORD.md`, never as a file of its own).
+     `RUN_RECORD.md`, never as a file of its own), and commit the notice with your response under
+     exactly the subject `reader <key> <n> (response)` (another subject is a `NOTE[notice-subject]`).
 
    **A fault in a generated document** (`SUMMARY.md`, `REPORT.md`; approver 2026-10-25): when a fresh
    reader, the status check or a PDF agent finds one, choose one of three, each recorded:

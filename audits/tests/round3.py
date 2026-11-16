@@ -959,8 +959,86 @@ def t_bundle(base, say):
         "never a set-aside" in got and "rm it" in got)
 
 
+# --- DESIGN-SW2 1.1 (C2): a committed round is judged against the names at the Lean commit it audited OR now -------
+
+def sw2_c2_record(base, lemma="foo", hand=False, name=None):
+    """A Record whose repo is also the project's Lean repo (audits/projects/P.json names rounds dir P): N.lean declares
+    `foo` and `oldname`; round <date>-full-<that commit> passes N.b as a CONTRADICTION STEP negated by `lemma`, with a
+    decision row also naming the declaration N.oldname; ADOPTED.md committed by the adjudication command (or, `hand`,
+    by hand as `adjudicate R`). Then a Lean commit renames foo -> bar and oldname -> newname. (record, round)"""
+    r = Record(base); use(r)
+    write(os.path.join(r.d, "N.lean"), "namespace N\ntheorem foo : True := trivial\ntheorem oldname : True := trivial\nend N\n")
+    write(os.path.join(r.d, "audits", "projects", "P.json"), json.dumps({"name": "P", "rounds_dir": "P",
+                                                                          "lean_files": ["N.lean"], "namespace": "N"}))
+    r.g("add", "-A"); r.g("commit", "-qm", "lean")
+    rnd = name or f"2026-11-15-full-{r.g('rev-parse', 'HEAD')[:11]}"
+    r.scope(rnd, ["non-vacuity"])
+    v = r.lane(rnd, "non-vacuity", [], seal=False)
+    doc = json.load(open(v))
+    doc["verdicts"] = [{"item": "N.b", "verdict": "Pass",
+                        "checked": f"CONTRADICTION STEP: negated by `{lemma}`; paper (tex l.1): \"assume not\""}]
+    data = json.dumps(doc).encode(); open(v, "wb").write(data)
+    lane_auth.seal(v, lane_auth.sha(data), "agent-non-vacuity")
+    body = HDR + "| non-vacuity | N.b | Pass | **ADOPT** | ok |\n| non-vacuity | N.oldname | Pass | **ADOPT** | ok |\n"
+    if hand:
+        write(os.path.join(r.rd, rnd, "ADOPTED.md"), body)
+        r.g("add", "--", f"P/{rnd}/ADOPTED.md"); r.g("commit", "-qm", f"adjudicate {rnd}")
+        got = True
+    else:
+        got = adopt(r, rnd, body[len(HDR):])
+    write(os.path.join(r.d, "N.lean"), "namespace N\ntheorem bar : True := trivial\ntheorem newname : True := trivial\nend N\n")
+    r.g("add", "-A"); r.g("commit", "-qm", "rename")
+    return r, rnd, got
+
+
+def t_sw2_c2(base, say):
+    """C2: an adjudication committed on a round whose Lean was later renamed is not unsettled; a fault present at both
+    commits still is (ROUND3 M1)."""
+    r, rnd, got = sw2_c2_record(base)
+    rp = lanecheck.record_problems(r.rd)
+    say("SW2-C2: the adjudication committed (foo declared at the round's commit)", got is True)
+    say("SW2-C2: after the rename foo -> bar, the committed round is not unsettled (lane fault, scope item)",
+        not rp and not any(f.startswith("[unsettled]") for f in r.integrity(rnd)))
+    # control M1: a lemma declared at neither commit, ADOPTED.md committed by hand -> still unsettled
+    r2, rnd2, _ = sw2_c2_record(base, lemma="qux", hand=True)
+    rp2 = lanecheck.record_problems(r2.rd)
+    say("SW2-C2 control (M1): a fault present at the round's commit and now is still unsettled",
+        any("a lane fault voids" in p_ for p_ in rp2) and any(f.startswith("[unsettled]") for f in r2.integrity(rnd2)))
+    # control direction: declared now (bar), not at the round's commit -> no fault (as today; not "names then only")
+    r3, rnd3, _ = sw2_c2_record(base, lemma="bar", hand=True)
+    say("SW2-C2 control: a lemma declared now but not at the round's commit is no fault",
+        not lanecheck.record_problems(r3.rd))
+    # control: a round commit the repo does not have -> today's check (the rename is a fault)
+    r4, rnd4, _ = sw2_c2_record(base, hand=True, name="2026-11-15-full-0123456789a")
+    say("SW2-C2 control: an unresolvable round commit is judged as today",
+        any("a lane fault voids" in p_ for p_ in lanecheck.record_problems(r4.rd)))
+    say("SW2-C2: the commit-time settle check sets no commit (byte-identical)", lanecheck._NAMES_AT is None)
+
+
+def t_sw2_c15(base, say):
+    """C15 (review R2): a re-vote lane whose only NOTE is a mention of a record file other than ADOPTED.md may be
+    CLEARED by the re-vote adjudicator; a mention of ADOPTED.md or of another round still leaves its row open."""
+    def revote(text):
+        r = Record(base); use(r)
+        r.scope(R1, ["correspondence"])
+        r.lane(R1, "correspondence", [("N.b", "Fail")])
+        adopt(r, R1, "| correspondence | N.b | Fail | **REVOTE NEEDED** | unclear |\n")
+        r.lane(R1, "revote/correspondence--N.b", [("N.b", "Pass")], text)
+        codes = {lanecheck.flag_code(f) for f in r.flags(R1) if "revote/" in f}
+        got = adopt(r, R1, "| correspondence | N.b | Pass | **ADOPT** | ok |\n"
+                           "\n- CLEARED revote/correspondence--N.b.json: a docstring quote, nothing read\n",
+                    revotes=True, append=True)
+        return codes, got
+    c1, g1 = revote("the docstring says (VACUOUS.md row 7) that h is used, so Pass")
+    say("SW2-C15: a re-vote lane quoting 'VACUOUS.md row 7' from a docstring (its only NOTE) is settled by CLEARED",
+        c1 == {"independence"} and g1 is True)
+    c2, g2 = revote("the docstring says (VACUOUS.md row 7); as decided in round 0b23c87, Pass")
+    say("SW2-C15 control (R2): a re-vote lane that also names another round still needs LEFT OPEN",
+        c2 == {"independence"} and g2 is not True and "LEFT OPEN" in g2)
+
+
 CASES = [t1, t5, t12, t4, t9, t2, t6, t10, t7, t8, t8b, t_ack, t_hash, t3, t_n1, t_r3d, t_r3e, t_r3g, t_r3f, t_n2, t_n3,
-         t_bundle]
+         t_bundle, t_sw2_c2, t_sw2_c15]
 
 
 def selftest():

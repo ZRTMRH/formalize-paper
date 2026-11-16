@@ -148,6 +148,12 @@ the Codex steps listed in "Codex CLI" below):
    project's `.git/info/exclude`; if the file is tracked in the project and changed, commit it
    before the run (Phase 0 runs on a committed tree). Install before opening Claude Code: it reads
    settings when the session starts.
+   The same file gets one `SessionStart` hook that starts the **memory guard**
+   (`python3 -B "$CLAUDE_PROJECT_DIR/audits/lean_slot.py" guard --ensure`, output silenced, always exit 0).
+   The guard pauses the run's own Lean probes when the computer's free memory runs low and resumes them
+   when it recovers, so a run cannot starve the computer. It never kills anything, never refuses anything
+   and makes no permission decision; the protocol's scripts start it too, so Codex runs get it as well.
+   Your other hooks are kept.
 
 It refuses, before writing anything, if the directory is not the root of a git repository with a
 lakefile, if `audits/` already exists, if `.claude/settings.json` exists but is not valid JSON
@@ -496,7 +502,7 @@ Every path `install.sh` writes, and how to undo it:
 | `<project>/audits/` | the apparatus and the audit record (its own git repository) | keep it if you want the record; otherwise move it away |
 | `<project>/AUDIT_PROTOCOL.md` | a symlink to `audits/AUDIT_PROTOCOL.md` | delete the link |
 | `<project>/.git/info/exclude` | lines `audits/`, `AUDIT_PROTOCOL.md`, `.formalization-work/`, `deliverables/`, and `.claude/settings.json` if the installer created it (`.codex/` with `--codex`) | delete those lines |
-| `<project>/.claude/settings.json` | `env.PYTHONDONTWRITEBYTECODE`, and the `permissions.allow` and `permissions.deny` entries listed under "Permissions" | restore `settings.json.before-formalize-paper` next to it, or delete the file if the installer created it |
+| `<project>/.claude/settings.json` | `env.PYTHONDONTWRITEBYTECODE`, the `permissions.allow` and `permissions.deny` entries listed under "Permissions", and one `hooks.SessionStart` entry (the memory guard's `lean_slot.py guard --ensure`) | restore `settings.json.before-formalize-paper` next to it, or delete the file if the installer created it |
 | `<project>/.claude/settings.json.before-formalize-paper` | the backup of your earlier project settings (only if there were any) | delete it after restoring, or keep it |
 | `<project>/.claude/` | created if it did not exist | delete it if it is now empty |
 | `~/.claude/agents/auditor.md` | the reviewer agent | delete it; a different earlier copy was saved as `auditor.md.bak.<timestamp>` |
@@ -513,8 +519,19 @@ With `--codex`, also:
 
 A run itself writes `<project>/.formalization-work/` (the helpers' drafts, `work_dir`, and the
 compiled paper source; excluded from the project's history), the run's
-branch in the project, and logs under `~/.cache/formalize-paper/` (`codex/`, `watchdog/`). Nothing
-is installed system-wide, and nothing is pushed.
+branch in the project, and logs under `~/.cache/formalize-paper/` (`codex/`, `watchdog/`). The
+memory guard and the probe slots keep their small files and the guard's log in
+`/tmp/formalize-paper-lean-slots/` (a reboot clears them; the guard exits after 6 hours without a
+run). Nothing is installed system-wide, and nothing is pushed.
+
+**Memory, and WSL.** The memory guard keeps a reserve of free memory (4 GB, or a quarter of the
+memory if that is more) for the operating system. Under WSL it sees only the Linux VM's memory,
+which by default is half of the computer's: on a 16 GB computer, set `memory=` in
+`%UserProfile%\.wslconfig` (for example `memory=12GB`) and `autoMemoryReclaim=dropCache` under
+`[experimental]`, restart WSL with `wsl --shutdown`, and run one formalization at a time. The guard
+logs Windows' free memory every minute and the probe wrapper says so when it is below 2 GB; that
+reading never pauses anything. A paper whose single Lean file needs more memory than the computer
+has left (a heavy library on 8 GB) cannot be helped by the guard: it runs slowly, and may need swap.
 
 ## If something fails
 

@@ -65,13 +65,22 @@ Prove the results. Habits that pay:
 proofs in parallel, on separate files. They work FOR the author and are bound by every rule exactly
 as you are; they are never used as reviewers, and nothing they write is a review.
 
+**Bridges (K3; next batch D1).** Prove each open `K3-<n>` item of the adjudicators' `## Conditions`
+rows as a pure addition: a new theorem `<decl>_bridge` or `<name>_iff_paper` whose docstring names the
+item, exactly like `_unconditional` (RUN.md "How you decide"): no approved statement changes, no re-pin,
+no question, never in the index; the next round audits it as any new declaration. A bridge out of reach
+after a serious attempt: log it under `## Open questions` (`- open K item K3-<n>: out of reach — <why>`),
+add it to `CONDITIONS.md` as kind `bridge`, and go on. Never a stop, never a refusal, never a reason for
+an extra round (it rides the next scheduled round; if none is left, the item stays open and is listed).
+Its id is the adjudicators' `K3-<n>`; any other `CONDITIONS.md` item, of every kind, takes `C<n>`, the next free number.
+
 **Proof helpers (how this was done for a 55-result paper).** One author-side helper per statement
 file, working on a COPY of that file in the run's `work_dir` (never under `/tmp`: a reboot once
 wiped a dozen files of proofs kept there). `work_dir` is a git repository of its own; each helper
 commits its file as soon as it compiles, and at least every hour, with
 `python3 audits/project.py --work-commit "<message>" <file>` (one commit at a time across helpers;
 a plain `git -C <work_dir> commit` would ask for permission). The copy imports the BUILT modules, so it compiles
-on its own (`lake env lean <copy>`) without touching the repository or running `lake build`, and
+on its own (`python3 audits/lean_slot.py run --timeout 240 -- lake env lean <copy>`, the machine's Lean limit) without touching the repository or running `lake build`, and
 merging back is replacing the file. Give every helper the brief `python3 audits/prompt.py --prompt
 formalizer` prints (a refutation's name among its rules), then the same written assignment: statements and
 definitions frozen (only `sorry` bodies change), auxiliary lemmas in a sub-namespace per file, no
@@ -122,8 +131,11 @@ work; in `release` only the four stops of RUN.md's "Stops that remain at every l
 - the work needs something the intake ruled out.
 
 Under a delegating level, work the intake ruled out is not done (the conservative choice), logged
-[DELEGATED]. A frozen statement that must change: RUN.md, "Statement changes after approval". A
-goal result that looks false or unprovable as stated is a stop at every level.
+[DELEGATED]. A frozen statement that must change: RUN.md, "Statement changes after approval" (under
+a delegating level only missing theory turned into a named hypothesis is re-approved; anything else
+keeps the approved statement, with a `CONDITIONS.md` `finding` item for the K stage). A goal result
+that looks false, true only vacuously, or unprovable as stated is a stop at every level (stop 1); a
+non-goal result found false is left unproved, its statement unchanged, with a `finding` item.
 
 First spawn the escalation check (general-purpose; under Codex the role `formalize_escalation`):
 `python3 audits/prompt.py --prompt escalate --question "<the question, no argument for either

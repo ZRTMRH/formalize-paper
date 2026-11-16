@@ -69,17 +69,64 @@ DECISION_POS_RE = re.compile(r"^\s*(?:[-*]\s+)?(?:[^\n]*:\s*)?[\"“'‘]?\s*$")
 # the head of every `## Stops` line stops.py (and project.intake_move) writes
 STOPS_LINE_RE = re.compile(r"^\s*[-*]\s+(?:\[[^\]\n]*\]\s+)?(?:stop [SP]\d+\b|[DP]\d+ \(|repair-lock )")
 CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
+# DESIGN-MT D2: the human's own words, quoted verbatim (stops.py _close_line's exact human prefix under `## Stops`, and a
+# `- human answer (<date>; …): "…"` line): a tag-like phrase inside the quote ("[delegated to you]") is their words, not
+# a decision, and no permitted action could clear a lint on it (the line is never reworded). A dated [DELEGATED …] or
+# [PROXY …] tag stays linted there (delegated_entries would count it). DESIGN-SW2 1.3 (C4): the third form, an
+# `- answered <anchor> (…): <words>` line under `## Answered` whose answer does not OPEN with a tag (an answer opening
+# with [DELEGATED …]/[PROXY] is the operator's, linted as before). Residual (KNOWN_LIMITATIONS): an operator answer that
+# does not open with its tag can hide a loose undated tag mid-text there.
+HUMAN_STOP_QUOTE_RE = re.compile(r'^- stop S\d+ \(\d{4}-\d{2}-\d{2}, the human\'s answer, verbatim: "')
+HUMAN_ANSWER_QUOTE_RE = re.compile(r'^\s*[-*]\s+human answer \([^)\n]*\):\s*"')
+_HUMAN_TAG_RE = re.compile(r"\[\s*delegated\b[^\]\n]*\]?|\[\s*proxy\s*\]", re.I)
+
+
+def human_quote_span(line, sec):
+    """(start, end) of the human's verbatim words in `line` (under section `sec`), or None: the three fixed forms
+    (stops.py's human-answer quote under `## Stops`, a `- human answer (…): "…"` line, and an `- answered <anchor> (…):
+    <words>` line under `## Answered` whose answer does not open with an operator tag; DESIGN-SW2 1.3)."""
+    m = (HUMAN_STOP_QUOTE_RE.match(line) if sec.split(" (")[0] == "Stops" else None) or HUMAN_ANSWER_QUOTE_RE.match(line)
+    body = line.rstrip("\r\n")
+    if not m:
+        lead = re.match(r"^\s*[-*]\s+", line) if re.match(r"Answered\b", sec) and ANSWER_LINE_RE.match(line) else None
+        a = ANSWER_PREFIX_RE.match(line[lead.end():]) if lead else None
+        if not a:
+            return None
+        start = lead.end() + a.end()
+        k = re.match(r"[\s\"“'‘]*", line[start:]).end()
+        if OPERATOR_TAG_RE.match(line, start + k) or len(body) <= start:
+            return None
+        return start, len(body)
+    # the human quote's own closing quote at the end of the line (safety review F6), never a later `"` of other text
+    b = (len(body) - 2 if body.endswith('")') else -1) if m.re is HUMAN_STOP_QUOTE_RE else \
+        (len(body) - 1 if body.endswith('"') else -1)
+    if b < m.end():
+        return None
+    return m.end(), b
+
+
+def _human_quote_masked(line, sec):
+    """`line` with every undated tag-like phrase inside a verbatim human quote written without its brackets."""
+    sp = human_quote_span(line, sec)
+    if not sp:
+        return line
+    a_, b = sp
+    q = _HUMAN_TAG_RE.sub(lambda t: t.group(0) if DELEGATED_RE.match(t.group(0)) else t.group(0).replace("[", "").replace("]", ""),
+                          line[a_:b])
+    return line[:a_] + q + line[b:]
 
 
 def mentions_masked(log):
     """RUN_LOG.md with every bare [DELEGATED]/[PROXY] that is a MENTION, not a decision position,
     written without its brackets: one inside a code span, one in a stops.py line under `## Stops`,
-    and a bare [DELEGATED] mid-sentence. A bare tag where a decision is recorded, and every tag with
+    and a bare [DELEGATED] mid-sentence; and every undated tag-like phrase inside the human's verbatim
+    words (_human_quote_masked, DESIGN-MT D2). A bare tag where a decision is recorded, and every tag with
     anything inside it, stays as written (so the tag checks still see it)."""
     out, sec = [], ""
     for line in (log or "").splitlines(keepends=True):
         if line.startswith("## "):
             sec = line[3:].strip()
+        line = _human_quote_masked(line, sec)
         stop_line = sec.split(" (")[0] == "Stops" and STOPS_LINE_RE.match(line)
         spans = [m.span() for m in CODE_SPAN_RE.finditer(line)]
 
@@ -550,20 +597,59 @@ def human_answer(line):
     an answer of the human's for Checkpoint C? Not when the answer has no content (B12 review fix 1: an
     empty `answered <anchor> (...):` answers nothing), nor when it carries the operator's tag, a [PROXY]
     or [DELEGATED] anywhere in it, quoted or not (review fix 2: quote-stripping hid `"[DELEGATED …] keep"`).
-    The human confirming a [PROXY] decision answers in their own words; the tag stays on the decision."""
+    The human confirming a [PROXY] decision answers in their own words; the tag stays on the decision.
+    An answer that points to a source (an option the operator offered: an escalation's answer, an adjudicator's record,
+    the conservative rule) is still the human's: approver decision 2026-11-15 (DESIGN-SW2 1.2, Q5) -- a recorded answer
+    counts by provenance, never voided by its words; the source is adopted as the human's answer and shown so
+    (adopted_sources, make_report.recorded_human_answers). This reverses integrated review fix 7."""
     ans = ANSWER_PREFIX_RE.sub("", line, count=1)
     if not re.search(r"\w", ans):
         return False
-    return not OPERATOR_TAG_RE.search(ans) and not OPERATOR_SOURCE_RE.search(ans)
+    return not OPERATOR_TAG_RE.search(ans)
 
 
 OPERATOR_TAG_RE = re.compile(r"\[\s*(?:proxy|delegated)\b", re.I)
-# integrated review fix 7: the sources the operator cites for a decision it takes (RUN.md "How you decide"): an
-# escalation's answer ("escalation E<n>", accepted by lanecheck.py), an adjudicator's record (a round's ADOPTED.md, a
-# round name) or the conservative rule. Under `involved` a Checkpoint C answer citing one is the operator's
-# decision, never the human's: an escalation or adjudicator is not the human, and the human answers in their words
+# The sources the operator cites for a decision it takes (RUN.md "How you decide"): an escalation's answer ("escalation
+# E<n>"), an adjudicator's record (a round's ADOPTED.md, a round name) or the conservative rule. Since the approver's
+# decision of 2026-11-15 (Q5) a display label only: a human answer naming one adopts that source as the human's own
+# answer, and the shown-back answer says so (adopted_sources); it no longer voids the answer (integrated review fix 7,
+# reversed: TRADEOFFS).
 OPERATOR_SOURCE_RE = re.compile(r"\bescalation (?:check )?E[0-9]+\b|\bADOPTED\.md\b|\bconservative rule\b|"
                                 r"\b\d{4}-\d{2}-\d{2}-(?:full-)?[0-9a-f]{7,40}\b", re.I)
+
+
+def adopted_sources(ans):
+    """[(phrase, by)] for the sources a human answer points to (OPERATOR_SOURCE_RE), each once, in a fixed order:
+    by "operator" (an escalation's answer, the conservative rule: options the operator offered) or "adjudicator" (its
+    record: ADOPTED.md or a round name). Display only (DESIGN-SW2 1.2)."""
+    out = []
+    for m in OPERATOR_SOURCE_RE.finditer(ans or ""):
+        t = m.group(0)
+        if t.lower().startswith("escalation"):
+            ph = (f"escalation {t.split()[-1]}'s answer", "operator")
+        elif t.lower() == "conservative rule":
+            ph = ("the conservative rule", "operator")
+        elif t.lower() == "adopted.md":
+            ph = ("an adjudicator's record (ADOPTED.md)", "adjudicator")
+        else:
+            ph = (f"an adjudicator's record (round {t})", "adjudicator")
+        if ph not in out:
+            out.append(ph)
+    return out
+
+
+def adopted_mark(ans):
+    """The text shown after a human answer that points to a source (adopted_sources), or ""."""
+    srcs = adopted_sources(ans)
+    if not srcs:
+        return ""
+    parts = []
+    for by in ("operator", "adjudicator"):
+        ph = [p for p, b in srcs if b == by]
+        if ph:
+            parts.append(f"{' and '.join(ph)}, " + ("offered by the operator" if by == "operator"
+                                                     else "proposed in the adjudicator's record"))
+    return " -- your answer adopts " + "; ".join(parts) + " as your own"
 
 
 def checkpoint_c_refusal(cfg):
@@ -579,7 +665,7 @@ def checkpoint_c_refusal(cfg):
     return (f"Checkpoint C is open: {len(open_)} item(s) of the decisions document await the human's answer "
             f"({', '.join(open_[:4])}{', ...' if len(open_) > 4 else ''}). Under `involved` C is asked on the "
             f"prepared documents before delivery (stage5-delivery.md step 6): log each answer under `## Answered` "
-            f"(`- answered <anchor> (<date>, <round>): <their answer>`, in the human's own words; an empty answer, a [PROXY] or [DELEGATED] line, or one citing an escalation, an adjudicator's record or the conservative rule answers nothing), carry the "
+            f"(`- answered <anchor> (<date>, <round>): <their answer>`, in the human's own words, logged verbatim; an empty answer or a [PROXY] or [DELEGATED] line answers nothing; an answer that points to an option you offered or a record (ADOPTED.md, escalation E<n>, the conservative rule) adopts it as the human's answer, and the summary shows it so), carry the "
             f"answers out (step 7), then deliver. Not a stop: only the delivery waits")
 
 
@@ -723,6 +809,40 @@ ANSWER_LINE_RE = re.compile(r"^\s*[-*]\s+answered\s+(\S+?)(?=[\s(]|$)(?:\s*\((\d
 ANSWER_PREFIX_RE = re.compile(r"^\s*answered\s+\S+?(?=[\s(]|$)\s*(?:\([^)\n]*\))?\s*:?\s*", re.I)
 QUOTED_RE = re.compile(r'"[^"\n]*"|“[^”\n]*”')
 TAG_RE = re.compile(r"\[PROXY[^\]\n]*\]", re.I)
+
+
+def answer_refs(log):
+    """(anchors, QUESTION-row refs) the human's recorded answers name (next batch B20, CR-4): the anchor of each
+    `## Answered` line (`- answered <anchor> (…)`), and the `QUESTION row on <item>, round <R>` of each answer line --
+    under `## Answered` or `## Checkpoint B`, or a `- human answer (…)` line anywhere."""
+    anchors, qrefs = set(), set()
+    ans = "\n".join(m.group(0) for m in re.finditer(r"^## (?:Answered|Checkpoint B)\b.*?(?=^## |\Z)", log, re.M | re.S))
+    for ln in ans.splitlines() + [m.group(0) for m in CHECKPOINT_ANSWER_RE.finditer(log)]:
+        # fix round 1 (attack 7): only the human's own answer lines count -- an `- answered …` or `- human answer (…)`
+        # line carrying no [DELEGATED]/[PROXY] tag; a delegated decision or "shown to the human (no answer yet)" never
+        if DELEGATED_RE.search(ln) or PROXY_RE.search(ln):
+            continue
+        m = ANSWER_LINE_RE.match(ln)
+        if m:
+            anchors.add(m.group(1).rstrip(":"))
+        if not (m or CHECKPOINT_ANSWER_RE.match(ln)):
+            continue
+        for q in QROW_RE.finditer(ln):
+            qrefs.add((" ".join((q.group("item") or "").split()), q.group("round")))
+    return anchors, qrefs
+
+
+def entry_answered(entry, refs):
+    """Is the `## Open questions` entry `entry` answered: marked `(answered …)`, itself a `- human answer (…)` line,
+    or named by an answer line (`refs` = answer_refs(log)): its anchor (`- <anchor>: …`), or its QUESTION row
+    (item and round). One notion of "answered" for the stops table and the decisions document (next batch B20)."""
+    if "(answered" in entry or CHECKPOINT_ANSWER_RE.match(entry):
+        return True
+    anchors, qrefs = refs
+    m = re.match(r"^\s*[-*]\s+(\S+?):\s", entry)
+    if (m and m.group(1) in anchors) or anchor_id("open", entry) in anchors:   # gate 3a (CR): the decisions anchor
+        return True
+    return any((" ".join((q.group("item") or "").split()), q.group("round")) in qrefs for q in QROW_RE.finditer(entry))
 
 
 def answered_scan(log):
@@ -1412,15 +1532,36 @@ def goal_decls(cfg):
                                     dependencies.project_decls(cfg))
 
 
-def unproved(cfg, log=None, goals=None):
+def _sorry_decls(cfg):
+    """{full name of every declaration holding a `sorry`/`admit` token now} (phase0.scan + phase0.decl_locator), or None
+    when that cannot be computed (DESIGN-SW2 1.6, review R7: the core calls `unproved`; any failure falls back to
+    today's behaviour)."""
+    try:
+        import phase0
+        files = list(cfg.get("lean_files") or [])
+        if not files or not all(os.path.isfile(os.path.join(project.REPO, f)) for f in files):
+            return None
+        pats = {t: p_ for t, p_ in phase0.HARD.items() if t in ("sorry", "admit")}
+        hits = phase0.scan(files, project.REPO, pats)
+        where = phase0.decl_locator(files, project.REPO)
+        return {w for t in pats for f, n, _t in hits.get(t, []) if (w := where(f, n))}
+    except Exception:       # noqa: BLE001 -- fall back: the goal is counted, as before the fix
+        return None
+
+
+def unproved(cfg, log=None, goals=None, sorry_decls=None):
     """{"decls": {decl: its [DELEGATED] tag}, "lines": {decl: its log line}, "goal": [goal results
     named], "problems": [...]} for the `leave <decl> unproved` lines of the committed RUN_LOG.md
     (or of `log`). Only valid lines count: the run's own delegating level, reversal re-prove, not
-    a goal result; a refused line is a problem, and its declaration's `sorry` stays RED."""
+    a goal result; a refused line is a problem, and its declaration's `sorry` stays RED. DESIGN-SW2 1.6 (C10): a goal
+    result named in such a line counts (`goal`: RED[unproved-goal], stop 1) only while the goal still holds a
+    `sorry`/`admit` (`sorry_decls`, computed lazily, injectable by tests); once proved the line is stale: an informative
+    problem, never an exemption (the goal is never added to `decls`, so the axiom sweep still checks it)."""
     log = committed_log(cfg) if log is None else log
     out = {"decls": {}, "lines": {}, "goal": [], "problems": []}
     lvl = project.involvement(cfg)
     gd, ns = None, cfg.get("namespace", "")
+    sd = [sorry_decls] if sorry_decls is not None else []
     for c, line in leave_lines(log):
         m = LEAVE_UNPROVED_RE.match(line, c.end())
         if not m:
@@ -1440,6 +1581,12 @@ def unproved(cfg, log=None, goals=None):
             gd = (goal_decls(cfg) if goals is None else set(goals)) if gd is None else gd
             # the log names the full Lean name; a short one is checked as namespace ++ name too
             if {d, f"{ns}.{d}"} & gd:
+                if not sd:
+                    sd.append(_sorry_decls(cfg))
+                if sd[0] is not None and not ({d, f"{ns}.{d}"} & set(sd[0])):
+                    out["problems"].append(f"`{d}` is a goal result named in a leave line, but it has no sorry now: "
+                                           f"the line is stale and exempts nothing")
+                    continue
                 out["goal"].append(d)
                 out["problems"].append(f"{d} is a goal result: one that stays unproved is a stop at every "
                                        f"level (RUN.md, \"Stops that remain at every level\")")
@@ -2055,6 +2202,9 @@ def skeleton(cfg, rounds, last_round):
                 mention="[DELEGATED", matter=(FORCED + rule_matter(rule_named(b, rules)) if rule_named(b, rules) else
                                               matter_of(pre.group(1), "", idx, appr_round) if pre else None),
                 label=qrow.group("item") if qrow and qrow.group("item") else None)
+    # gate 3a (a confidential run): an item answered by an `## Answered` line naming its anchor is already this document's
+    # "previously answered" item; dropping it here made --check refuse its anchor (a new refusal), so this reader
+    # keeps its own rule and only the stops table (make_report.all_stops) uses entry_answered
     for b in log_entries(section(log, "Open questions")):
         if not PROXY_RE.search(b) and not DELEGATED_RE.search(b) and "(answered" not in b:
             add(anchor_id("open", b), f"Open question: {project.clip(b.splitlines()[0].lstrip('- '), 100)}",
@@ -2632,6 +2782,28 @@ def _unproved_controls(say):
         say(f"unproved: a line {what} exempts nothing and is a problem", not u["decls"] and u["problems"])
     u = unproved(ho, OQ + T.format("hands-off", "re-prove", "N.goal"), goals={"N.goal"})
     say("unproved: a goal result is refused (it stays a stop)", not u["decls"] and u["goal"] == ["N.goal"])
+    # DESIGN-SW2 C10: a goal's leave line counts only while the goal holds a sorry/admit; once proved it is stale
+    gl = OQ + T.format("hands-off", "re-prove", "N.goal")
+    u_s = unproved(ho, gl, goals={"N.goal"}, sorry_decls={"N.goal"})
+    u_p = unproved(ho, gl, goals={"N.goal"}, sorry_decls={"N.other"})
+    import tempfile as _tf
+    keep_repo, d_ = project.REPO, _tf.mkdtemp()
+    try:
+        project.REPO = d_
+        lf = dict(ho, namespace="N", lean_files=["N.lean"])
+        open(os.path.join(d_, "N.lean"), "w").write("namespace N\ntheorem goal : True := by\n  sorry\nend N\n")
+        f_s = unproved(lf, gl, goals={"N.goal"})
+        open(os.path.join(d_, "N.lean"), "w").write("namespace N\ntheorem goal : True := trivial\nend N\n")
+        f_p = unproved(lf, gl, goals={"N.goal"})
+        f_x = unproved(dict(lf, lean_files=["N.lean", "Gone.lean"]), gl, goals={"N.goal"})
+    finally:
+        project.REPO = keep_repo
+        shutil.rmtree(d_, ignore_errors=True)
+    say("SW2-C10: a goal's leave line is stop 1 only while the goal has a sorry; once proved it is stale (an "
+        "informative problem, no exemption); an unreadable Lean file falls back to today's (counted)",
+        u_s["goal"] == ["N.goal"] and u_p["goal"] == [] and not u_p["decls"]
+        and any("stale" in p_ for p_ in u_p["problems"]) and f_s["goal"] == ["N.goal"] and f_p["goal"] == []
+        and not f_p["decls"] and any("stale" in p_ for p_ in f_p["problems"]) and f_x["goal"] == ["N.goal"])
     # HIGH 1 (review of Q1): the index cites the goal unqualified; resolved as the dependency walk
     # resolves it (as written, then namespace ++ name) it is still the goal
     import dependencies
@@ -2786,6 +2958,30 @@ def selftest():
     try:
         _selftest(tmp, say)
         _open_question_controls(tmp, say)
+        _b20 = ("# Run log\n## Open questions\n- q1: which reading? \n- QUESTION row on Lemma 3, round 2026-01-02-abcdef1: x\n"
+                "- q9: open\n- human answer (2026-01-04; QUESTION row on Lemma 4, round 2026-01-02-abcdef1): \"y\"\n"
+                "## Checkpoint B\n- human answer (2026-01-03; QUESTION row on Lemma 3, round 2026-01-02-abcdef1): \"(b)\"\n"
+                "## Answered\n- answered q1 (2026-01-03, 2026-01-02-abcdef1): \"first\"\n")
+        _r20 = answer_refs(_b20)
+        _e20 = log_entries(section(_b20, "Open questions"))
+        say("next batch B20 (CR-4): an Open questions entry is answered by an `## Answered` line naming its anchor, a "
+            "Checkpoint B answer naming its QUESTION row, or by being a human answer line; another stays open",
+            [entry_answered(b, _r20) for b in _e20] == [True, True, False, True]
+            # gate 3a (a confidential run): an `## Answered` line naming the entry's decisions anchor answers it
+            and entry_answered(_e20[2], answer_refs(_b20 + f"- answered {anchor_id('open', _e20[2])} (2026-01-05): ok\n")))
+        # fix round 1 (attack 7, demonstrated): a [DELEGATED] line or a "no answer yet" line naming the QUESTION row
+        # under `## Checkpoint B` answers nothing
+        _b7 = ("# Run log\n## Open questions\n- QUESTION row on Lemma 3, round 2026-01-02-abcdef1: x\n"
+               "## Checkpoint B\n- [DELEGATED 2026-01-03, operator under hands-off (intake); reversal: none] keep it "
+               "(QUESTION row on Lemma 3, round 2026-01-02-abcdef1)\n- shown to the human: QUESTION row on Lemma 3, "
+               "round 2026-01-02-abcdef1 (no answer yet)\n")
+        _b7b = ("# Run log\n## Open questions\n- QUESTION row on Lemma 4, round 2026-01-02-abcdef1: y\n## Answered\n"
+                "- answered QQ (2026-01-03, 2026-01-02-abcdef1): [DELEGATED 2026-01-03, operator under hands-off "
+                "(intake); reversal: none] keep (QUESTION row on Lemma 4, round 2026-01-02-abcdef1)\n")
+        say("fix round 1 (attack 7): only the human's own answer lines answer an open question (a [DELEGATED] line, "
+            "a 'no answer yet' line, a delegated `- answered` line never)",
+            not entry_answered(log_entries(section(_b7, "Open questions"))[0], answer_refs(_b7))
+            and not entry_answered(log_entries(section(_b7b, "Open questions"))[0], answer_refs(_b7b)))
         _open_question_strict(tmp, say)
         _unproved_controls(say)
         _matter_controls(say)
@@ -4614,6 +4810,36 @@ def _selftest(tmp, say):
                   "## Stops\n- [DELEGATED] keep hX\n"]
         say("trial #11: a structured (or dated, anywhere) non-canonical [DELEGATED] line is still linted",
             all(tag_problems(f) for f in forged))
+        hq = "## Checkpoint B\n- human answer (2026-01-02; `N.thm`): \"{}\"\n"
+        say("DESIGN-MT D2: the human's verbatim Checkpoint B answer may hold a tag-like phrase ('[Delegated] to you', "
+            "'[delegated to you]', '[PROXY]'); a dated tag inside it, the same phrase outside a quote, or a line that is "
+            "not the human-answer form stays linted",
+            all(tag_problems(hq.format(v)) == [] for v in ("[Delegated] do as you see fit", "it is [delegated to you]",
+                                                           "[PROXY] fine"))
+            and tag_problems(hq.format("[DELEGATED 2026-01-02, operator] keep it")) != []
+            and tag_problems("## Checkpoint B\n- human note (2026-01-02): \"[Delegated] x\"\n") != []
+            and tag_problems("## Checkpoint B\n- human answer (2026-01-02): [Delegated] x\n") != []
+            and tag_problems("## Checkpoint B\n- human answer (2026-01-02): \"ok\" [delegated to me] \"x\" y\n") != [])
+        sq = "## Stops\n- stop S2 (2026-01-02, the human's answer, verbatim: \"{}\")\n"
+        say("DESIGN-MT D2 (review C5): under `## Stops` only stops.py's exact human-answer prefix is masked: the human's "
+            "'[delegated to you]' passes, a dated tag in it does not, and an operator's self-cure text quoting the "
+            "prefix stays linted",
+            tag_problems(sq.format("go ahead [delegated to you]")) == []
+            and tag_problems(sq.format("ok [DELEGATED 2026-01-02, operator]")) != []
+            and tag_problems("## Stops\n- stop S3 self-cured (x; `y` passes): see the human's answer, verbatim: "
+                             "\"[delegated to you]\")\n") != []
+            and tag_problems("## Rounds\n- stop S2 (2026-01-02, the human's answer, verbatim: \"[delegated to you]\")\n")
+            != [])
+        aq = "## Answered\n- answered C1 (2026-11-15, 2026-11-15-full-abcdef12345): {}\n"
+        say("DESIGN-SW2 C4: the human's `- answered` words under `## Answered` may hold an undated tag-like phrase "
+            "('[delegated to you]'); an answer opening with a tag, a dated tag in it, and the same line under another "
+            "section stay linted",
+            all(tag_problems(aq.format(v), lv) == [] for v in ("go ahead [delegated to you]", "\"it is [Delegated] x\"")
+                for lv in (None, "involved", "hands-off"))
+            and tag_problems(aq.format("[Delegated, operator] keep")) != []
+            and tag_problems(aq.format("\"[delegated] keep\"")) != []
+            and tag_problems(aq.format("ok [DELEGATED 2026-11-15, operator]")) != []
+            and tag_problems(aq.format("go ahead [delegated to you]").replace("## Answered", "## Checkpoint C")) != [])
         say("a canonical tag naming another level than the run's is linted",
             tag_problems("## Open questions\n- " + TG.format(4, "none") + "x\n", "statements-only") != [])
         both = "## Open questions\n- [PROXY 2026-01-04] " + TG.format(4, "none") + "x — y\n"

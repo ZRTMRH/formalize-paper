@@ -32,7 +32,8 @@ from the clone (below).
   you changed: a change to a Lean-backed script is tested by its Lean mutants before the merge, not
   only at release (RULINGS, group D/E).
 - **Tier 2**: the full `selftest_all.py` (Lean), the snapshot replay (below) and every mutant,
-  Lean serial.
+  Lean serial. The `codex/watchdog.py` (WD) mutants need `codex/` beside `audits/`: run tier 2 from
+  a full-repo archive, not from an archive of `audits/` alone.
   `--compare-serial` also runs the whole mutant list with `--jobs 1` and fails if any mutant's
   result differs between the two runs. Do this at least once on each new machine and after any
   change to `mutants.py`, before trusting `--jobs` (ADVERSARIAL E2: the parallel kill set must

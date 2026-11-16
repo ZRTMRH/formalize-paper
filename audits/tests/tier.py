@@ -84,12 +84,24 @@ def selftest():
          all(set(e) == {project.TEST_MODE_ENV, project.TEST_LEVEL_ENV} for _, e in runs)),
         ("step() clears both switches from the inherited environment before a run",
          _step_clears()),
+        ("next batch B10: `selftest_all.py --only lean_slot` runs that one script and says so; an unknown name is a "
+         "coded usage line", _only_runs_one()),
     ]
     for name, c in checks:
         print(f"  {'ok  ' if c else 'FAIL'}  {name}")
     ok = all(c for _, c in checks)
     print("selftest:", "ok" if ok else "FAILED")
     return 0 if ok else 1
+
+
+def _only_runs_one():
+    import subprocess
+    sa = os.path.join(AUDITS, "selftest_all.py")
+    r = subprocess.run([sys.executable, "-B", sa, "--only", "lean_slot"], capture_output=True, text=True, timeout=300)
+    ran = [l for l in r.stdout.splitlines() if l.startswith(("  ok  ", "  FAIL", "  disc", "  SKIP"))]
+    bad = subprocess.run([sys.executable, "-B", sa, "--only", "nosuch"], capture_output=True, text=True, timeout=120)
+    return (r.returncode == 0 and len(ran) == 1 and "lean_slot.py" in ran[0] and "(only: lean_slot)" in r.stdout
+            and bad.returncode == 2 and bad.stdout.startswith("FAIL[tool-call] "))
 
 
 def _step_clears(env=None):
@@ -188,4 +200,5 @@ def main():
 
 
 if __name__ == "__main__":
+    os.environ["FORMALIZE_PAPER_NO_GUARD"] = "1"     # DESIGN-RAM: no test starts a memory guard
     sys.exit(main())

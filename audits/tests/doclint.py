@@ -270,6 +270,14 @@ def lint(run_md, run_files, on_disk, intake, ap):
                    and "must** fix every overstatement" in s5 and "notes for the main agent (not blocking)" in s5
                    and "## Delivery reviewer prompt" in s5 and "hand-edit --finding" not in s5
                    and "status-check --write" not in s5))
+    # DESIGN-SW2 1.13 (C9): the adjudicator's step A lists the integrity codes it may go on past; that list is exactly
+    # stops.GATE_NOTE_CODES (text and code cannot drift)
+    import stops
+    m9 = re.search(r"`FAIL\[<code>\]` with `<code>` one\s+of (.*?), naming no `\.lean` file", ap, re.S)
+    c9 = [x.strip() for x in m9.group(1).split(",")] if m9 else None
+    checks.append(("AUDIT_PROTOCOL.md's adjudicator step A names exactly stops.GATE_NOTE_CODES as the integrity codes "
+                   f"it goes on past (DESIGN-SW2 C9) {c9 if c9 is not None and c9 != list(stops.GATE_NOTE_CODES) else ''}",
+                   c9 == list(stops.GATE_NOTE_CODES)))
     texts = dict(run_files, **{"RUN.md": run_md, "AUDIT_PROTOCOL.md": ap})
     dang = dangling_refs(texts, code_sources())
     checks.append(("RUN.md, the stage and procedure files and AUDIT_PROTOCOL.md name only scripts, flags (of the "
@@ -434,6 +442,8 @@ def main(argv):
                            release_docs())),
         ("control: an AUDIT_PROTOCOL.md without B.4's idle-paper-hypothesis exception fails",
          lint(run_md, run_files, on_disk, intake, ap.replace("IDLE PAPER HYPOTHESIS", "IDLE HYPOTHESIS", 1))),
+        ("control: an adjudicator step A whose integrity code list drifted from stops.GATE_NOTE_CODES fails",
+         lint(run_md, run_files, on_disk, intake, ap.replace("set-aside-changed, stop-trail,", "set-aside-changed, stop-trail, lane-auth,", 1))),
         ("control: the same name inside common rule 3 passes",
          lint(run_md, run_files, on_disk, intake, ap.replace(RULE3_START, RULE3_START + " (ADOPTED.md)", 1))),
     ]

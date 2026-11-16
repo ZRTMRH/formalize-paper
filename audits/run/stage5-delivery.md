@@ -14,7 +14,9 @@ After the mathematics is verified, delivery never stops and is never refused exc
    the Lean changed since only in comments and docstrings (or not at all): that round is this
    step's full-scope round; run none and go to step 2. If it adopts anything, implement it and
    run one diff round on the result -- unless the fixes change only comments and docstrings:
-   then `scope.py` prints `NEXT[no-round]` for the diff round and none runs. Resolve its REVOTE NEEDED rows as in Stage 4 step 5. If it
+   then `scope.py` prints `NEXT[no-round]` for the diff round and none runs, except when such a fix
+   implements an ADOPTed Fail on an index row's declaration (a docstring finding on a Definition):
+   the diff round then runs and re-reads it (it counts toward the cap). Resolve its REVOTE NEEDED rows as in Stage 4 step 5. If it
    adopts anything:
    - if a fix would change an approved statement or a definition one uses, follow RUN.md,
      "Statement changes after approval", and `reapproval.md`;
@@ -34,7 +36,10 @@ After the mathematics is verified, delivery never stops and is never refused exc
      fixes) and one that implements none (e.g. a docstring note decided at Checkpoint C). Commit it
      and run Phase 0 (it still checks that the approved statements are unchanged); `scope.py`
      prints `NEXT[no-round]` for the round, and `--deliver` does not ask for one. No lane re-reads
-     the new text: the report and the decisions document say so.
+     the new text: the report and the decisions document say so. The one exception: a docstring fix
+     that implements an ADOPTed Fail on an index row's declaration is re-read by the next diff round
+     (`scope.py` runs it instead of printing `NEXT[no-round]`), so the result does not stay "not
+     established" for ever.
      `python3 audits/project.py --comment-only` checks it mechanically, with Lean (exit 0: each
      changed file, compiled before and after, gives the same declarations, with the same
      statements, proofs and definition bodies, and the same attributes and notation; only
@@ -118,7 +123,7 @@ After the mathematics is verified, delivery never stops and is never refused exc
      decisions ordered by importance, each with paper / Lean / evidence / options and what each
      changes / recommendation, and ends with how to answer and what each answer triggers. Group
      items that are one decision; keep every anchor.
-   - `python3 audits/decisions.py --check` must pass; it names each placeholder, anchor, box entry,
+   - `python3 audits/decisions.py --check` is advisory (`--deliver` never refuses on it); it names each placeholder, anchor, box entry,
      field or tag it refuses. Fixing what it names is filling the document, at every level.
      It also refuses while a result left unproved awaits its adjudication (`project.py --deliver` notes it).
    - Its review is the DECISIONS reviewer's, with the other delivery reviewers (step 5).
@@ -156,8 +161,10 @@ After the mathematics is verified, delivery never stops and is never refused exc
    (then ask Checkpoint C, step 6, and deliver nothing yet), and from step 7 once Checkpoint C is
    answered, to revise and deliver. Two designed human waits remain (a wait, never a stop):
    `--deliver` prints `PENDING[question]` while Checkpoint C is unanswered under `involved`
-   (`decisions.checkpoint_c_open`; an answer carrying a [PROXY] or [DELEGATED] tag, or citing a source
-   you decide by, is yours and answers nothing: log the human's own words), and `PENDING[stop]` while
+   (`decisions.checkpoint_c_open`; an answer carrying a [PROXY] or [DELEGATED] tag is yours and answers
+   nothing; an answer is the human's words, logged verbatim; one that points to an option you offered or
+   a record (ADOPTED.md, escalation E<n>, the conservative rule) adopts it as the human's answer, and
+   README shows it so), and `PENDING[stop]` while
    a stop that waits for the human is open (a release human stop; any open stop in dev). Another open
    stop is a note. After the delivery the
    `involved` run is complete: tell the human where the delivered files are, as in step 6.
@@ -236,6 +243,30 @@ After the mathematics is verified, delivery never stops and is never refused exc
        `- <label>: <why, in plain words for the author>`. The delivered README shows it next to the
        result. `--deliver` lists any you missed in a `[status-wording]` note: add those lines and
        deliver again;
+     - if the human or the intake supplied known issues (CONDITIONS.md kind `known-issue`, an answer key,
+       errata), say for each how the run handled it (a PAPER_DEFECTS row, a route change, why it is not a
+       defect); never write "no defect" alone;
+     - when the run had no network (`confidential`, or citation notes not produced for lack of network),
+       the SUMMARY's trust lines say that cited results were compared only with the copies supplied to the
+       run (SOURCES.md) and that their numbering in the published versions was not checked;
+     - the K standard (next batch D1; approver 2026-11-16, option A): the code writes no K content (no count,
+       no table, no list of items); you write it, labelled "the formalizing agent's judgement". In REPORT's
+       section 12 "K certificate" (keep the title; the facts draft holds only the definition and a place
+       for your text): for each result, K1–K4 yes or no, each with the reason and file:line evidence (the
+       paper, the Lean, the records); how many results reach K; and the open K gaps (an unproved change of
+       representation, a reading or generalization of a statement, an assumption, an open `CONDITIONS.md`
+       item), each with the results it actually affects (an item on a helper lemma affects only the
+       results whose proofs use it: check the Lean and `DEPENDENCIES.json`). The open items are the
+       `CONDITIONS.md` items and ADOPTED `## Conditions` rows whose latest status is not `met` or `not
+       applicable`: read them there; `--deliver`'s conditions-checklist notes add only record problems and
+       the inferred items, for you to judge. In SUMMARY, one K line
+       with the count and the reason in a few words, labelled the same way. The mechanical facts (the
+       build, the `sorry` scan, `#print axioms`, the kernel replay) stay where they already are, as plain
+       facts. Define K once in SUMMARY ("K: the Lean statement says exactly what
+       the paper says, the proof is checked by Lean's kernel, every change of representation is proved,
+       nothing is assumed");
+     - a question to the authors is never about something outside a `scope` item of `CONDITIONS.md`;
+       such a lead stays a note in REPORT;
      - REPORT: the same, in full, per result and per decision, with the Lean names and files;
      - process mechanics (stops, tool patches, reviewers, rounds, seals, scripts) only in
        `RUN_RECORD.md`; correct `RUN_RECORD.md` and `DECISIONS.md` where the draft is stale or wrong (a
@@ -289,7 +320,20 @@ After the mathematics is verified, delivery never stops and is never refused exc
      `RUN_RECORD.md` omits (a tool patch, a stop the operator closed, a set-aside), a self-cured stop's
      check that fails now, the tool-patch delivery check. Judge each: fix what you agree with (revise a
      document, correct `RUN_RECORD.md`, render again, run a round) and deliver again, or leave it and say
-     why in `JUDGEMENT.md`. None refuses the delivery. Each attempt logs one line under `## Delivery` of
+     why in `JUDGEMENT.md`. None refuses the delivery. Every note has an id (`(id n3fa2c1)` after it; in
+     the delivered `RUN_RECORD.md`, `- [n3fa2c1] <note> -- judged: <who>`), and the code reads who judged it
+     from the records. **The NOTES reviewer** (once per run): after the first `--deliver`, if any note is
+     not judged by a reviewer, spawn one more fresh delivery reviewer, perspective NOTES (Codex:
+     `formalize_reader`, `fork_turns` "none"), with the prompt under "Delivery reviewer prompt"; save its
+     returned text verbatim as `<rounds dir>/delivery-review/NOTES.md` and commit it by name in a commit of
+     its own whose subject starts `delivery review` (the code counts its verdicts as the reviewer's only
+     then; under any other subject, or after a later commit of the file under another subject, they read as
+     yours); act on each note, write one line per note under `## Delivery notes` in `JUDGEMENT.md`
+     (`- <id>: <what you did and why>`, or `- <id>: see delivery-review/NOTES.md -- <what you did>`), and
+     deliver again. A reviewer that fails: one fresh replacement; then deliver anyway. README.md names
+     every note no independent reviewer judged, every note nobody judged, every note the reviewer called a
+     real problem and every note it marked `cannot tell` (with your line), and says that you saved NOTES.md; notes new at the final delivery are listed as not judged.
+     Never a stop, never a question to the human. Each attempt logs one line under `## Delivery` of
      `RUN_LOG.md`, and a delivery sets `## Current stage`; it commits `RUN_LOG.md` itself. A copy to
      another destination the intake named comes after the push (below).
      `python3 audits/project.py --check-delivered` says whether each delivered file, README.md included
@@ -309,6 +353,17 @@ After the mathematics is verified, delivery never stops and is never refused exc
      adjudicator checks it (when nothing changed for it to scope, `scope.py` exits 3 with
      `NEXT[full-round]`: a full round, `prompt.py 3 --full`), unless you judge otherwise and say why in
      `JUDGEMENT.md`.
+   - A RUN_LOG.md line the missing-theory check suspects (`PENDING[adjudication]`, "may record a missing-theory
+     decision outside the canonical form"), e.g. a delegated Checkpoint C line logged after the last adjudication:
+     `--deliver` notes it (`[adj-record]`, "not judged by an independent agent"). If any such line is pending at
+     delivery, run one full round before delivering (`scope.py` exits 3 with `NEXT[full-round]`: `prompt.py 3
+     --full`); its adjudicator rules it (`MT RULED`); then run Phase 0, prepare again
+     (`project.py --prepare-delivery`, the readers of the regenerated documents) and deliver. JUDGEMENT.md does not
+     settle it: you wrote the line. The same holds for a line you dissented from (`MT DISSENT`) that no later
+     round has re-ruled ("disputed by the operator; not re-ruled" in the documents): run one full round before
+     delivering, so its adjudicator rules it again. A
+     decision's reason need not describe the check: cite the decision by its anchor (a real missing-theory decision
+     is still logged in its canonical form).
    - Commit the audits repo: your own files that changed (`RUN_LOG.md`, `AUTHOR_NOTES.md`,
      `DECISIONS.md`, `OUTCOMES.md`, `READER_NOTES.md`, `SUMMARY.md`, `REPORT.md`, `RUN_RECORD.md`,
      `JUDGEMENT.md`, `delivery-review/`) by name, never `git add -A` (RUN.md rule 5); every other record
@@ -384,9 +439,14 @@ After the mathematics is verified, delivery never stops and is never refused exc
    reversal instructions, filled in: "To reverse a decision, open Claude Code in
    `<project path>` and say: *Read audits/RUN.md; reverse `<anchor>` in DECISIONS.md.* The table
    at the top of `<path to DECISIONS.md>` gives each decision's anchor and what reversing it
-   costs (none, re-prove, re-approve or new round); its section says what will be rerun." The
-   run is then complete. A later reversal the human asks for is new work: record their words
-   verbatim and carry it out by step 7.
+   costs (none, re-prove, re-approve or new round); its section says what will be rerun." Add the
+   K line (next batch D1), filled in from your SUMMARY's K line: "In the formalizing agent's judgement,
+   K is reached for X of N results (<the reason in a few words>). The open K gaps are listed
+   in REPORT, section "K certificate" (not repeated here). Reply **K** to go through them one at a
+   time; otherwise this delivery stands." The run is then complete. A later reversal the human asks
+   for is new work: record their words verbatim and carry it out by step 7. (Under `involved` there is
+   no K reply: the open K items that remain are listed in the Checkpoint C message and answered there
+   like any other item.)
 
    Only now may you save a memory note about the run (under `involved`: after step 7's delivery).
 7. **After Checkpoint C's answers, or any later reversal** (every level; U2 §6.7). In this order:
@@ -406,11 +466,38 @@ After the mathematics is verified, delivery never stops and is never refused exc
       facts, review what changed as you judge it needs, render again only the documents whose markdown
       changed, and deliver.
 
+8. **The K stage** (`statements-only` and `hands-off`, on the human's reply `K` after the completion
+   message; next batch D1). It is a later reversal, generalised, and bounded:
+   1. `python3 audits/project.py --k-stage` (it logs `- K stage begun <date> after round <R>: human
+      reply "K"` under `## K stage`, sets the stage "Stage 5 — K stage" and commits RUN_LOG.md).
+   2. Ask the open K items **one at a time**, in REPORT order, in plain words (what it is, the options,
+      what each costs); record each answer verbatim under `## Answered` as `- answered C<n> (<date>, K
+      stage): "<words>"`. An item the human declines stays open; "stop" ends the K stage (the delivery
+      stands).
+   3. Carry out each answer: a bridge → prove it (a pure addition) or accept it as open; a reading →
+      formalize the human's reading (a statement change: re-approval; or a pure-addition theorem for
+      the other reading); a source-def or finding → as answered (a change of an approved statement:
+      re-approval, `reapproval.md`). Under `statements-only` the human approves (`--by human`). Under
+      `hands-off`, `approve --by human` is refused unless an earlier approval was the human's, so record
+      the human's K answer verbatim under `## Answered` and `## Re-approvals` and close the re-approval
+      with `signoff.py approve --by agent` (the replaced approval was the agent's); the documents say the
+      change was made on the human's K answer and approved by the agent.
+   4. Re-prove and re-review only what changed: Phase 0, then diff round(s) on the changes (a
+      re-approved statement: its statement round(s) and the existing full round after a re-approval).
+      The K stage's rounds have their own cap of two diff rounds after the round its `K stage begun`
+      line names (`project.delivery_rounds`).
+   5. Re-deliver as in step 7.5, the K certificate updated, and send the completion message again with
+      the new X of N.
+   The run is already delivered, so a wait for an answer blocks nothing; the delivery stands if the
+   human never replies.
+
 ## Delivery reviewer prompt
 
 Spawn four fresh general-purpose agents (step 5, "Review"), one per perspective, each with this text, the
-placeholders filled in (`<PERSPECTIVE>` is one of CLAIMS, READABILITY, DECISIONS, TRUST; paths absolute).
-Never give a reviewer your notes, `JUDGEMENT.md`, the facts draft or another reviewer's findings.
+placeholders filled in (`<PERSPECTIVE>` is one of CLAIMS, READABILITY, DECISIONS, TRUST; paths absolute), and,
+after the first `--deliver`, the NOTES reviewer (step 5, "Deliver") with `<PERSPECTIVE>` NOTES.
+Never give a reviewer your own notes, `JUDGEMENT.md`, the facts draft or another reviewer's findings (the
+code-written notes in the delivered `RUN_RECORD.md` are the checking program's, not yours).
 
 ```
 You are ONE independent reviewer of the documents a formalization run delivers to a paper's authors. You
@@ -426,26 +513,43 @@ Read the deliverables: <ROUNDS>/SUMMARY.md and <ROUNDS>/REPORT.md (and <ROUNDS>/
 <ROUNDS>/RUN_RECORD.md as your perspective needs). As needed, read the run's records under <ROUNDS>
 (ADOPTED.md of each round, PAPER_DEFECTS.md, SKIPPED.md, VACUOUS.md, DEVIATIONS.md, UNUSED_ARGS.md,
 DEPENDENCIES.json, RUN_LOG.md, the stops/ and tool-patches/ directories), the paper (<PAPER PATH>) and the
-Lean source (<LEAN FILES>), read-only. Do not read <ROUNDS>/JUDGEMENT.md, <ROUNDS>/facts/ or
-<ROUNDS>/delivery-review/: judge independently. Change nothing.
+Lean source (<LEAN FILES>), read-only. Do not read <ROUNDS>/JUDGEMENT.md, <REPO>/deliverables/JUDGEMENT.md,
+<ROUNDS>/facts/ or <ROUNDS>/delivery-review/: judge independently. Change nothing.
 
 Your perspective is <PERSPECTIVE>:
 - CLAIMS: does any sentence say more than the records and the Lean support? Check every result's status
   against the Lean (is it really proved without `sorry`? is every assumption it rests on stated?) and the
   records (the adjudicators' decisions in ADOPTED.md, RUN_LOG decisions, PAPER_DEFECTS/SKIPPED/DEVIATIONS).
-  An overstatement is must-fix. Also report understatement (minor).
+  An overstatement is must-fix. Also report understatement (minor). If <ROUNDS>/CONDITIONS.md lists
+  known issues (kind `known-issue`), does the summary say how each was handled (never "no defect" alone)?
+  Check REPORT's section "K certificate" and SUMMARY's K line, both written by the formalizing agent and
+  labelled as its judgement: is each result's K1–K4 mark right, with a reason and file:line evidence that
+  hold against the paper, the Lean and the records? Is the count right? Is every open K gap listed (an
+  open bridge, reading, source-def, finding or condition item in <ROUNDS>/CONDITIONS.md or an
+  adjudicator's `## Conditions` row; an unproved change of representation; a generalization), each with
+  the results it actually affects (an item on a helper lemma affects only the results whose proofs use
+  it; check the Lean and DEPENDENCIES.json)? A K mark or count that says more than the evidence is
+  must-fix.
 - READABILITY: you are a research mathematician who has never heard of the tool or of Lean. Is SUMMARY clear
   on first reading? What would confuse, bore or mislead you? What would you want first? Is any jargon
   unexplained?
 - DECISIONS: is every decision taken on the authors' behalf listed, accurately described (who decided, on
   whose recommendation), with a correct reversal cost? Is every reading choice whose QUESTION no person
-  answered also asked of the authors as a short question in SUMMARY? Check against RUN_LOG.md,
-  DECISIONS.md and the adjudicators' records.
+  answered also asked of the authors as a short question in SUMMARY? Is any question to the authors
+  outside a `scope` item of <ROUNDS>/CONDITIONS.md? Check against RUN_LOG.md, DECISIONS.md and the
+  adjudicators' records.
 - TRUST: do the statements about what was machine-checked, reviewer-checked and unchecked match what the
-  records show? Is anything claimed checked that was not, or a blind spot omitted?
+  records show? Is anything claimed checked that was not, or a blind spot omitted? If the run had no
+  network, do the trust lines say that cited results were compared only with the copies in SOURCES.md and
+  that their published numbering was not checked?
+- NOTES: read the code-written notes in <REPO>/deliverables/RUN_RECORD.md, section "Notes at delivery" (written
+  by the checking program, not by the main agent). For EVERY note return one line `- <id>: real problem | no
+  problem | cannot tell -- <why, citing the record, the Lean or the delivered document>; <what should be done>`
+  (the id as the note's `[n…]` gives it), and nothing else. This overrides the format below: no numbered
+  list, no severity, no overall verdict, any length.
 
 Return your findings as your final message, as text (do not write files: a subagent's file write is often
-refused). A numbered list, each finding: severity (must-fix / should-fix / minor), the exact sentence quoted,
-why (cite the Lean file:line or the record), and a suggested fix. Then one line: overall verdict. Keep it
-under about 800 words.
+refused). Unless your perspective is NOTES: a numbered list, each finding: severity (must-fix / should-fix /
+minor), the exact sentence quoted, why (cite the Lean file:line or the record), and a suggested fix. Then one
+line: overall verdict. Keep it under about 800 words.
 ```

@@ -106,8 +106,9 @@ MUTANTS += [
   "prompt.py", [], "plain"),
  ("b7-19 lane D accepts a contradiction step on the docstring", "AUDIT_PROTOCOL.md",
   "evidence: without the quote and the lemma the item is Ambiguous.", "evidence enough.", "prompt.py", [], "plain"),
- ("b7-20 the adjudicator may recommend formalizing both readings", "AUDIT_PROTOCOL.md",
-  "Never recommend\n   formalizing both.", "Or\n   formalize both.", "prompt.py", [], "plain"),
+ ("b7-20 the adjudicator recommends the weaker reading again (next batch D1: the stronger)", "AUDIT_PROTOCOL.md",
+  "Recommend (i) the stronger when one implies the other;", "Recommend (i) the weaker when one implies the other;",
+  "prompt.py", [], "plain"),
  ("b7-21 the escalation prompt lets the check edit files", "AUDIT_PROTOCOL.md",
   "Write that one line, and nothing else, to <ANSWER-FILE>; edit nothing else.",
   "Write that one line to <ANSWER-FILE>.", "prompt.py", [], "plain"),
@@ -738,7 +739,35 @@ FLOOR = ("P1", "P2", "P6", "P17", "P19", "LA1", "LA2", "LA3", "LA8", "I9", "I10"
          # MG2 and MG5 are MG6, MG7 and MG8 below
          "MG2", "MG3", "MG4", "MG6", "MG7", "MG8",
          # REVIEW-FLOOR MEDIUM-1 (2026-11-10): the reviewer's attack p4, a gate refusing nothing when `involved`
-         "MG9")
+         "MG9",
+         # DESIGN-MT 5.5: the judgement route of a missing-theory suspect cannot be patched away with one approval
+         "MT-M3", "MT-M4", "MT-M6", "MT-M9",
+         # REVIEW-SAFETY-MT Q6: the unsafe-direction mutants (a decision taken as "not", a ruling bound to a prefix,
+         # a ruling for an id its adjudicator was never shown)
+         "MT-M5", "MT-M2", "MT-M14", "MT-M25",
+         # DESIGN-SW2 §5: the judgement and visibility routes of the second sweep (M1's guard, C-F1's guard, the stop-1
+         # route of a sorry'd goal, forgery H3(a), the prompt that lists a new suspect, ROUND3 H3, unjudged notes shown,
+         # a judge's record committed)
+         "SW2-M3", "SW2-M10", "SW2-M12", "SW2-M13", "SW2-M16", "SW2-M19", "SW2-M21", "SW2-M22",
+         # REVIEW-SAFETY-SW2 F3: operator-tagged answers never close Checkpoint C as the human's; the C5 exemption
+         # needs its index citation. Fix round R1: NOTES.md counts as the reviewer's only under its commit subject;
+         # a `cannot tell` note is named
+         "SW2-M4", "SW2-M14", "SW2-R1a", "SW2-R1b",
+         # DESIGN-ND §6: the unsafe-direction mutants of a redo's NotDoneYet coverage (counted unruled, a ruling read
+         # from a later commit or from a commit that is no adjudication, a ruling of another lane)
+         "ND-1", "ND-2", "ND-3", "ND-4",
+         # DESIGN-SW2B §1-4 (+ REVIEW C2): the unsafe directions of the extraction fixes (the trial #10 name passes, an
+         # undecided name reaches no judge, a project or Lean-unknown name washed out, a failed Lean run a pass, a new
+         # adj-record, an inexact label, a row number unchecked)
+         "SW2B-M2", "SW2B-M3", "SW2B-M6", "SW2B-M6b", "SW2B-M7", "SW2B-M8", "SW2B-M9", "SW2B-M12", "SW2B-M13",
+         "SW2B-M17",
+         # REVIEW-SAFETY-SW2B F4: the other unsafe directions (the literal test over the whole file, the label read from
+         # the reason column, `rows 9-11` unchecked, a label found anywhere in the cell); fix round R1's F2/F3 analogues
+         # (a name only in a comment passes, the label not the cell's first, the identifier case-folded)
+         "SW2B-M10", "SW2B-M14", "SW2B-M16", "SW2B-M18", "SW2B-M21", "SW2B-M22", "SW2B-M23",
+         # macOS lin-2026 TP1 (2026-11-16): a live git process skipped by repair-lock; a persistent EIO of a live pid
+         # read as no process
+         "MAC-TP1a", "MAC-TP1b")
 MUTANTS += [
  ("TPC1 integrity --check does not verify the tool-patch chain", "integrity.py",
   "    out += tool_patch.chain_problems(audits, rounds_dir, cfg)", "    out += []", "tool_patch.py", [], "plain"),
@@ -1526,7 +1555,7 @@ MUTANTS += [
   "    out += [f\"! unsettled adjudication: {p_}\" for p_ in _lc.record_problems(rounds_dir)]", "    out += []",
   "tests/round3.py", [], "plain"),
  ("R3-4c the record's settle check checks no round", "lanecheck.py",
-  "        out += [f\"{os.path.basename(rd)}: {p_}\" for p_ in settle_problems(rd)]", "        pass",
+  "        out += [f\"{os.path.basename(rd)}: {p_}\" for p_ in _settle_at_round_commit(rd, rounds_dir)]", "        pass",
   "tests/round3.py", [], "plain"),
  ("R3-4d a committed re-vote decision may be in any commit after the seal", "lanecheck.py",
   "        if subj != want or not after:", "        if not after:", "tests/round3.py", [], "plain"),
@@ -1634,7 +1663,7 @@ MUTANTS += [
  ("R3e-2b any later decision of the item removes an open re-vote, re-vote rules or not", "decisions.py",
   "and not lanecheck.revote_decision_problems(d, only={key})", "and True", "decisions.py", [], "plain"),
  ("R3e-3a a re-vote entry with no valid verdict judges the item (M1)", "lanecheck.py",
-  "            if e.get(\"verdict\") in VERDICTS and n[", "            if n[", "tests/round3.py", [], "plain"),
+  "            if e.get(\"verdict\") in kinds and n[", "            if n[", "tests/round3.py", [], "plain"),
  ("R3e-3b two re-vote entries for one item judge it (M1)", "lanecheck.py",
   " and n[clean_cell(e.get(\"item\", \"\"))] == 1}", "}", "tests/round3.py", [], "plain"),
  ("R3e-4 a decision passes over an unsealed re-vote of the item (M2)", "lanecheck.py",
@@ -1679,8 +1708,8 @@ MUTANTS += [
   "    return []\n    try:\n        doc = json.loads(text)\n    except ValueError:\n        return [\"not JSON\"]",
   "tests/round3.py", [], "plain"),
  ("R3g-2 a re-vote verdict breaking the schema still judges its valid entries", "lanecheck.py",
-  "    return {} if schema_faults(data.decode(\"utf-8\", \"replace\")) else judged_items(doc)",
-  "    return judged_items(doc)", "tests/round3.py", [], "plain"),
+  "    return {} if schema_faults(data.decode(\"utf-8\", \"replace\")) else judged_items(doc, kinds)",
+  "    return judged_items(doc, kinds)", "tests/round3.py", [], "plain"),
  ("R3g-3 an original lane breaking the schema is settled by any re-vote row of the lane", "lanecheck.py",
   "    if any(SCHEMA_FAULT in f for f in fault_flags):", "    if False:", "tests/round3.py", [], "plain"),
 ]
@@ -2381,8 +2410,8 @@ MUTANTS += [
   '        found = [f for f in make_report.adjudication_findings(cfg, round_name, revotes=bool(revotes)) '
   'if f.code != "adj-record"]', "integrity.py", [], "plain"),
  ('sw-1f --deliver delivers with an adjudicator-owned record fault pending', 'make_report.py',
-  '    out += [(f.code, "pending the next adjudication: " + " ".join(str(f).lstrip("! ").split()))\n            for f in adjudication_findings(cfg)]',
-  '    out += []',
+  '            for f in adjudication_findings(cfg)]',
+  '            for f in []]',
   'tests/delivery.py', [], 'plain'),
  ("sw-1g the adjudicator prompt omits the pending faults", "prompt.py",
   '    return head + ("".join("\\n  - " + make_report.pending_line(f) for f in found) if found else "\\n  (none)")',
@@ -2586,6 +2615,36 @@ MUTANTS += [
  # review of B1a, MED-3 (addendum N5): a redo stop's check runs on the fresh round, not the set-aside one
  ("b1a-n5a a redo self-cure re-runs its check on the set-aside round", "stops.py",
   '        rr_ = redo_round(cfg, s, doc)       # Refused', '        rr_ = None       # Refused', "stops.py", [], "plain"),
+ # STOPFIX (lin-2026 S1, 2026-11-15): a rerun-kind stop bound to its set-aside round is redirected to the fresh round
+ ("stopfix-1 a rerun-kind self-cure bound to its set-aside round re-runs its check there for ever", "stops.py",
+  '    if not r or not plan or ("redo" not in plan and _round_of(cure_cmd(doc)) != r):',
+  '    if not r or not plan or "redo" not in plan:', "stops.py", [], "plain"),
+ # DESIGN-ND (lin-2026 S1, 2026-11-15): a fresh round's sealed NotDoneYet covers a redo once ruled UNCOVERED (step E)
+ ("ND-1 a sealed NotDoneYet counts as covered with no UNCOVERED row (option B)", "stops.py",
+  '    ruled, unruled = _uncovered_rows(rn, new) if nd_left else (set(), "")', '    ruled, unruled = nd_left, ""',
+  "stops.py", [], "plain"),
+ ("ND-2 the UNCOVERED row is read from the worktree, not from ADOPTED.md as first committed", "stops.py",
+  '        text = git(audits, "show", f"{h}:{rel}")',
+  '        text = open(os.path.join(rn, "ADOPTED.md"), encoding="utf-8").read()', "stops.py", [], "plain"),
+ ("ND-3 ADOPTED.md first added by a commit that is no `adjudicate <fresh>` holds the ruling", "stops.py",
+  '        if subj != f"adjudicate {new}":', '        if False:', "stops.py", [], "plain"),
+ ("ND-4 an UNCOVERED row of another lane rules the NotDoneYet (item only)", "stops.py",
+  '            if cx(x) not in judged.get(lane, set()) and (lane, cx(x)) not in ruled]',
+  '            if cx(x) not in judged.get(lane, set()) and cx(x) not in {i_ for _, i_ in ruled}]', "stops.py", [], "plain"),
+ ("ND-5 any decision row (ADOPT, QUESTION) rules the NotDoneYet, not only UNCOVERED", "stops.py",
+  '                if r.decision == "UNCOVERED"}', '                if True}', "stops.py", [], "plain"),
+ ("ND-6 a duplicated NotDoneYet entry (or an unsealed read) counts", "stops.py",
+  '            nd.setdefault(lane, set()).update(lanecheck._sealed_items(f, ("NotDoneYet",)) or {})',
+  '            nd.setdefault(lane, set()).update(lanecheck.clean_cell(e.get("item", "")) for e in '
+  'lanecheck.lane_entries(json.load(open(f))) or [] if e.get("verdict") == "NotDoneYet")', "stops.py", [], "plain"),
+ ("ND-7 a ruled NotDoneYet never covers (2f59947: the redo is refused for ever)", "stops.py",
+  '    nd_left = {(lane, cx(x))', '    nd_left = set() and {(lane, cx(x))', "stops.py", [], "plain"),
+ ("ND-8 the old `wide` hint: a statements redo of a statements round is told to use --full", "stops.py",
+  '        wide = wide is not None and (n.get("_meta") or {}).get("kind") not in wide',
+  '        wide = (o.get("_meta") or {}).get("kind") in ("full", "statements") and (n.get("_meta") or {}).get("kind") != "full"',
+  "stops.py", [], "plain"),
+ ("ND-9 the newest add of ADOPTED.md (a delete + re-add) holds the ruling, not the first", "stops.py",
+  '        h, _, subj = adds[-1].partition(" ")', '        h, _, subj = adds[0].partition(" ")', "stops.py", [], "plain"),
  ("b1a-n5b the trail accepts any redo_round", "stops.py",
   "            if rr_ and (rr_ == d.get(\"round\") or", "            if False and (rr_ == d.get(\"round\") or",
   "stops.py", [], "plain"),
@@ -3207,7 +3266,7 @@ MUTANTS += [
  ("b5-12 hypothesis findings not wired into the report check", "make_report.py",
   "    problems += hypotheses.findings(cfg, rounds_dir)\n", "", "make_report.py", PROJ, "plain"),
  ("b5-13 hypothesis findings not in adjudication_findings (--commit-adjudication)", "make_report.py",
-  "    out += hypotheses.findings(cfg, rd)\n    return out", "    return out", "make_report.py", PROJ, "plain"),
+  "    out += hypotheses.findings(cfg, rd)\n", "", "make_report.py", PROJ, "plain"),
  ("b5-14 Phase 0 skips the walk in statement rounds", "phase0.py",
   '    if readonly:\n        run("dependencies (DEPENDENCIES.json matches the walk)",',
   '    if statements:\n        pass\n    elif readonly:\n        run("dependencies (DEPENDENCIES.json matches the walk)",', "phase0.py", [], "plain"),
@@ -3280,8 +3339,9 @@ MUTANTS += [
 ]
 # --- B6 (U2 §7, F13): missing theory -- the canonical line, its checks, the classification and page 1 ----
 MUTANTS += [
- ("b6-1 a bare [DELEGATED] missing-theory line is accepted", "hypotheses.py",
-  "            if not later:\n", "            if False:\n", "hypotheses.py", [], "plain"),
+ ("b6-1 a bare [DELEGATED] missing-theory line is accepted (DESIGN-MT: cure 1 then cures every line)", "hypotheses.py",
+  "            if later:\n                continue\n", "            if True:\n                continue\n", "hypotheses.py", [],
+  "plain"),
  ("b6-2 the paper's quote is not required", "hypotheses.py",
   '        if len(re.sub(r"\\s+", "", e["quote"])) < MT_QUOTE_MIN:', "        if False:", "hypotheses.py", [], "plain"),
  ("b6-3 the search of every configured library is not checked", "hypotheses.py",
@@ -3301,7 +3361,8 @@ MUTANTS += [
   '    return mt + [("What the formalization assumes",', '    return [("What the formalization assumes",',
   "hypotheses.py", [], "plain"),
  ("b6-10 the report check does not check the missing-theory lines", "make_report.py",
-  "    problems += hypotheses.missing_theory_findings(cfg, rd=rounds_dir)\n", "", "make_report.py", [], "plain"),
+  "    problems += hypotheses.missing_theory_findings(cfg, rd=rounds_dir, round_name=adjudicating)\n", "", "make_report.py",
+  [], "plain"),
  ("b6-11 page 1 says 'checked' whatever the hypothesis record says", "hypotheses.py",
   '        st = MT_STATE.get(e["state"], MT_STATE[None])', '        st = MT_STATE["yes"]', "hypotheses.py", [], "plain"),
  ("b6-12 a line quoted under Fresh readers counts as a decision", "hypotheses.py",
@@ -3337,7 +3398,7 @@ MUTANTS += [
   '            for h in e["replaces"]:\n                out["assume"].pop(h)', '            for h in []:\n                out["assume"].pop(h)',
   "hypotheses.py", [], "plain"),
  ("b6-24 a missing-theory hypothesis that is the goal is no stop (review fix 4)", "hypotheses.py",
-  "            if g_conc or g_rest:", "            if False:", "hypotheses.py", [], "plain"),
+  "            if g_conc:\n                what = f\"the conclusion of the goal result", "            if False:\n                what = f\"the conclusion of the goal result", "hypotheses.py", [], "plain"),
  ("b6-25 the goal assumed away is a missing-theory fault, not unproved-goal (review fix 4)", "hypotheses.py",
   '[project.Finding("! " + t, "unproved-goal") for t in mt["goal"]]', '[project.Finding("! " + t, MT_CODE) for t in mt["goal"]]',
   "hypotheses.py", [], "plain"),
@@ -3350,6 +3411,98 @@ MUTANTS += [
   "hypotheses.py", "        g_o = [u for u in others if u in goals]", "        g_o = []", "hypotheses.py", [], "plain"),
  ("b6-29 the F13 lane prompt loses 'a library (or the project) already proves it' (review fix 1)", "AUDIT_PROTOCOL.md",
   "a library (or the project) already proves it", "a library already has it", "tests/doclint.py", [], "plain"),
+]
+# --- DESIGN-MT: a missing-theory line only suspected from its words is the adjudicator's to rule (MT RULED) --------
+MUTANTS += [
+ ("MT-M1 no ruling is ever read", "hypotheses.py",
+  "                hist = mt_ruling_history(cfg, rd, round_name)\n", "                hist = {}\n", "hypotheses.py", [], "plain"),
+ ("MT-M2 a ruling binds only a prefix of the line", "hypotheses.py",
+  '    return hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]',
+  '    return hashlib.sha256(s[:60].encode("utf-8")).hexdigest()[:12]', "hypotheses.py", [], "plain"),
+ ("MT-M3 the suspect finding is the operator's FAIL[missing-theory], not the adjudicator's adj-record", "hypotheses.py",
+  '            + [project.Finding("! " + mt_suspect_text(*x, dissent=mt["dissent"].get(x[0])), "adj-record")',
+  '            + [project.Finding("! " + mt_suspect_text(*x, dissent=mt["dissent"].get(x[0])), MT_CODE)', "hypotheses.py", [],
+  "plain"),
+ ("MT-M4 an unruled suspect is dropped (accepted unjudged)", "hypotheses.py",
+  '            if r is None:\n                out["form"].append((lid, line, n_))\n                continue\n',
+  "            if r is None:\n                continue\n", "hypotheses.py", [], "plain"),
+ ("MT-M5 a 'decision' ruling is taken as 'not'", "hypotheses.py",
+  '            if r[1] != "decision":\n                continue\n', "            if True:\n                continue\n",
+  "hypotheses.py", [], "plain"),
+ ("MT-M6 a ruling counts from any ADOPTED.md re-commit, not the round's first adjudication (safety F1)", "hypotheses.py",
+  '                    c = next((l_.split(" ", 1)[0] for l_ in log.splitlines() if l_.split(" ", 1)[-1] == subj), None)',
+  '                    c = next((l_.split(" ", 1)[0] for l_ in reversed(log.splitlines()) if l_.split(" ", 1)[-1] == subj), None)',
+  "hypotheses.py", [], "plain"),
+ ("MT-M7 the adjudication being committed does not count its own ruling", "hypotheses.py",
+  "            if rname == round_name:\n                if os.path.isfile(ap):",
+  "            if False:\n                if os.path.isfile(ap):", "hypotheses.py", [], "plain"),
+ ("MT-M8 in one ADOPTED.md a 'not' ruling beats a 'decision' one", "hypotheses.py",
+  '        if kind == "not" and out.get(m.group(1), (None, None))[1] == "decision":',
+  '        if kind == "decision" and out.get(m.group(1), (None, None))[1] == "not":', "hypotheses.py", [], "plain"),
+ ("MT-M9 the adjudication commit and the adjudicator prompt do not list the suspects", "make_report.py",
+  "    out += [f for f in hypotheses.missing_theory_findings(cfg, doc={}, rd=rd, round_name=round_name) if is_pending(f)]\n",
+  "", "hypotheses.py", [], "plain"),
+ ("MT-M10 a canonical line BEFORE a ruled-decision line cures it", "hypotheses.py",
+  "    later = [m2 for _k2, m2, _l2, _b2 in lines[i + 1:]", "    later = [m2 for _k2, m2, _l2, _b2 in lines",
+  "hypotheses.py", [], "plain"),
+ ("MT-M11 D2: a dated tag inside a human quote is masked too", "decisions.py",
+  "    q = _HUMAN_TAG_RE.sub(lambda t: t.group(0) if DELEGATED_RE.match(t.group(0)) else",
+  "    q = _HUMAN_TAG_RE.sub(lambda t: t.group(0) if False else", "decisions.py", [], "plain"),
+ ("MT-M11b D2: any `## Stops` line holding the human-answer phrase is masked (not only stops.py's exact prefix)",
+  "decisions.py", "    m = (HUMAN_STOP_QUOTE_RE.match(line) if sec.split(\" (\")[0] == \"Stops\" else None)",
+  "    m = (re.search(r'the human\\'s answer, verbatim: \"', line) if sec.split(\" (\")[0] == \"Stops\" else None)",
+  "decisions.py", [], "plain"),
+ ("MT-M11c D2: the human-answer mask applies under every section", "decisions.py",
+  "    m = (HUMAN_STOP_QUOTE_RE.match(line) if sec.split(\" (\")[0] == \"Stops\" else None)",
+  "    m = HUMAN_STOP_QUOTE_RE.match(line)", "decisions.py", [], "plain"),
+ ("MT-M12 the delivery note does not say the suspect was not judged by an independent agent (review C4)", "make_report.py",
+  '                (" -- not judged by an independent agent: run one full round', '                (" -- run one full round',
+  "hypotheses.py", [], "plain"),
+ ("MT-M13 a decision ruling may name an undeclared result (the hard follow-up then has no cure)", "hypotheses.py",
+  "            if not ({n, f\"{ns}.{n}\" if ns else n} & declared):", "            if False:", "hypotheses.py", [], "plain"),
+ ("MT-M14 a ruling counts for an id its adjudicator was never shown (safety F1)", "hypotheses.py",
+  '        if prompt is not None and f"MT RULED {m.group(1)}" not in prompt:', "        if False:", "hypotheses.py", [],
+  "plain"),
+ ("MT-M15 a `build` line cures a decision ruling for a hypothesis the Lean assumes (safety F3)", "hypotheses.py",
+  '        if not any(m2.group("assume") and nm == _short(m2.group("hyp")) for m2 in later):', "        if False:",
+  "hypotheses.py", [], "plain"),
+ ("MT-M16 `build … for <result>` cures a decision ruling while an unclassified hypothesis of it is left (safety F3)",
+  "hypotheses.py", "        if left:\n            return (f\"`build", "        if False:\n            return (f\"`build",
+  "hypotheses.py", [], "plain"),
+ ("MT-M17 the ruling id normalizes a line that does not open with its tag (safety F4)", "hypotheses.py",
+  "    p = decisions.LEAVE_PREFIX_RE.match(s)\n    if p:\n        a = decisions.DELEGATED_PRE_RE.match(s)",
+  "    p = re.search(r\"(?=\\[DELEGATED )\", s)\n    if p:\n        a = decisions.DELEGATED_PRE_RE.match(s)",
+  "hypotheses.py", [], "plain"),
+ ("MT-M18 a canonical-form attempt naming its result is only a suspect (compat C-F1)", "hypotheses.py",
+  "            if names and _mt_form_attempt(line) and _mt_decision_like(line):", "            if False:", "hypotheses.py", [],
+  "plain"),
+ ("MT-M19 the operator's dissent is ignored (compat C-F2)", "hypotheses.py",
+  "            if lid in dissents:", "            if False:", "hypotheses.py", [], "plain"),
+ ("MT-M20 a second decision ruling admits another dissent (compat C-F2)", "hypotheses.py",
+  'sum(1 for x in h_ if x[1] == "decision") != 1', 'sum(1 for x in h_ if x[1] == "decision") < 1', "hypotheses.py", [],
+  "plain"),
+ ("MT-M21 a dissent logged before the ruling counts (compat C-F2)", "hypotheses.py",
+  "        if m.group(0).strip() not in {l_.strip() for l_ in then.splitlines()}:", "        if True:", "hypotheses.py",
+  [], "plain"),
+ ("MT-M22 the page-1 row for an unruled suspect is dropped (safety F2)", "hypotheses.py",
+  '    if never:\n        # DESIGN-MT fix round', "    if False:\n        # DESIGN-MT fix round", "hypotheses.py", [], "plain"),
+ ("MT-M23 the README files an unruled suspect under the generic reviewer's-finding row (safety F2)", "project.py",
+  '    (r"may record a missing-theory decision outside the canonical form", MT_NOTE, False),\n', "", "project.py", [],
+  "plain"),
+ ("MT-M24 D2: the human-answer mask runs to the last quote of the line (safety F6)", "decisions.py",
+  "        (len(body) - 1 if body.endswith('\"') else -1)", "        body.rfind('\"')", "decisions.py", [], "plain"),
+ ("MT-M25 a `revotes` commit with no re-vote lane files rules (review N1)", "hypotheses.py",
+  '                    if c and subj.endswith(" revotes") and not _revote_lanes_in(repo, c, os.path.relpath(p, repo)):',
+  '                    if False:', "hypotheses.py", [], "plain"),
+ ("MT-M26 a dissented line is called 'not judged by an independent agent' on page 1 (review N2)", "hypotheses.py",
+  '    never = [x for x in r.get("suspects") or [] if x[0] not in dis]', '    never = list(r.get("suspects") or [])',
+  "hypotheses.py", [], "plain"),
+ ("MT-M27 the README files a dissented line under the never-ruled note (review N2)", "project.py",
+  '    (r"the operator dissents \\(MT DISSENT", MT_DISPUTED_NOTE, False),          # review N2, before MT_NOTE\n', "",
+  "project.py", [], "plain"),
+ ("MT-M28 the delivery note calls a dissented line 'not judged' (review N2)", "make_report.py",
+  '                if "the operator dissents (MT DISSENT" in str(f) else', '                if False else',
+  "hypotheses.py", [], "plain"),
 ]
 
 # --- trial #7 (F10 scheduling): every check that needs a lane item has a pinned path into a lane prompt ----
@@ -3593,7 +3746,7 @@ MUTANTS += [
   '    if not re.search(r"\\w", ans):\n        return False', '    if False:\n        return False',
   "decisions.py", [], "plain"),
  ("b12r-2 a quoted [DELEGATED]/[PROXY] tag closes Checkpoint C (quote-stripping hides it)", "decisions.py",
-  "    return not OPERATOR_TAG_RE.search(ans) and not", '    return not OPERATOR_TAG_RE.search(QUOTED_RE.sub("", ans)) and not',
+  "    return not OPERATOR_TAG_RE.search(ans)\n", '    return not OPERATOR_TAG_RE.search(QUOTED_RE.sub("", ans))\n',
   "decisions.py", [], "plain"),
  ("b12r-3 a lower-case or spaced [ delegated ] tag closes Checkpoint C", "decisions.py",
   'OPERATOR_TAG_RE = re.compile(r"\\[\\s*(?:proxy|delegated)\\b", re.I)',
@@ -3606,7 +3759,7 @@ MUTANTS += [
   '        doc["paper-faithfulness"] += [i for i in f13 if i not in doc["paper-faithfulness"]]', "        pass",
   "prompt.py", [], "plain"),
  ("f13s-2 the paper-faithfulness prompt does not list the F13 items (MISSING THEORY TO JUDGE)", "prompt.py",
-  "             for it in items if it in (f13 or {}) and not it.startswith(flag)]", "             for it in items if False]",
+  "             for it in items if it in (f13 or {}) and not it.startswith((flag, hyp))]", "             for it in items if False]",
   "prompt.py", [], "plain"),
  ("f13s-3 a missing-theory hypothesis's `yes` needs no Pass on its F13 item", "hypotheses.py",
   '            if not any(e.get("verdict") == "Pass" and " ".join(str(e.get("item", "")).split()) in want for e in named):',
@@ -3636,7 +3789,7 @@ MUTANTS += [
  ("b5p-6 a binder that IS the conclusion gets a flag item", "hypotheses.py",
   ' or any(f.startswith("IS THE CONCLUSION") for _r, _b, fs in fl for f in fs):', ":", "hypotheses.py", [], "plain"),
  ("b5p-7 scope does not schedule the flag items", "hypotheses.py",
-  "    return {**f13_items(cfg, rd), **flag_items(cfg, rd)}", "    return f13_items(cfg, rd)", "prompt.py", [], "plain"),
+  "    own = {**f13_items(cfg, rd), **flag_items(cfg, rd)}", "    own = f13_items(cfg, rd)", "prompt.py", [], "plain"),
  ("b5p-8 the flag item check loses its registered lane path", "prompt.py",
   '    "FLAG_ITEM": ("hypotheses.py",', '    "FLAG_ITEMS": ("hypotheses.py",', "prompt.py", [], "plain"),
  ("b5p-9 lane C is not asked the flag item's question", "prompt.py",
@@ -3772,7 +3925,7 @@ MUTANTS += [
   'tests/delivery.py', [], 'plain'),
  # b10-32 re-pointed at the integration: a result's vacuity is result_status.py's (B9)
  ("b10-32 a result's vacuity is not its status", 'result_status.py',
-  '        if mentions(_col(vh, r, "statement"), label, names):\n            records.add("vacuous")',
+  '        if mentions(primary_subject(_col(vh, r, "statement"), "vacuous"), label, names):\n            records.add("vacuous")',
   '        if False:\n            records.add("vacuous")',
   'tests/delivery.py', [], 'plain'),
 ]
@@ -3900,8 +4053,8 @@ MUTANTS += [
   "make_report.py", "    if c[\"commits\"] and not c.get(\"comment_only\") and not cap:",
   "    if c[\"commits\"] and not c.get(\"comment_only\"):", "tests/delivery.py", [], "plain"),
  ("rf-1b the cap counts rounds from the approval, not from the final full round (one round too few)", "project.py",
-  "    return (None, []) if last is None else (proof[last], proof[last + 1:])",
-  "    return (None, []) if last is None else (proof[last], proof[last:])", "tests/delivery.py", [], "plain"),
+  "    return proof[last], proof[start + 1:]",
+  "    return proof[last], proof[start:]", "tests/delivery.py", [], "plain"),
  ("rf-1d the cap counts from Stage 4's opening full round, not the newest (mini5: capped before Stage 5)", "project.py",
   "    last = max((i for i, n in enumerate(proof) if is_full_round(n)",
   "    last = min((i for i, n in enumerate(proof) if is_full_round(n)", "tests/delivery.py", [], "plain"),
@@ -3916,11 +4069,9 @@ MUTANTS += [
  ("rf-5b rows the last adjudication saw count as pending (a delivery that can never clear)", "make_report.py",
   "    return [l for l in now if l not in before]", "    return now", "tests/delivery.py", [], "plain"),
 ]
-MUTANTS += [
- ("rf-7 under involved an answer citing an escalation (or an adjudicator's record) closes Checkpoint C as the human's",
-  "decisions.py", "    return not OPERATOR_TAG_RE.search(ans) and not OPERATOR_SOURCE_RE.search(ans)",
-  "    return not OPERATOR_TAG_RE.search(ans)", "tests/delivery.py", [], "plain"),
-]
+# rf-7 ("under involved an answer citing an escalation (or an adjudicator's record) closes Checkpoint C as the human's")
+# RETIRED by DESIGN-SW2 1.2: the approver's Q5 decision (2026-11-15) makes that the intended behaviour (fix 7 reversed,
+# TRADEOFFS); its successors are SW2-M4 (the tag test kept) and SW2-M5 (the adopted source shown back).
 MUTANTS += [
  ("rf-8 at the statement-round cap a QUESTION the agent decides (hands-off) counts as an open finding (stop 4)",
   "scope.py", "        d == \"ADOPT\" or (d == \"QUESTION\" and human(last, k.split(\" :: \", 1)[-1]))))",
@@ -3939,14 +4090,9 @@ MUTANTS += [
   "            key = norm_label(item) if lane == \"paper-faithfulness\" else item_decl(item, ns, known)",
   "            key = item if lane == \"paper-faithfulness\" else item_decl(item, ns, known)", "prompt.py", [], "plain"),
 ]
-MUTANTS += [
- ("rf-6 dev: a closed stop on RED[status-unmapped] accepts nothing (no cure: the delivery is refused for ever)",
-  "make_report.py", "            if r.code == _rs.UNMAPPED_CODE and unmapped_line(r) not in accepted:",
-  "            if r.code == _rs.UNMAPPED_CODE:", "tests/delivery.py", [], "plain"),
- ("rf-6b dev: an open (not closed) stop already accepts the unmapped status", "make_report.py",
-  "        if not (stops.load(os.path.join(sd, \"CLOSED.json\")) or {}).get(\"by\"):\n            continue",
-  "        if False:\n            continue", "tests/delivery.py", [], "plain"),
-]
+# rf-6, rf-6b retired (B15): equivalent mutants. status-unmapped is NEVER_STOP (project.py) since 2026-10-28, so no
+# new run has a stop on it and make_report's unmapped_accepted is always empty; the code stays for an older dev
+# record with a closed status-unmapped stop (removing it is cleanup, not faithfulness)
 MUTANTS += [
  ("rf-3 a set-aside round's taken name is not refused with the empty-commit way out (scope.py's bare FAIL)",
   "scope.py", "    taken = taken_problem(cfg, repo, round_name) if not verify else None\n    if taken:",
@@ -4753,7 +4899,7 @@ MUTANTS += [
   "    if seal is None:\n        return why + verdicts", "    if seal is None:\n        return None", "readers.py", [],
   "plain"),
  ("STATUSRET1 the seal accepts a returned FINDINGS.md saved with one character changed (C3a)", "run_record.py",
-  "    if _sha(raw) != digest:", "    if False:", "tests/delivery.py", [], "plain"),
+  "    if _sha(raw) != digest:", "    if False:", "readers.py", [], "plain"),   # B15: readers.py's G5 seal checks kill it
  ("STATUSRET3 the status-check spawn line does not say a refused FINDINGS.md may be returned", "run_record.py",
   '            f"`sha256sum <<\'{returned_delimiter(token)}\'`, ending with the same line.")',
   '            f"`sha256sum <<\'RETURNED\'`, ending with the same line.")', "prompt.py", [], "plain"),
@@ -5401,8 +5547,8 @@ MUTANTS += [
  # floor and both full selftests (the gate was tested hands-off only); stops.py --floor now runs the gate's controls
  # at every involvement level
  ("MG9 the math gate refuses nothing at involvement `involved`", "stops.py",
-  "    block, notes = [], []\n    for cmd in standard_blocking(cfg):",
-  '    block, notes = [], []\n    if cfg.get("involvement") == "involved":\n        return block, notes\n'
+  "    block, notes, p0_out = [], [], []\n    for cmd in standard_blocking(cfg):",
+  '    block, notes, p0_out = [], [], []\n    if cfg.get("involvement") == "involved":\n        return block, notes\n'
   "    for cmd in standard_blocking(cfg):", "stops.py", ["--floor"], "plain"),
  # fix 4 (F3): a real sorry or non-standard axiom is never a core fault's
  ("E4-1 core_covered covers a work line", "stops.py",
@@ -5491,7 +5637,7 @@ MUTANTS += [
   '    return next(((p, c) for r, p, c in NOTE_KINDS if re.search(r, str(n))), ("Other", True))',
   "project.py", [], "plain"),
  ("E2-13 (review M1) a trailing parenthetical is cut even without a space or code span", "project.py",
-  '        if m and (" " in m.group(1) or "`" in m.group(1)) and m.start() > 0:', "        if m and m.start() > 0:",
+  '        if m and (" " in m[1] or "`" in m[1]) and m[0] > 0:', "        if m and m[0] > 0:",
   "project.py", [], "plain"),
  ("E2-14 (review M1) a cell is split inside parentheses", "project.py",
   "    for part in _split_outside(cell):", '    for part in cell.split("; "):', "project.py", [], "plain"),
@@ -5695,7 +5841,9 @@ MUTANTS += [
   '            ok_, cov = rc == 0, f"the coverage roll-up exited {rc} (a crash)"', "project.py", [], "plain"),
  ("E2E1-b any coverage exit 1 is finished, also with no summary line (a crash before it)", "audit_coverage.py",
   "    if len(sums) != 1:\n        return False, f\"the coverage roll-up exited {rc} without its one summary line",
-  "    if False:\n        return False, f\"the coverage roll-up exited {rc} without its one summary line",
+  # B15 re-pointed: the guard stays and answers "finished" (with `if False:` the next line's sums[0] raised
+  # IndexError, a crash of the selftest, not a FAIL of its check)
+  "    if len(sums) != 1:\n        return True, f\"the coverage roll-up exited {rc} without its one summary line",
   "audit_coverage.py", [], "plain"),
  ("E2E1-c an exit code that disagrees with the summary line is finished", "audit_coverage.py",
   "    if (rc == 1) != bool(fails or drift):", "    if False:", "audit_coverage.py", [], "plain"),
@@ -5749,7 +5897,7 @@ MUTANTS += [
 # --- post-paper E2E fix 2 (2026-11-11), AUDIT-P2 M2: README "What the checking code found" ---------------------------
 MUTANTS += [
  ("E2F2-6 a faithful result the approved sheet flags CHECK is not marked", "project.py",
-  "    mk |= {l for l, _ in flagged}\n", "    pass\n", "project.py", [], "plain"),
+  "    fl = {l for l, _ in flagged}     #", "    fl = set()     #", "project.py", [], "plain"),
  ("E2F2-7 the summary's columns are read by position, not by the header", "project.py",
   "                    cols, on = hc, True", "                    cols, on = (0, 1), True", "project.py", [], "plain"),
  ("E2F2-8 a summary table whose header names no Status column is read as the results table", "project.py",
@@ -5830,4 +5978,463 @@ MUTANTS += [
  ("E2F2e-1 the README says a result it could not pair is not in the summary's table (AUDIT-P3 D1)", "project.py",
   "(\"† Not paired with a row of the summary's table: the program looked for these names there and found no row \"",
   "(\"† Not found in the summary's table (the program looked for these names there): \"", "project.py", [], "plain"),
+]
+
+# --- next batch (DESIGN-NB.md, 2026-11-14) -----------------------------------------------------------------------
+MUTANTS += [
+ ("SH-1 the F12 begin matcher compares full names again (B1: make_report had two `_short`s)", "make_report.py",
+  "{_decl_short(x) for x in b.get(\"decls\") or []}", "{str(x) for x in b.get(\"decls\") or []}",
+  "make_report.py", [], "plain"),
+]
+MUTANTS += [
+ ("B3-1 the delivery's coverage note reads a hand-written summary with the strict two-column reader (cannot see N)",
+  "make_report.py", "st, seen = _hand_rows(text, keys) if hand_edited else _table_rows_of(text)",
+  "st, seen = _table_rows_of(text)", "make_report.py", [], "plain"),
+ ("B3-2 a label's trailing parenthetical is cut at its innermost `(`, not the balanced one", "project.py",
+  "    m = _trailing_paren(s)\n    return s[:m[0]].strip() if m and m[0] > 0 else s\n",
+  "    m = re.search(r\"\\s*\\([^()]*\\)$\", s)\n    return s[:m.start()].strip() if m and m.start() > 0 else s\n",
+  "make_report.py", [], "plain"),
+]
+MUTANTS += [
+ ("B5-1 the README's CHECK footnote heading follows the previous paragraph with no blank line (AUDIT-P4 D2)",
+  "project.py", '        out += ["", "‡ Faithful by the review records', '        out += ["‡ Faithful by the review records',
+  "project.py", [], "plain"),
+ ("B5-2 the sheet's CHECK mark is † again, the wording mark's sign (AUDIT-P4 D3)", "project.py",
+  "+ (' ‡' if l in fl else '') for l in ls)", "+ (' †' if l in fl else '') for l in ls)", "project.py", [], "plain"),
+]
+MUTANTS += [
+ ("MN-1 a VACUOUS row's status goes to every result its statement cell mentions (AUDIT-P4 D1)", "result_status.py",
+  '        if mentions(primary_subject(_col(vh, r, "statement"), "vacuous"), label, names):',
+  '        if mentions(_col(vh, r, "statement"), label, names):', "result_status.py", [], "plain"),
+ ("MN-2 a SKIPPED row's status goes to every result its `what` cell mentions (AUDIT-P4 D1)", "result_status.py",
+  '        if mentions(primary_subject(what_, "skipped"), label, names):',
+  '        if mentions(what_, label, names):', "result_status.py", [], "plain"),
+]
+MUTANTS += [
+ ("B20-1 the stops table reads an Open questions entry answered only when it says `(answered` (CR-4)", "make_report.py",
+  "        ans_ = decisions.entry_answered(b, refs_)", '        ans_ = "(answered" in t', "make_report.py", [], "plain"),
+ ("B20-2 an answer line naming an entry's QUESTION row does not answer it (CR-4)", "decisions.py",
+  '    return any((" ".join((q.group("item") or "").split()), q.group("round")) in qrefs for q in QROW_RE.finditer(entry))',
+  "    return False", "decisions.py", [], "plain"),
+]
+MUTANTS += [
+ ("NR-1 an ADOPTed docstring fix on an index row takes the no-round path again (AUDIT-P3 §2)", "scope.py",
+  "        if kind == \"diff\" and changed and adopted_doc_fix(cfg, repo, c):", "        if False:", "scope.py", [], "plain"),
+ ("NR-2 adopted_doc_fix ignores the ADOPT decision (every decided row counts)", "scope.py",
+  "        if \"ADOPT\" in (v.get(\"decs\") or []):", "        if True:", "scope.py", [], "plain"),
+]
+MUTANTS += [
+ ("F15-1 a literature hypothesis with no valid row gets no paper-faithfulness item (CR-1: the commit dead end)",
+  "hypotheses.py", "    return {**own, **hyp_items(cfg, rd, set(own.values()))}", "    return own",
+  "prompt.py", [], "plain"),
+ ("F15-2 the hypothesis item is rendered as a missing-theory item", "prompt.py",
+  "             for it in items if it in (f13 or {}) and not it.startswith((flag, hyp))]",
+  "             for it in items if it in (f13 or {}) and not it.startswith(flag)]", "prompt.py", [], "plain"),
+]
+MUTANTS += [
+ ("KF-1 a KNOWN_FAULTS notice under another subject is a tamper FAIL again (CR-10)", "integrity.py",
+  '                    and fnmatch.fnmatch(os.path.basename(rel), "KNOWN_FAULTS-*.md"):',
+  '                    and False:', "integrity.py", [], "plain"),
+]
+MUTANTS += [
+ ("UP-1 a lane probe's .py is listed as an unpinned script (D3)", "integrity.py",
+  'UNPINNED_SKIP = ("*.probes/*", "citations/*",', 'UNPINNED_SKIP = ("citations/*",', "integrity.py", [], "plain"),
+ ("UP-2 the stray-script listing never reaches --check (D3)", "integrity.py",
+  '        out += [("note", f"[unpinned-py] {p_}" + ("" if p_.startswith("(") else " (not in the pinned apparatus)"))',
+  "        out += [(\"note\", \"\")", "integrity.py", [], "plain"),
+]
+MUTANTS += [
+ ("LS-1 the probe queue waits without bound (D5: a 600 s tool call is cut)", "lean_slot.py",
+  "        if waited >= max_wait:", "        if False:", "lean_slot.py", [], "plain"),
+ ("LS-2 the memory floor is ignored", "lean_slot.py",
+  "            if free_mb and m is not None and m < free_mb:", "            if False:", "lean_slot.py", [], "plain"),
+ ("LS-3 a slot is never released by its holder", "lean_slot.py",
+  "    try:\n        os.close(fd)\n    except OSError:\n        pass\n\n\ndef run_cmd",
+  "    pass\n\n\ndef run_cmd", "lean_slot.py", [], "plain"),
+ ("LS-4 no inode re-check: a deleted slot file's lock counts", "lean_slot.py",
+  "            if not same:", "            if False:", "lean_slot.py", [], "plain"),
+ ("LS-5 the adjudicator's worker no longer runs scope.py --verify (B13)", "project.py",
+  '                                ("verify", "scope", vf)):', "                                ):", "project.py", [], "plain"),
+ ("LS-6 a crashed scope --verify in the worker's log reads as current (B13)", "project.py",
+  "                    or rc not in (0, 1, 2) or not fin or (rc == 0) != (fin[-1] == \"scope verify: OK\"):",
+  "                    or not fin:", "project.py", [], "plain"),
+ ("LS-7 a --timeout above 240 is not cut (re-check LOW a)", "lean_slot.py",
+  "    if timeout > MAX_TIMEOUT or timeout <= 0:", "    if timeout <= 0:", "lean_slot.py", [], "plain"),
+]
+MUTANTS += [
+ ("K-1 a `met` conditions row no longer closes its item (G1)", "result_status.py",
+  'COND_CLOSED = ("met", "not applicable")', 'COND_CLOSED = ("not applicable",)', "result_status.py", [], "plain"),
+ ("K-3 delivery_rounds ignores the K-stage line (no cap restart)", "project.py",
+  "    start = max(last, proof.index(kr)) if kr in proof else last", "    start = last", "project.py", [], "plain"),
+ ("K-4 the README drops the CR-6 banner above the sheet's CHECK lines", "project.py",
+  '        out += ["", SHEET_BANNER.format(date=appr_ or "at Checkpoint B")]', "        pass", "project.py", [], "plain"),
+]
+# --- next batch, fix round 1 (REVIEW-ATTACK-NB, REVIEW-COMPAT-NB) --------------------------------------------------
+MUTANTS += [
+ ("FR-1 a VACUOUS row's context mention answers the mentioned result's Fail again (attack 1)", "result_status.py",
+  '        if mentions(primary_subject(_col(vh, r, "statement"), "vacuous"), label, names):\n            records.add("vacuous")',
+  '        if mentions(_col(vh, r, "statement"), label, names):\n            records.add("vacuous")\n'
+  '        if mentions(primary_subject(_col(vh, r, "statement"), "vacuous"), label, names):',
+  "result_status.py", [], "plain"),
+ ("FR-3 a status is read by prefix again ('met only for part (a)' closes) (attack 4)", "result_status.py",
+  "    m = _STATUS_RE.match(t)", "    m = _STATUS_RE.match(t.split()[0] if t.split() else t)", "result_status.py", [],
+  "plain"),
+ ("FR-4 `met` with no evidence closes its item (attack 4)", "result_status.py",
+  '        if st == "met" and col("evidence").strip("`*- ") == "":', "        if False:", "result_status.py", [], "plain"),
+ ("FR-5 `not applicable — now C<k>` closes with no C<k> listed (attack 4)", "result_status.py",
+  '            if now and not (out.get(now.group(1).upper()) or {}).get("listed"):', "            if False:",
+  "result_status.py", [], "plain"),
+ ("FR-7 a non-answer line naming a QUESTION row answers it (attack 7)", "decisions.py",
+  "        if not (m or CHECKPOINT_ANSWER_RE.match(ln)):\n            continue", "        if False:\n            continue",
+  "decisions.py", [], "plain"),
+ ("FR-7b a delegated `- answered` line counts as the human's answer (attack 7)", "decisions.py",
+  "        if DELEGATED_RE.search(ln) or PROXY_RE.search(ln):\n            continue", "        if False:\n            continue",
+  "decisions.py", [], "plain"),
+ ("FR-8 a killed wrapper leaves its probe running (compat 1)", "lean_slot.py",
+  "            signal.signal(sig, _killed)", "            pass", "lean_slot.py", [], "plain"),
+ ("FR-10 lean_max_wait above 300 is not capped (compat 1)", "lean_slot.py",
+  'min(num("lean_max_wait", DEFAULT_MAX_WAIT), DEFAULT_MAX_WAIT)', 'num("lean_max_wait", DEFAULT_MAX_WAIT)',
+  "lean_slot.py", [], "plain"),
+ ("FR-11 a delegated reading with no `reading` item is not inferred (attack 5)", "result_status.py",
+  '        if "[DELEGATED" not in ln or "take reading" not in ln:', "        if True:", "result_status.py", [], "plain"),
+ ("FR2-2 a conditions table whose header does not start with `id` is skipped silently again (M2)", "result_status.py",
+  '        odd = h[0].strip("* ").lower() != "id"     # fix round 2 (M2): noted, read by its first column, open',
+  '        odd = False\n        if h[0].strip("* ").lower() != "id":\n            continue', "result_status.py", [], "plain"),
+ ("FR2-3 an adjudicator's `## Conditions` table not headed `id` is skipped silently again (M2)", "result_status.py",
+  '            odd = h[0].strip("* ").lower() != "id"     # fix round 2 (M2)',
+  '            odd = False\n            if h[0].strip("* ").lower() != "id":\n                continue', "result_status.py", [],
+  "plain"),
+ ("FR2-4 an item of a table not headed `id` can close (M2)", "result_status.py",
+  '        if it.pop("odd", False):\n            it["why_open"] = odd_why', '        if it.pop("odd", False):\n            pass',
+  "result_status.py", [], "plain"),
+ ("FR2-5 a command-line --max-wait above 300 is not capped (fix round 2)", "lean_slot.py",
+  "        if mw > DEFAULT_MAX_WAIT:     # fix round 2: the command line is capped like the config value",
+  "        if False:", "lean_slot.py", [], "plain"),
+]
+# --- fix round K (AUDIT-P5): the K certificate on the e2e run's records ------------------------------------------
+MUTANTS += [
+ ('FRK-5 a CONDITIONS.md row with a raw id is dropped again (AUDIT-P5 §3)', 'result_status.py', '            unparsed.append(f"{CONDITIONS_MD}: {col(\'id\')!r}")     # fix round K: kept under its raw id, open', '            unparsed.append(f"{CONDITIONS_MD}: {col(\'id\')!r}")\n            continue', 'result_status.py', [], "plain"),
+ ("FRK-6 an adjudicator's `## Conditions` row with a raw id is dropped again (AUDIT-P5 §3)", 'result_status.py', '                unparsed.append(f"{os.path.basename(d)}/ADOPTED.md: {col(\'id\')!r}")     # fix round K: raw id, open', '                unparsed.append(f"{os.path.basename(d)}/ADOPTED.md: {col(\'id\')!r}")\n                continue', 'result_status.py', [], "plain"),
+ ('FRK-7 a raw-id item can close (AUDIT-P5 §3)', 'result_status.py', '            it["why_open"] = RAW_ID_WHY', '            pass', 'result_status.py', [], "plain"),
+ ('FRK-8 the `answered` copies of a delegated reading are inferred again (AUDIT-P5 §4)', 'result_status.py', '        if re.match(r"(?i)answered\\b", body):\n            continue', '        if False:\n            continue', 'result_status.py', [], "plain"),
+ ('FRK-9 the item of a `question:<decl>` anchor line is not read (AUDIT-P5 §4)', 'result_status.py', '((a.group(1) if a else "") or (q.group("item")', '((q.group("item")', 'result_status.py', [], "plain"),
+ ('FRK-10 one R? item per log line again, not per decision (AUDIT-P5 §4)', 'result_status.py', '        if key in seen:\n            continue', '        if False:\n            continue', 'result_status.py', [], "plain"),
+ ("FRK-11 a `reading` item naming the decl's row by label does not count as the item (AUDIT-P5 §4)", 'result_status.py', '                       or (it.get("open") and any(mentions(" ".join([str(it.get("results") or ""),\n                                                                     str(it.get("text") or "")]), l_, ns_)\n                                                  for l_, ns_ in rows_)) for it in readings):', '                       for it in readings):', 'result_status.py', [], "plain"),
+ ("FRK-13 a CLOSED `reading` item naming only the decl's row hides another decision's R? item (REVIEW-RAMK-NB K)", 'result_status.py', '                       or (it.get("open") and any(mentions(', '                       or (True and any(mentions(', 'result_status.py', [], "plain"),
+]
+# --- fix round P6 (AUDIT-P6): the K certificate on the final e2e run's records; the adjudicator's wait bound -------------
+MUTANTS += [
+ ("P6-1 a results cell's plural list is not written out for the unmatched-entry check (AUDIT-P6 fix 1)", 'result_status.py', '    for e in re.split(r"[,;&]|\\band\\b", expand_labels(cell)):', '    for e in re.split(r"[,;&]|\\band\\b", cell):', 'result_status.py', [], "plain"),
+ ("P6-3 a range of labels is not written out (AUDIT-P6 fix 1)", 'result_status.py', 'and 0 < int(lb) - int(la) <= 50:', 'and False:', 'result_status.py', [], "plain"),
+ ("P6-4 a range it cannot write out reads as its first label (attached to one row, not counted everywhere)", 'result_status.py', '                    return m.group(0)       # as written', '                    out.append(f"{kind} {a}"); k += 2; continue       # as written', 'result_status.py', [], "plain"),
+ ("P6-5 a delegated line's \"open item C<n>\" is not read: helper R? items count everywhere again (AUDIT-P6 fix 2)", 'result_status.py', '        if not rows_ and refs and any(', '        if False and refs and any(', 'result_status.py', [], "plain"),
+ ("P6-6 a reference to a CLOSED item hides the R? item (AUDIT-P6 fix 2)", 'result_status.py', 'items and items[r_].get("open") and items[r_].get("kind") == "reading"', 'items and items[r_].get("kind") == "reading"', 'result_status.py', [], "plain"),
+ ("P6-7 a reference to an id that does not exist hides the R? item (AUDIT-P6 fix 2)", 'result_status.py', 'any(r_ in items and items[r_].get("open")', 'any(r_ not in items or items[r_].get("open")', 'result_status.py', [], "plain"),
+ ("P6-8 one round's K3 ruling hides every round's REPRESENTATION notes again (AUDIT-P6 fix 3)", 'result_status.py', '        if os.path.relpath(f, rd).split(os.sep)[0] in ruled:', '        if ruled:', 'result_status.py', [], "plain"),
+ ("P6-9 the `K3-0 | not applicable` ruling is not read (AUDIT-P6 fix 3)", 'result_status.py', '            if not re.fullmatch(r"K3-\\d+", i):', '            if not re.fullmatch(r"K3-[1-9]\\d*", i):', 'result_status.py', [], "plain"),
+ ("P6-10 a `K3-0` row with no reason rules the round (AUDIT-P6 fix 3)", 'result_status.py', '                               and str(col("reason")).strip("-` *")):', '                               ):', 'result_status.py', [], "plain"),
+ ("P6-11 an item on a deleted declaration is counted again (AUDIT-P6 §3)", 'result_status.py', '        if stale(it["results"]):', '        if False:', 'result_status.py', [], "plain"),
+ ("P6-12 with no declaration set every project item reads stale (dropped, not open; AUDIT-P6 §3)", 'result_status.py', '        if not (known and ns and name.startswith(', '        if not (ns and name.startswith(', 'result_status.py', [], "plain"),
+ ("P6-16 the adjudicator's default wait outlasts Claude Code's 180 s move to the background (AUDIT-P6 §4, B13)", 'project.py', 'ADJ_WAIT = 150          # the default bound', 'ADJ_WAIT = 540          # the default bound', 'project.py', [], "plain"),
+]
+# --- fix round P6b (REVIEW-FIXP6-NB): "open item C<n>" only for the line's own row; stale only on a confirmed deletion --
+MUTANTS += [
+ ("P6b-1 an \"open item C<n>\" about another result hides the R? item (REVIEW-FIXP6-NB M1)", 'result_status.py', '        if not rows_ and refs and any(r_ in items', '        if refs and any(r_ in items', 'result_status.py', [], "plain"),
+ ("P6b-3 a renamed declaration (same fingerprint) reads stale (REVIEW-FIXP6-NB M2)", 'result_status.py', '        return fp is not None and fp not in cur_fp', '        return True', 'result_status.py', [], "plain"),
+ ("P6b-4 an unknown old fingerprint reads stale (REVIEW-FIXP6-NB M2)", 'result_status.py', '        return fp is not None and fp not in cur_fp', '        return fp not in cur_fp', 'result_status.py', [], "plain"),
+ ("P6b-5 a confirmed deletion is no longer stale (REVIEW-FIXP6-NB M2)", 'result_status.py', '        return fp is not None and fp not in cur_fp', '        return False', 'result_status.py', [], "plain"),
+ ("P6b-6 an R? item on a deleted declaration reads stale (REVIEW-FIXP6-NB L1)", 'result_status.py', '        if it["kind"] != "bridge":\n            continue\n        if stale(', '        if stale(', 'result_status.py', [], "plain"),
+]
+# --- DESIGN-RAM: the memory guard (lean_slot.py guard; re-check R1) ---------------------------------------------------
+MUTANTS += [
+ ("LG-1 the guard pauses a tool check (a lean under python3 audits/<x>.py)", "lean_slot.py",
+  '                        cls = "probe" if name in AGENT_SCRIPTS else "tool"', '                        cls = "probe"',
+  "lean_slot.py", [], "plain"),
+ ("LG-2 one pause per tick (a burst outruns the guard)", "lean_slot.py",
+  "                    self._pause(p, tab, now, a, r)\n",
+  "                    self._pause(p, tab, now, a, r)\n                    break\n", "lean_slot.py", [], "plain"),
+ ("LG-3 the stop is sent before the pause is recorded", "lean_slot.py",
+  "        if not self._record(pid, tab, anc):\n            return\n        try:\n            self.os.kill(pid, signal.SIGSTOP)\n"
+  "        except OSError:\n            self._unrecord(pid)\n            return\n",
+  "        try:\n            self.os.kill(pid, signal.SIGSTOP)\n        except OSError:\n            return\n"
+  "        if not self._record(pid, tab, anc):\n            return\n", "lean_slot.py", [], "plain"),
+ ("LG-4 no recovery when ensure finds the guard dead", "lean_slot.py",
+  "        n = recover(lockdir)\n        if n:", "        n = 0\n        if n:", "lean_slot.py", [], "plain"),
+ ("LG-5 no 10 min cap on a pause", "lean_slot.py",
+  '                   else "cap" if now - st[1] >= self.cap else None)', "                   else None)",
+  "lean_slot.py", [], "plain"),
+ ("LG-6 no SIGCONT for a paused probe with a terminating signal pending", "lean_slot.py",
+  '            why = ("signal" if self.os.pending_term(pid) else', '            why = ("signal" if False else',
+  "lean_slot.py", [], "plain"),
+ ("LG-7 lean --server / --worker (an editor) is counted and paused", "lean_slot.py",
+  '            if not any(a.startswith(("--server", "--worker")) for a in argv[1:]):', "            if True:",
+  "lean_slot.py", [], "plain"),
+ ("LG-8 the cgroup's memory limit is ignored", "lean_slot.py",
+  "    free = (cg or cgroup_mb)()[1]\n", "    free = None\n", "lean_slot.py", [], "plain"),
+ ("LG-9 the wrapper's floor is R + P (unreachable on 8 GB: every probe waits the full wait)", "lean_slot.py",
+  "F=min(r + p, t - p // 2))", "F=r + p)", "lean_slot.py", [], "plain"),
+ ("LG-10 the guard kills instead of pausing", "lean_slot.py",
+  "            self.os.kill(pid, signal.SIGSTOP)\n", "            self.os.kill(pid, signal.SIGKILL)\n", "lean_slot.py", [],
+  "plain"),
+ ("LG-11 ensure resumes the pauses of a LIVE guard (re-check R1)", "lean_slot.py",
+  '        except BlockingIOError:\n            return "running"',
+  '        except BlockingIOError:\n            recover(lockdir)\n            return "running"', "lean_slot.py", [], "plain"),
+ ("LG-12 a zombie lean (exited, not reaped) counts as running: the paused probes wait for the cap", "lean_slot.py",
+  '        leans = {pid: c for pid in tab if tab[pid]["state"] not in ("Z", "X") and (c := self.classify(pid, tab))}',
+  "        leans = {pid: c for pid in tab if (c := self.classify(pid, tab))}", "lean_slot.py", [], "plain"),
+ ("LG-13 a lean under a Codex reviewer launched by codex_spawn.py is a tool check (never paused)", "lean_slot.py",
+  'AGENT_SCRIPTS = ("lean_slot", "codex_spawn")', 'AGENT_SCRIPTS = ("lean_slot",)', "lean_slot.py", [], "plain"),
+ ("LG-14 memory pressure (PSI) never pauses (V2 round 1: page-cache thrashing with free memory left)", "lean_slot.py",
+  "        pressed = sp is not None and sp >= PSI_PAUSE", "        pressed = False", "lean_slot.py", [], "plain"),
+ ("LG-15 a memory resume ignores the pressure of the last 5 s", "lean_slot.py",
+  "              and ((s5 := stall(5)) is None or s5 < PSI_RESUME)):", "              ):", "lean_slot.py", [], "plain"),
+ ("LG-16 no young-probe projection: a burst of probes allocates before the guard reacts (V2 round 2)", "lean_slot.py",
+  "                   if c[0] == \"probe\" and p not in self.paused and now - (c[3] or now) < YOUNG)",
+  "                   if False)", "lean_slot.py", [], "plain"),
+ # fix round RAMK (REVIEW-RAMK-NB F1-F3)
+ ("LG-17 the young-probe need is 5 GB on every machine (8 GB: two small probes cannot run together)", "lean_slot.py",
+  '        p_ = min(sz["P"], max(HYST_MB, (sz["T"] - sz["R"]) // 2)) if sz else PROBE_MB',
+  '        p_ = sz["P"] if sz else PROBE_MB', "lean_slot.py", [], "plain"),
+ ("LG-18 a memory resume needs R + P again (unreachable on 16 GB with 8 GB available)", "lean_slot.py",
+  "              and (proj is None or r is None or proj >= r + HYST_MB)",
+  "              and (proj is None or r is None or proj >= r + max(HYST_MB, p_))", "lean_slot.py", [], "plain"),
+ ("LG-19 a probe resumed for memory is re-paused by the projection alone (flapping)", "lean_slot.py",
+  "                        and (real or self.admit.get(p, 0) <= now)):", "                        and True):",
+  "lean_slot.py", [], "plain"),
+ ("LG-20 no bound on the total pause of a probe while a tool check runs", "lean_slot.py",
+  "set([p for p in running if leans[p][5] >= TOTAL_PAUSE][:1])", "set()", "lean_slot.py", [], "plain"),
+ ("LG-21 a relative tool-script path is not resolved against the process's cwd (cd audits && python3 phase0.py)",
+  "lean_slot.py",
+  "        if not os.path.isabs(a) and (w := wd()) and (m := TOOL_RE.search(os.path.normpath(os.path.join(w, a)))):",
+  "        if False:", "lean_slot.py", [], "plain"),
+ ("LG-22 `python3 -m audits.<x>` is not a tool check", "lean_slot.py",
+  '        if a.startswith("-m") and not a.startswith("--"):', "        if False:", "lean_slot.py", [], "plain"),
+ ("LG-23 a probe cut after a guard pause is called too large", "lean_slot.py",
+  "        if m > 0 and m * 4 >= timeout:\n            return 124,", "        if False:\n            return 124,", "lean_slot.py", [], "plain"),
+ ("LG-25 any pause, however short, makes the cut inconclusive (F1')", "lean_slot.py",
+  "        if m > 0 and m * 4 >= timeout:", "        if m > 0:", "lean_slot.py", [], "plain"),
+ ("LG-24 a pause still in progress is not counted in the wrapper's pause seconds", "lean_slot.py",
+  "    return s + sum(cur.values())", "    return s", "lean_slot.py", [], "plain"),
+]
+# --- DESIGN-SW2 (2026-11-15): hard prose checks become curable, flags reach a judge (BUILD-SW2.md) -------------------
+MUTANTS += [
+ ("SW2-M1 C2: a committed round is re-judged against today's names only", "lanecheck.py",
+  "    _NAMES_AT = hit\n", "    _NAMES_AT = None\n", "tests/round3.py", [], "plain"),
+ ("SW2-M2 C2: a committed round is judged against the names at its commit only (not the union)", "lanecheck.py",
+  "        for f in cfg.get(\"lean_files\") or []:\n            try:\n                text = open(os.path.join(repo, f), encoding=\"utf-8\").read()\n            except (OSError, TypeError):",
+  "        for f in ([] if _NAMES_AT else cfg.get(\"lean_files\") or []):\n            try:\n                text = open(os.path.join(repo, f), encoding=\"utf-8\").read()\n            except (OSError, TypeError):",
+  "tests/round3.py", [], "plain"),
+ ("SW2-M3 C2: the record's settle check returns nothing (ROUND3 M1's guard)", "lanecheck.py",
+  "    if integrity.pinned_version(rounds_dir) < 2:\n        return []\n    out = []\n",
+  "    if True:\n        return []\n    out = []\n", "tests/round3.py", [], "plain"),
+]
+MUTANTS += [
+ ("SW2-M4 C3: a [PROXY]/[DELEGATED]-tagged answer closes Checkpoint C as the human's", "decisions.py",
+  "    return not OPERATOR_TAG_RE.search(ans)\n", "    return True\n", "tests/delivery.py", [], "plain"),
+ ("SW2-M5 C3: the source a human answer adopts is not shown back", "make_report.py",
+  "                        + decisions.adopted_mark(ans), ans))", "                        , ans))", "tests/delivery.py", [],
+  "plain"),
+]
+MUTANTS += [
+ ("SW2-M6 C4: an `- answered` line opening with an operator tag is masked as the human's words", "decisions.py",
+  "        if OPERATOR_TAG_RE.match(line, start + k) or len(body) <= start:", "        if len(body) <= start:",
+  "decisions.py", [], "plain"),
+ # SW2-M7 (C4: a dated tag inside the human's `- answered` words is masked) is MT-M11's mutation on the shared
+ # masking line; the SW2-C4 selftest case "ok [DELEGATED 2026-11-15, operator]" kills it too.
+ ("SW2-M8 C4: an `- answered` line is masked as the human's words under every section", "decisions.py",
+  "re.match(r\"Answered\\b\", sec) and ANSWER_LINE_RE.match(line) else None", "ANSWER_LINE_RE.match(line) else None",
+  "decisions.py", [], "plain"),
+ ("SW2-M9 C6: the whole run log is blanked before the row-citation check (operator lines too)", "make_report.py",
+  "            text_ = _human_words_blanked(text_)", "            text_ = \"\"", "make_report.py", [], "plain"),
+]
+MUTANTS += [
+ ("SW2-M10 C7: no canonical-head line reads as a decision (a sloppy real decision loses its obligations: C-F1)",
+  "hypotheses.py", "    return e is not None and bool(MT_DECISION_LIKE.match(line, e))", "    return False",
+  "hypotheses.py", [], "plain"),
+]
+MUTANTS += [
+ ("SW2-M11 C10: a goal's leave line is stop 1 even after the goal is proved (the dead end)", "decisions.py",
+  "                if sd[0] is not None and not ({d, f\"{ns}.{d}\"} & set(sd[0])):", "                if False:",
+  "decisions.py", [], "plain"),
+ ("SW2-M12 C10: a goal's leave line never counts (a sorry'd goal skips the unproved-goal stop)", "decisions.py",
+  "                if sd[0] is not None and not ({d, f\"{ns}.{d}\"} & set(sd[0])):", "                if True:",
+  "decisions.py", [], "plain"),
+]
+MUTANTS += [
+ ("SW2-M13 C5: the index-row exemption also covers a `_statement`/`_as_printed` target (forgery H3(a))", "make_report.py",
+  "            if t and t in props and not t.endswith((\"_statement\", \"_as_printed\")) and not AS_PRINTED.fullmatch(n)",
+  "            if t and t in props and not AS_PRINTED.fullmatch(n)", "make_report.py", [], "plain"),
+ ("SW2-M14 C5: a ¬X declaration is exempt without an index row citing it", "make_report.py",
+  "    return [(n, t, f, cites[n]) for n, t, f in cand if n in cites]",
+  "    return [(n, t, f, cites.get(n, \"\")) for n, t, f in cand]", "make_report.py", [], "plain"),
+ ("SW2-M14b C5: a refutation-like name (_false, counterexample, as_printed) is exempt when cited (review R1)",
+  "make_report.py", "            and not REFUTATION_NAME.search(n)]", "            ]", "make_report.py", [], "plain"),
+ ("SW2-M14c C5: the correspondence lane is not told its row's declaration has the form ¬X (review R1)", "prompt.py",
+  "                                + (negation_note(cfg, items) if lane == \"correspondence\" else \"\")\n", "",
+  "prompt.py", [], "plain"),
+]
+MUTANTS += [
+ ("SW2-M15 C8: a missing-theory hypothesis restating a goal result opens stop 1 again", "hypotheses.py",
+  "            if g_conc:\n                what = f\"the conclusion of the goal result",
+  "            if g_conc or sorted({x for _r, x in rest if x in goals}):\n                what = f\"the conclusion of the goal result",
+  "hypotheses.py", [], "plain"),
+]
+MUTANTS += [
+ ("SW2-M16 C19: unlisted MT suspects are dropped outside the adjudication commit too (no prompt would list a new one)",
+  "make_report.py", "    if round_name and revotes is not None:\n        out = _unlisted_mt_dropped(rd, round_name, out)",
+  "    if round_name:\n        out = _unlisted_mt_dropped(rd, round_name, out)", "hypotheses.py", [], "plain"),
+ ("SW2-M17 C19: the adjudication commit drops findings that are no MT suspect", "make_report.py",
+  "        if m and f\"MT RULED {m.group(1)}\" not in pr:", "        if not m or f\"MT RULED {m.group(1)}\" not in pr:",
+  "hypotheses.py", [], "plain"),
+]
+MUTANTS += [
+ ("SW2-M18 C24: a residue the stop was opened for counts as cured", "stops.py",
+  "or (residue and c[\"code\"] in RESIDUAL_CODES and c[\"code\"] not in own) for c in cs)",
+  "or (residue and c[\"code\"] in RESIDUAL_CODES) for c in cs)", "stops.py", [], "plain"),
+ ("SW2-M18b C24: dead-witness / record-cite residues fail a cure again (the dead end)", "stops.py",
+  'RESIDUAL_CODES = frozenset({"adj-record", "dead-witness", "record-cite"})', 'RESIDUAL_CODES = frozenset({"adj-record"})',
+  "stops.py", [], "plain"),
+]
+MUTANTS += [
+ ("SW2-M19 C15: CLEARED settles a re-vote lane whatever its NOTEs (ROUND3 H3)", "lanecheck.py",
+  "            if codes == {\"independence\"} and lane in cleared and _mention_clearable(ind_notes.get(lane, [])):",
+  "            if lane in cleared:", "tests/round3.py", [], "plain"),
+ ("SW2-M19b C15: CLEARED settles a re-vote lane's mention of ADOPTED.md or of another round (review R2)",
+  "lanecheck.py",
+  "            if codes == {\"independence\"} and lane in cleared and _mention_clearable(ind_notes.get(lane, [])):",
+  "            if codes == {\"independence\"} and lane in cleared:", "tests/round3.py", [], "plain"),
+]
+MUTANTS += [
+ ("SW2-M20 C32: a Fail that only mentions H blocks `yes` again (forced false `no`)", "hypotheses.py",
+  "        own = [e for e in named if _mentions(str(e.get(\"item\", \"\")), name)]", "        own = named",
+  "hypotheses.py", [], "plain"),
+ ("SW2-M20b C32: a Fail on H's own item no longer blocks `yes`", "hypotheses.py",
+  "            if any(e.get(\"verdict\") != \"Pass\" for e in own) or not any(e.get(\"verdict\") == \"Pass\" for e in named):\n                why.append(f\"`{c}` does not confirm it (`matches source: yes`",
+  "            if not any(e.get(\"verdict\") == \"Pass\" for e in named):\n                why.append(f\"`{c}` does not confirm it (`matches source: yes`",
+  "hypotheses.py", [], "plain"),
+]
+MUTANTS += [
+ ("SW2-M21 1.14: README never names the notes no independent reviewer judged (visibility of unjudged flags)",
+  "project.py",
+  "        opo = [n for n in ns if js[note_id(n)][0] == \"operator\"]\n        nob = [n for n in ns if js[note_id(n)][0] == \"nobody\"]",
+  "        opo = []\n        nob = []", "tests/delivery.py", [], "plain"),
+ ("SW2-M22 1.14: an uncommitted (or changed) NOTES.md counts as the reviewer's judgement", "project.py",
+  "            if logd and not dirty:", "            if True:", "tests/delivery.py", [], "plain"),
+ ("SW2-M23 1.14: the disclosures reach the delivery notes in release only", "stops.py",
+  "    noted(\"phase0's disclosures\", disclosures)\n",
+  "    if rel:\n        noted(\"phase0's disclosures\", disclosures)\n", "stops.py", [], "plain"),
+ ("SW2-M24 1.14: a disclosure with a D record is dropped from the delivery notes", "stops.py",
+  "            notes.append(f\"DISCLOSED[{c}] {' '.join(t.split())[:160]} ({have.get(k) or 'no D record'})\")",
+  "            notes.extend([] if k in have else [f\"DISCLOSED[{c}] {' '.join(t.split())[:160]} (no D record)\"])",
+  "stops.py", [], "plain"),
+ ("SW2-M24b 1.14 (R4): a note the reviewer called a real problem is not named in README", "project.py",
+  "        real = [(n, js[note_id(n)][2]) for n in ns if js[note_id(n)][:2] == (\"reviewer\", \"real problem\")]",
+  "        real = []", "tests/delivery.py", [], "plain"),
+ ("SW2-M24c 1.14 (R4): a note id hashes the code's own D-record suffix", "project.py",
+  "    t = _NOTE_SUFFIX.sub(\"\", \" \".join(str(n).split()))", "    t = \" \".join(str(n).split())",
+  "tests/delivery.py", [], "plain"),
+]
+MUTANTS += [    # fix round SW2-R1 (REVIEW-SAFETY-SW2 F1/F2, REVIEW-COMPAT-SW2 F4)
+ ("SW2-R1a F1: NOTES.md counts as the reviewer's under any commit subject", "project.py",
+  "                by_ = \"reviewer\" if subj.startswith(NOTES_SUBJECT) else \"operator\"",
+  "                by_ = \"reviewer\"", "tests/delivery.py", [], "plain"),
+ ("SW2-R1b F2: a note the reviewer marked `cannot tell` is named nowhere in README", "project.py",
+  "        cant = [(n, js[note_id(n)][2]) for n in ns if js[note_id(n)][:2] == (\"reviewer\", \"cannot tell\")]",
+  "        cant = []", "tests/delivery.py", [], "plain"),
+ ("SW2-R1c F4: a numbered NOTES line (`1. <id>: …`) is not read (a compliant reviewer reads as unjudged)", "project.py",
+  "                for m in re.finditer(r\"(?m)^\\s*(?:[-*]|\\d+[.)])\\s*[\\[`]?(n[0-9a-f]{6})",
+  "                for m in re.finditer(r\"(?m)^\\s*[-*]\\s*[\\[`]?(n[0-9a-f]{6})", "tests/delivery.py", [], "plain"),
+ ("SW2-R1d F1: README drops the caveat that the record cannot show who wrote NOTES.md", "project.py",
+  "              f\"“{NOTES_SUBJECT}”. The formalizing agent saved it, so the record cannot show who wrote it.\", \"\"]",
+  "              f\"“{NOTES_SUBJECT}”.\", \"\"]", "tests/delivery.py", [], "plain"),
+ ("SW2-R1e F1: RUN_RECORD's `judged:` drops the saved-by caveat", "project.py",
+  "    return {\"reviewer\": f\"the NOTES reviewer ({v}; file saved by the formalizing agent)\",",
+  "    return {\"reviewer\": f\"the NOTES reviewer ({v})\",", "tests/delivery.py", [], "plain"),
+]
+
+# --- DESIGN-SW2B (2026-11-16): extraction heuristics in front of fact checks (X1-X4; REVIEW-DESIGN-SW2B C2-C4, C7) --------
+MUTANTS += [
+ ("SW2B-M1 X1: the root test dropped (every unresolved name MISSING: `G.Adj` stops the run again)", "make_report.py",
+  '        if env.contains r || ms.contains r || env.isNamespace r then IO.println s!"MISSING {{s}}" else IO.println s!"MISSING-HEAD {{s}}"\n',
+  '        IO.println s!"MISSING {{s}}"\n', "make_report.py", [], "plain"),
+ ("SW2B-M2 X1: every unresolved name MISSING-HEAD (the trial #10 name `Finset.Foo.card_le` passes)", "make_report.py",
+  '        if env.contains r || ms.contains r || env.isNamespace r then', '        if false then', "make_report.py", [],
+  "plain"),
+ ("SW2B-M3 X1: without a notes list the MISSING-HEAD names are dropped (no delivery note, no judge)", "make_report.py",
+  '        gone += hd      # a caller', '        pass      # a caller', "make_report.py", [], "plain"),
+ ("SW2B-M4 X1: signoff check fails on its notes", "signoff.py",
+  '              + (f", {len(notes_)} note(s): judged at delivery" if notes_ else ""))\n        return 1 if probs else 0',
+  '              + (f", {len(notes_)} note(s): judged at delivery" if notes_ else ""))\n        return 1 if probs or notes_ else 0',
+  "signoff.py", [], "plain"),
+ ("SW2B-M5 X1: the head note's text carries \"error:\" (a failure line to stops.causes)", "make_report.py",
+  '            f"`SimpleGraph.Adj G`) or a wrong name; the check cannot tell (a judge reads it)")',
+  '            f"`SimpleGraph.Adj G`) or a wrong name; error: the check cannot tell (a judge reads it)")', "signoff.py", [],
+  "plain"),
+ ("SW2B-M6 X2: project-shaped names go to Lean too (a renamed project declaration may pass)", "make_report.py",
+  '    return "." in nm and nm.split(".")[0] != ns and not OURS.match(nm.rsplit(".", 1)[-1])',
+  '    return "." in nm', "make_report.py", [], "plain"),
+ ("SW2B-M6b X2 (REVIEW C2): a name at the line passes even when Lean says it is missing", "make_report.py",
+  '            elif k not in ("head", "ok"):', '            elif k not in ("head", "ok") and not lit:', "make_report.py", [],
+  "plain"),
+ ("SW2B-M7 X2: no answer from Lean (error or exception) counts as a pass", "make_report.py",
+  '            _X2_CACHE[key + (n,)] = (None if err is not None or missing is None',
+  '            _X2_CACHE[key + (n,)] = ("ok" if err is not None or missing is None', "make_report.py", [], "plain"),
+ ("SW2B-M8 X2: a name an earlier commit declared passes (earlier=True)", "make_report.py",
+  '            missing, err = missing_lean_names(cfg, todo, heads=hd, earlier=False)',
+  '            missing, err = missing_lean_names(cfg, todo, heads=hd, earlier=True)', "make_report.py", [], "plain"),
+ ("SW2B-M9 X2: the report's undecided record citation never becomes a delivery note (no judge)", "make_report.py",
+  '            if l_.startswith("> * ") and X2_NOTE_MARK in l_]', '            if False]', "tests/delivery.py", [], "plain"),
+ ("SW2B-M10 X2: the literal test reads the whole cited file, not N+-2", "make_report.py",
+  '                                    lines_ = lean_code_only(txt).splitlines()[max(0, n - 3):n + 2]',
+  '                                    lines_ = lean_code_only(txt).splitlines()', "make_report.py", [], "plain"),
+ ("SW2B-M11 X3: `Theorem A` is explained by `Theorem A.2` (no .digit in the look-ahead)", "make_report.py",
+  r'''    tail = r"(?![\w']|\.\d|\(\w{1,4}\)|''', r'''    tail = r"(?![\w']|\(\w{1,4}\)|''', "make_report.py", [], "plain"),
+ ("SW2B-M12 X3: the broader label match also feeds \"formalized AND skipped\" (a new adj-record)", "make_report.py",
+  '        if formalized and explained and not re.search(', '        if formalized and explained_ac and not re.search(',
+  "make_report.py", [], "plain"),
+ ("SW2B-M13 X3: a substring test (`Lemma 1.3` explained by `Lemma 1.31`)", "make_report.py",
+  r'''    return re.match(_label_pat(_label_norm(label)) + tail, re.sub(r"[*_`]", "", _label_norm(t[at:])).strip()) is not None''',
+  "    return _label_norm(label).lower() in _label_norm(what).lower()", "make_report.py", [], "plain"),
+ ("SW2B-M14 X3: the label read from the whole row (its reason column too)", "make_report.py",
+  '    whats = [r[1] for r in skipped if len(r) > 1] if skipped else []',
+  '    whats = [" ".join(r) for r in skipped] if skipped else []', "make_report.py", [], "plain"),
+ ("SW2B-M15 X4: every four-digit element skipped (`row 1234` unchecked)", "make_report.py",
+  '                if len(n) == 4 and _DATE_TAIL.match(text_, m.start(2) + e.end()):', '                if len(n) == 4:',
+  "make_report.py", [], "plain"),
+ ("SW2B-M16 X4: every element followed by - skipped (`rows 9-11` unchecked)", "make_report.py",
+  '                if len(n) == 4 and _DATE_TAIL.match(text_, m.start(2) + e.end()):',
+  '                if text_[m.start(2) + e.end():].startswith("-"):', "make_report.py", [], "plain"),
+ ("SW2B-M17 X4: every element after the first skipped (forgery H1: `rows 4, 5` with no row 5)", "make_report.py",
+  r'''                if i and re.fullmatch(r"(?:19|20)\d\d", n):''', '                if i:', "make_report.py", [], "plain"),
+ ("SW2B-M18 X3 (REVIEW C3; REVIEW-SAFETY-SW2B F3): a label is found anywhere in the cell, not only as its first label "
+  "(\"a step of the main theorem\", \"Corollary 5.1, which follows from Theorem A\")",
+  "make_report.py", r'''    return re.match(_label_pat(_label_norm(label)) + tail, re.sub(''',
+  r'''    return re.search(_label_pat(_label_norm(label)) + tail, re.sub(''', "make_report.py", [], "plain"),
+ ("SW2B-M20 X1: signoff check does not print its notes", "signoff.py",
+  '''            print(f"NOTE[signoff-check] {' '.join(str(n_).split())}")''', "            pass", "signoff.py", [], "plain"),
+]
+MUTANTS += [    # fix round SW2B-R1 (REVIEW-SAFETY-SW2B F1-F3)
+ ("SW2B-M21 X2 (REVIEW-SAFETY-SW2B F2): the literal test reads comments (a name only in a comment passes silently)",
+  "make_report.py", '                                    lines_ = lean_code_only(txt).splitlines()[max(0, n - 3):n + 2]',
+  '                                    lines_ = txt.splitlines()[max(0, n - 3):n + 2]', "make_report.py", [], "plain"),
+ ("SW2B-M22 X3 (REVIEW-SAFETY-SW2B F3): the label is matched from the cell's start, not from its first label",
+  "make_report.py", "    at = 0 if first == t else max(t.find(first), 0)", "    at = 0", "make_report.py", [], "plain"),
+ ("SW2B-M23 X3 (REVIEW-SAFETY-SW2B F3): the identifier letter case-folded (\"Theorem A\" in \"the theorem a priori\")",
+  "make_report.py", '''    return "".join(f"(?i:{re.escape(t)})" if re.fullmatch(r"[A-Za-z]{2,}", t) and not t.isupper() else re.escape(t)''',
+  '''    return "".join(f"(?i:{re.escape(t)})" if True else re.escape(t)''', "make_report.py", [], "plain"),
+ ("SW2B-M24 X1 (REVIEW-SAFETY-SW2B F1): a root that does not look like a variable keeps the dot-notation wording",
+  "make_report.py", "    if _unlike_variable(n, text):", "    if False:", "make_report.py", [], "plain"),
+ ("SW2B-M25 X2 (REVIEW-SAFETY-SW2B F1): the X2 note never says \"likely a wrong name\"", "make_report.py",
+  '            if k == "head" and not lit and _unlike_variable(nm, cell_):',
+  '            if k == "head" and not lit and False:', "make_report.py", [], "plain"),
+]
+# macOS lin-2026 TP1 (operator-authorized 2026-11-16, ported to the macos branch): the two macOS-only fixes, each
+# mutant the unsafe direction (in FLOOR)
+MUTANTS += [
+ ("MAC-TP1a repair-lock skips a LIVE git process whose cwd lsof cannot read (every unreadable one called gone)",
+  "stops.py", "                os.kill(d, 0)", "                raise ProcessLookupError", "stops.py", [], "plain"),
+ ("MAC-TP1b a live pid whose KERN_PROCARGS2 read stays EIO is read as no process (fail-closed lost)",
+  "lanecheck.py", "            if argv is None:\n                if _bsdinfo(lib, pid) is None:",
+  "            if argv is None:\n                if e.errno == errno.EIO or _bsdinfo(lib, pid) is None:",
+  "lanecheck.py", [], "plain"),
 ]

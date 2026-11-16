@@ -250,15 +250,21 @@ def ack_lines(cfg):
 NOTES_AT_DELIVERY = "Notes at delivery"
 
 
-def notes_lines(notes):
+def notes_lines(notes, judged=None):
     """The `### Notes at delivery` part `--deliver` appends to the delivered run record (DESIGN-E fix 2): every note
     of the delivery checks, deduplicated in order, word for word (the README's code-written section counts them by
-    kind and points here)."""
+    kind and points here), each with its id and who judged it (DESIGN-SW2 1.14: `judged` = project.note_judgements;
+    absent: nobody)."""
     ns = list(dict.fromkeys(" ".join(str(n).split()) for n in notes or []))
     out = ["", f"### {NOTES_AT_DELIVERY}", "",
            "Written by `project.py --deliver`: every note its checks printed for the formalizing agent, word for word "
-           "(a note never stops a delivery)."]
-    out += [""] + [f"- {n}" for n in ns] if ns else ["", NONE]
+           "(a note never stops a delivery), with its id and who judged it (the NOTES reviewer's "
+           "`delivery-review/NOTES.md`, committed under the subject \"delivery review\" and saved by the formalizing "
+           "agent, so the record cannot show who wrote it; the "
+           "operator's `## Delivery notes` in JUDGEMENT.md, or nobody)."]
+    j = judged or {}
+    out += [""] + [f"- [{project.note_id(n)}] {n} -- judged: {project.judged_word(j.get(project.note_id(n)))}"
+                   for n in ns] if ns else ["", NONE]
     return "\n".join(out) + "\n"
 
 

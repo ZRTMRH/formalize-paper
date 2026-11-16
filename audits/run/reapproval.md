@@ -13,13 +13,18 @@ that has already changed). If the change is wanted, begin a re-approval afterwar
 
 **An intended change** (for example an approved lemma found false) follows the steps below. Who
 decides depends on the level (U2 §0, §5), the same in `release` and `dev`:
-- `hands-off`: you decide (step 4), tagged [DELEGATED …; reversal: re-approve].
+- `hands-off`: you decide (step 4), tagged [DELEGATED …; reversal: re-approve], only for (i) missing
+  theory turned into a named hypothesis; any other change after the sign-off (a faithfulness finding, a
+  refuted non-goal statement) is not made: keep the approved statement, log a [DELEGATED keep] line and
+  add a `CONDITIONS.md` `finding` item (an open K item, offered in the K stage; approver D2). In the K
+  stage a human's answer is carried out here, approved `--by agent` on their recorded answer
+  (RUN.md, "Statement changes after approval").
 - `statements-only` and `involved`: a **QUESTION** for the human, never a stop. Begin (step 1),
   ask, and keep working on everything else. Until they answer the **pending state** holds: rounds,
   Phase 0 (`--readonly` too), `pending_unproved` and the axiom sweep accept `sorry` in the changing
   statement's proof and sorryAx reaching other results only through it; only `project.py --deliver`
   refuses (`PENDING[question]`, not a failure: open no stop on it).
-- A goal result found false stays stop 1 (`--cause unproved-goal`).
+- A goal result found false, or true only vacuously, stays stop 1 (`--cause unproved-goal`).
 
 **A refuted statement** (U2 §3; the same rule before and after approval): a statement is refuted
 when a refutation compiles -- `def <ns>.<X>_as_printed : Prop :=` the approved statement, and a
@@ -39,9 +44,12 @@ holds for a `false` row whose corrected statement was stated before the approval
 paper-faithfulness lane's prompt lists each `false` row with a minimal repair, with the item name
 "F12: the repair of <result>" (the label the row's `where` cell begins with). Only that item counts;
 for a re-approved result, only from a lane run after the latest `--begin` (a failed correction is
-confirmed afresh). Under
-`hands-off` you repair it and disclose it (never a stop); under `statements-only` and `involved` it
-is the human's QUESTION (the pending state holds; only delivery waits). Then steps 2-4 below.
+confirmed afresh). Under `involved` it is the human's QUESTION (the pending state holds; only
+delivery waits), then steps 2-4 below. Under `statements-only` and `hands-off` (approver D2) a
+refuted non-goal statement is not repaired: it stays byte-identical and is left unproved (`leave
+<decl> unproved`, "stated, not proved"), the PAPER_DEFECTS `false` row records it, and a
+`CONDITIONS.md` `finding` item offers the repair in the K stage, where the human's answer is carried
+out by this route.
 
 **Which sheet ships (M5).** The sheet of the latest approval, with each changed result marked
 **CHANGED since the approval of <date>** (the marks are kept when it is rendered again after its
@@ -54,7 +62,10 @@ re-approved by the agent, marked CHANGED."
 
 1. Before the edit, begin the re-approval: `python3 audits/signoff.py reapprove --begin --decls
    <a,b> --reason "<why>"`. It refuses a declaration that has already changed: after a DRIFT, the
-   human decides; to re-approve that change, revert it, begin, and make it again.
+   human decides; to re-approve that change, revert it, begin, and make it again. Adding a row to
+   the index after the approval changes the sheet too: begin with `--decls <an approved declaration
+   of the same section> --reason "new row <label>"`, then add the row. A pure addition
+   (`<decl>_unconditional`, a K3 bridge, `<decl>_reading_<x>`) is never added to the index.
 2. Make the change and commit it. The approval stays in place; `signoff.py approve` (step 4) moves
    it aside to `APPROVED_FINGERPRINTS.<date>.json` and closes `REAPPROVAL.json` in its `approve <R>`
    commit. Never move it by hand: a `closed: true` committed any other way (not by that `approve <R>`
@@ -95,8 +106,9 @@ re-approved by the agent, marked CHANGED."
    `statements-only`), and the approval it replaces was the agent's. Under `hands-off`, do not ask:
    approve the new sheet as in Stage 2 step 8 (`--by agent`, with a `--note` saying the
    re-approval was delegated at intake). The change must be one RUN.md "Statement changes after
-   approval" allows (never a strengthening or generalization; a weakening only to turn missing theory into a
-   named hypothesis, or to repair a refuted statement with `--refuted-by`), logged as [DELEGATED] with
+   approval" allows (never a strengthening or generalization beyond a reading the paper admits; a
+   weakening only to turn missing theory into a named hypothesis; in the K stage, the human's
+   recorded answer), logged as [DELEGATED] with
    `reversal: re-approve` in a commit made before the Lean edit.
 
 **A rejected change.** If the human rejects the change (answer (b) naming it), the way out is to

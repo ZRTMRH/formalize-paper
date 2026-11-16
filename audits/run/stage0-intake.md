@@ -162,8 +162,11 @@ Deliverables
 
 Anything else
 7.  Anything else I should know? For example: known errors or doubts, conventions, deadlines.
-    If this computer has 16 GB of RAM or less, please say so here: the run then keeps at most
-    3 agents at a time, and each compiles its Lean files one at a time.
+    How much RAM does this computer have, and will other formalization runs or other heavy
+    programs share it? The run then limits how many reviewer and helper Lean probes run at once
+    on the whole machine (default: one per 8 GB, minus one for the run's own checks, at least 1,
+    at most 4; at least 2 GB kept free). With 16 GB or less it also keeps at most 3 agents at a
+    time, and each compiles its Lean files one at a time.
 ```
 
 ## Checkpoint A
@@ -188,13 +191,26 @@ Show the derived setup on one screen:
 - the stop policy, as `prompt.py --show intake` prints it (`project.stop_policy_text`: the four
   stops of the run mode, and the questions the level asks);
 - the run mode, as `prompt.py --show` prints it (set at install; RUN.md, "Run mode");
+- the memory lines `python3 audits/lean_slot.py --show` prints (it also starts the memory guard):
+  `Memory guard: on (reserve R GB of T GB); probe slots S`, derived from the computer's memory, and
+  its `NOTE[lean-slot]` about a heavy Lean file if it prints one (a note, never a question). From
+  question 7: if the human named the computer's RAM, Stage 1 writes `lean_ram_mb` (MB; the smaller
+  of that and what the computer shows counts); if other runs or heavy programs share the computer,
+  propose a lower `lean_slots`. Otherwise leave the probe settings out: they are derived. If the
+  dependencies include a library much heavier than Mathlib, say in one line that one Lean file may
+  need several GB and that on a small computer the run will be slow (a note, never a stop);
 - the report destination;
 - push yes or no, as one clean commit or with the full history, and the license, and whether the
   paper's files are left out;
 - any other library in the lakefile that the run leaves alone (for example the template library of
   `lake new … math`).
 
-Proceed only on the human's OK.
+Proceed only on the human's OK. Then start `<rounds dir>/CONDITIONS.md` (next batch D1): one table
+`| id | kind | results | text | source |` with a row for every condition the human stated (question 7
+and any other answer: kind `condition`, `scope` or `known-issue`; `text` their words verbatim; `source`
+`RUN_LOG.md ## Intake <date>` or the file they point to, e.g. an answer key), committed by name
+(`conditions: intake`) once the rounds directory exists (Stage 1 step 5). It is your file, like
+`AUTHOR_NOTES.md`; no lane reads it.
 
 | budget | lanes in diff rounds (`lanes` in the config) | diff-round cap |
 |---|---|---|

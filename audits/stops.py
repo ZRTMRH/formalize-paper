@@ -194,7 +194,10 @@ def causes(text):
 # E2E-FIX2 L1: the codes whose only route is the next adjudication (Phase 0 shows them as PENDING[adjudication];
 # --commit-adjudication and --deliver refuse while one remains). A cure often creates one (a new hypothesis needs its
 # `## Hypotheses` row): when it is not among the stop's own causes, the cure is judged on the stop's own faults
-RESIDUAL_CODES = frozenset({"adj-record"})
+# DESIGN-SW2 1.10 (C24): dead-witness and record-cite too (a cure that renames a cited declaration leaves one): both are
+# PENDING_CODES (make_report.adjudication_findings), so --commit-adjudication and --deliver still list them until a
+# record fix
+RESIDUAL_CODES = frozenset({"adj-record", "dead-witness", "record-cite"})
 
 
 def only_left_out(doc, out, residue=True):
@@ -742,9 +745,13 @@ def redo_round(cfg, s, doc):
     round scoped after the set-aside whose TARGET.json names it as `_meta.redo_of` (scope.py writes it from the
     open stop's set-aside round, redo_target) and that covers its scope and has run its lanes
     (redo_scope_problem). Refused while there is none (no cure attempt is spent); refused for the human when
-    a TARGET.json of the lineage cannot be read."""
+    a TARGET.json of the lineage cannot be read. STOPFIX (lin-2026 S1, 2026-11-15): a self-cure stop of another
+    kind (a `rerun` signoff-check, say) is redirected too when its recorded check is bound to that round
+    (--round <R>): set_aside accepts --stop for it (_cure_stop), and its check on the set-aside round, whose
+    write-once records stay as they were, could never pass. A check that names no round is unchanged (None)."""
     r = doc.get("round")
-    if not r or "redo" not in (cure_plan(cfg, doc) or []):
+    plan = cure_plan(cfg, doc) or []
+    if not r or not plan or ("redo" not in plan and _round_of(cure_cmd(doc)) != r):
         return None
     mk = marker_path(os.path.join(rounds_dir(cfg), r))
     if not os.path.exists(mk) or (load(mk) or {}).get("stop") != s or not committed(project.AUDITS, mk):
@@ -765,11 +772,19 @@ def redo_round(cfg, s, doc):
             fresh.append(os.path.basename(p))
     why = None
     for new in reversed(fresh):
-        why = redo_scope_problem(cfg, r, new)
-        if not why:
+        w_ = redo_scope_problem(cfg, r, new)
+        if not w_:
             return new
+        why = why or w_         # the newest fresh round's
+    if why:
+        # REVIEW-STOPFIX N1: a fresh round exists but does not cover R -- say what it lacks
+        raise Refused(f"round {r} is set aside by {s}'s self-cure: its check is re-run on the fresh round that redoes "
+                      f"it (TARGET.json redo_of {r}), and no fresh round can be that yet: the newest, {fresh[-1]}, "
+                      f"fails because {why}. Complete what is missing in a fresh round of that lineage (or scope a "
+                      f"new one while {s} is open and run its review: prompt.py 3), then close --cured again (no cure "
+                      f"attempt was spent)")
     raise Refused(f"round {r} is set aside by {s}'s self-cure: its check is re-run on the fresh round that redoes "
-                  f"it (TARGET.json redo_of {r}), and there is none yet ({why or 'none is scoped'}; scope a new round "
+                  f"it (TARGET.json redo_of {r}), and there is none yet (none is scoped; scope a new round "
                   f"while {s} is open, so scope.py records redo_of, and run its review: prompt.py 3), then close "
                   f"--cured again (no cure attempt was spent)")
 
@@ -798,7 +813,10 @@ def redo_scope_problem(cfg, old, new, rd=None):
     """None when round `new` can be the fresh round redoing set-aside round `old`, else why (re-check N5; B1b
     review attacks C, C2): every lane of `new` has run and is sealed, and for every lane of `old`'s scope the
     sealed verdicts of `new` (lanecheck._sealed_items: the bytes the seal covers, schema-valid) judge every item
-    of it -- a verdict file that judged nothing, or none of those items, has redone nothing."""
+    of it -- a verdict file that judged nothing, or none of those items, has redone nothing. DESIGN-ND: an item
+    whose one sealed entry is NotDoneYet is not judged, but counts as covered once round `new`'s adjudicator has
+    recorded it UNCOVERED for that lane (AUDIT_PROTOCOL step E; _uncovered_rows: ADOPTED.md as first committed
+    by `adjudicate <new>`); it stays reported as not examined, with no verdict."""
     import lanecheck
     rd = rd or rounds_dir(cfg)
     ld = lambda r: load(os.path.join(rd, str(r), "TARGET.json"))
@@ -814,20 +832,57 @@ def redo_scope_problem(cfg, old, new, rd=None):
     nov = sorted(lane for lane in set(items(n)) | set(items(o)) if not files.get(lane))
     if nov:
         return f"round {new} has no verdicts of lane(s) {', '.join(nov)} yet"
-    judged = {}
+    judged, nd = {}, {}
     for lane in sorted(set(items(n)) | set(items(o))):
         for f in files.get(lane, []):
             got = lanecheck._sealed_items(f)
             if got is None:
                 return f"round {new}'s verdict file {os.path.basename(f)} is not sealed (or changed after its seal)"
             judged.setdefault(lane, set()).update(got)
-    miss = sorted(f"{lane}: {x}" for lane, xs in items(o).items() for x in xs
-                  if lanecheck.clean_cell(str(x)) not in judged.get(lane, set()))
+            nd.setdefault(lane, set()).update(lanecheck._sealed_items(f, ("NotDoneYet",)) or {})
+    cx = lambda x: lanecheck.clean_cell(str(x))
+    nd_left = {(lane, cx(x)) for lane, xs in items(o).items() for x in xs
+               if cx(x) not in judged.get(lane, set()) and cx(x) in nd.get(lane, set())}
+    ruled, unruled = _uncovered_rows(rn, new) if nd_left else (set(), "")
+    left = [(lane, x) for lane, xs in items(o).items() for x in xs
+            if cx(x) not in judged.get(lane, set()) and (lane, cx(x)) not in ruled]
+    miss = sorted(f"{lane}: {x}" for lane, x in left)
     if miss:
-        wide = (o.get("_meta") or {}).get("kind") in ("full", "statements") and (n.get("_meta") or {}).get("kind") != "full"
-        return (f"round {new}'s sealed verdicts do not cover round {old}'s scope ({len(miss)} item(s) not judged, e.g. "
-                f"{miss[0]})" + ("; a diff round cannot cover a full/statements round -- use --full" if wide else ""))
+        wide = {"full": ("full",), "statements": ("full", "statements")}.get((o.get("_meta") or {}).get("kind"))
+        wide = wide is not None and (n.get("_meta") or {}).get("kind") not in wide
+        nd_m = sorted(f"{lane}: {x}" for lane, x in left if (lane, cx(x)) in nd_left)
+        rest = [m for m in miss if m not in nd_m]
+        return (f"round {new}'s sealed verdicts do not cover round {old}'s scope ("
+                + (f"{len(rest)} item(s) not judged, e.g. {rest[0]}" if rest else "")
+                + ("; " if rest and nd_m else "")
+                + (f"{len(nd_m)} item(s) left NotDoneYet that round {new}'s adjudicator has not recorded UNCOVERED "
+                   f"for its lane (AUDIT_PROTOCOL step E), e.g. {nd_m[0]}: {unruled}" if nd_m else "") + ")"
+                + ("; a diff round cannot cover a full/statements round -- use --full" if wide else ""))
     return None
+
+
+def _uncovered_rows(rn, new):
+    """({(lane base, item)} of the UNCOVERED rows of round `new` (dir `rn`), and why an item has none): DESIGN-ND,
+    the adjudicator's own record of a NotDoneYet (AUDIT_PROTOCOL step E), read by the strict row reader
+    (lanecheck.valid_rows) from ADOPTED.md as FIRST added, by a commit whose subject is exactly `adjudicate <new>`
+    (a later commit, a revote or a hand edit adds nothing). Fail-safe (review C1): anything unreadable gives no row."""
+    import lanecheck, lane_auth
+    try:
+        audits = str(lane_auth.audit_repo(lane_auth.Path(rn)))
+        rel = os.path.relpath(os.path.realpath(os.path.join(rn, "ADOPTED.md")), os.path.realpath(audits))
+        adds = git(audits, "log", "--diff-filter=A", "--format=%H %s", "--", rel, check=False).splitlines()
+        if not adds:
+            return set(), f"round {new} has no committed ADOPTED.md (it is not adjudicated yet)"
+        h, _, subj = adds[-1].partition(" ")
+        if subj != f"adjudicate {new}":
+            return set(), (f"its ADOPTED.md was first committed by {h[:10]} {subj[:60]!r}, not by `adjudicate {new}`, "
+                           f"so it holds no adjudicator's row")
+        text = git(audits, "show", f"{h}:{rel}")
+        rows = {(r.base, lanecheck.clean_cell(r.item)) for r in lanecheck.valid_rows(rn, text)
+                if r.decision == "UNCOVERED"}
+        return rows, f"its adjudication ({h[:10]}) has no UNCOVERED row naming that lane and item"
+    except Exception as e:      # noqa: BLE001 -- review C1: a read that fails rules nothing; never raises
+        return set(), f"the adjudication record of round {new} cannot be read from git ({str(e)[:120]})"
 
 
 def redo_lanecheck(doc, rr):
@@ -941,14 +996,20 @@ def _open_stop(cfg, cmd=None, note=None, cause=None, round_name=None, check=None
                    + (spent if isinstance(spent, str) else
                       f"{', '.join(hum)} ({human_stop_name(hum)}): {project.CURES['human']}" if hum else
                       f"its recorded check `{cure_cmd(doc)}` is not a read-only check to re-run")
-                   + f". Show the human; close it with python3 audits/stops.py close --stop {s} --human \"<their answer, verbatim>\"")
+                   + f". Show the human; close it with python3 audits/stops.py close --stop {s} --human \"<their answer, verbatim>\""
+                   + AUTO_MODE_HINT)
     cls = stop_class(doc)
     if cls or not (project.delegates(cfg) or record_fix_only(doc)):
         why = (f"its causes are of a STOP class ({', '.join(cls)})" if cls else "the involved level asks the human")
         return s, (f"opened {s}: {why}. Show the human the raw output and wait for their answer; record it with "
-                   f"python3 audits/stops.py close --stop {s} --human \"<their answer, verbatim>\"")
+                   f"python3 audits/stops.py close --stop {s} --human \"<their answer, verbatim>\"" + AUTO_MODE_HINT)
     return s, (f"opened {s} (classes: {', '.join(sorted({c['class'] for c in doc['causes']}))}). Cure it as the "
                f"cause table says, then: python3 audits/stops.py close --stop {s} --delegated \"<what was done>\"")
+
+
+# next batch B26 (CR-10 c): under Claude Code's auto mode the permission classifier refused the cure of a human stop
+AUTO_MODE_HINT = (". Under Claude Code's auto mode the classifier may refuse `stops.py close` and some cures; then ask "
+                  "the human to run the printed command")
 
 
 CLASSIFY_HINT = ("classify it (your judgement): python3 audits/stops.py classify --stop {s} --as tool-bug|interference|"
@@ -2642,6 +2703,33 @@ def trail_problems(cfg, audits=None, rd=None):
 
 # --- repair-lock ---------------------------------------------------------------------------------
 
+def _darwin_git_check(root):
+    """macOS (libproc): Refused when a git process of this user may be running in `root` (its working directory
+    there, or unreadable while it is alive). macOS lin-2026 TP1 (operator-authorized 2026-11-16): a git process
+    listed by the table but gone before lsof reads its cwd holds no lock and is skipped, as the ps and /proc
+    branches of repair_lock skip it; alive or unknown, the refusal stays."""
+    import lanecheck
+    try:
+        table = lanecheck._darwin_table()
+    except OSError as e:
+        raise Refused(f"cannot read the process table ({e}): a git process may hold the lock")
+    for d, _, _, comm, args in table:
+        if comm != "git" and os.path.basename(args.split(" ", 1)[0]) != "git":
+            continue
+        try:
+            cwd = os.path.realpath(lanecheck._cwd(d))
+        except OSError:
+            try:
+                os.kill(d, 0)
+            except ProcessLookupError:
+                continue              # exited between the table and lsof (a short-lived git): it holds no lock
+            except OSError:
+                pass
+            raise Refused(f"cannot read the working directory of git process {d}: the lock may be live")
+        if os.path.commonpath([cwd, root]) == root:
+            raise Refused(f"a git process (pid {d}) is running in {root}: the lock may be live")
+
+
 def repair_lock(cfg, which, reason):
     """Remove a stale git index.lock (no git process in the repository, older than a minute); logged."""
     if not str(reason or "").strip():
@@ -2656,20 +2744,7 @@ def repair_lock(cfg, which, reason):
     me, root = os.getuid(), os.path.realpath(repo)
     if not os.path.isdir("/proc") and sys.platform == "darwin":
         # macOS: the same facts from libproc and lsof (Codex's macOS sandbox refuses ps)
-        import lanecheck
-        try:
-            table = lanecheck._darwin_table()
-        except OSError as e:
-            raise Refused(f"cannot read the process table ({e}): a git process may hold the lock")
-        for d, _, _, comm, args in table:
-            if comm != "git" and os.path.basename(args.split(" ", 1)[0]) != "git":
-                continue
-            try:
-                cwd = os.path.realpath(lanecheck._cwd(d))
-            except OSError:
-                raise Refused(f"cannot read the working directory of git process {d}: the lock may be live")
-            if os.path.commonpath([cwd, root]) == root:
-                raise Refused(f"a git process (pid {d}) is running in {root}: the lock may be live")
+        _darwin_git_check(root)
     elif not os.path.isdir("/proc"):
         # no /proc (macOS): the same facts from ps and lsof
         import lanecheck
@@ -3000,10 +3075,12 @@ def math_gate(cfg):
     close recorded is covered (C2-FIX 5b). Every self-cured stop's recorded check, the disclosures of release mode and
     what a prepared document does not name are run or computed for the notes only."""
     rel = project.mode(cfg) == "release"
-    block, notes = [], []
+    block, notes, p0_out = [], [], []
     for cmd in standard_blocking(cfg):
         why = command_problem(cmd, cfg)
         rc, txt = (2, why) if why else run_cmd(cmd.split())
+        if "phase0.py" in cmd and not why:
+            p0_out.append(txt or "")
         if rc == 0 or (not why and rel and core_covered(cfg, cmd, txt)):
             continue
         if "integrity.py" in cmd and not why:
@@ -3039,11 +3116,26 @@ def math_gate(cfg):
         notes.extend(f"withdrawn stop {s_}'s check `{cmd}` fails now (exit {rc})" for s_, cmd, rc in withdrawn_failing(cfg))
 
     def disclosures():
-        live = list(phase0_lines(cfg))
-        rows = [load(f) or {} for f in glob.glob(os.path.join(rounds_dir(cfg), STOPS, DISCLOSED, "D*.json"))]
-        have = {_norm(x.get("code"), x.get("line", "")) for r in rows for x in r.get("faults") or []}
-        notes.extend(f"DISCLOSED[{c}] {' '.join(t.split())[:160]} (no D record)" for c, t in live
-                     if _norm(c, t.strip()[:300]) not in have)
+        # DESIGN-SW2 1.14 (1): every live disclosure, in both modes, reaches the delivery notes (and so a judge): phase0's
+        # own (docstring, run-log: release only; dev reds them) and every DISCLOSED[<code>] line Phase 0 read-only
+        # printed above (its steps' output, echoed: render, label, escalation-cite, status-unmapped), each with the D
+        # record that covers it, else "(no D record)"
+        live = list(phase0_lines(cfg)) if rel else []
+        for l in "\n".join(p0_out).splitlines():
+            m = re.match(r"^\s*DISCLOSED\[([a-z-]+)\]\s+(.*\S)", l)
+            if m:
+                live.append((m.group(1), m.group(2)))
+        have = {}
+        for f in sorted(glob.glob(os.path.join(rounds_dir(cfg), STOPS, DISCLOSED, "D*.json"))):
+            for x in (load(f) or {}).get("faults") or []:
+                have.setdefault(_norm(x.get("code"), x.get("line", "")), os.path.basename(f)[:-len(".json")])
+        seen = set()
+        for c, t in live:
+            k = _norm(c, t.strip()[:300])
+            if k in seen:
+                continue
+            seen.add(k)
+            notes.append(f"DISCLOSED[{c}] {' '.join(t.split())[:160]} ({have.get(k) or 'no D record'})")
 
     def named():
         for doc, gone in unnamed(cfg).items():
@@ -3051,8 +3143,7 @@ def math_gate(cfg):
     noted("the self-cured stops' checks", self_cures)
     if rel:
         noted("the withdrawn stops' checks", withdrawn)
-    if rel:
-        noted("phase0's disclosures", disclosures)
+    noted("phase0's disclosures", disclosures)
     noted("what the prepared documents name", named)
     return block, notes
 
@@ -3558,6 +3649,14 @@ def _selftest_work_lines(cfg_r, sc_):
     say("E2 fix 4: stay coverable -- a token-scan sorry under a clean sweep, \"swept only\", drift, a crash, a Lean API "
         "error, a sorryAx while a leave line is active or while the exemptions cannot be computed",
         not any(c_each.values()) and ex_on == [] and ex_err == [])
+    # B15 (c2-21): another RED step of Phase 0 (here the build) beside the core file's own makes every line foreign
+    api_ = f"{lean}:41:2: error: unknown constant 'Lean.Elab.Command.liftTermElabM'\n"
+    mixed_ = core_attribution("axiom_sweep.py", "python3 audits/phase0.py --readonly",
+                              p0o(api_, "RED[build] build  [exit 1]", "RED[axiom] axiom sweep  [exit 1]"))
+    alone_ = core_attribution("axiom_sweep.py", "python3 audits/phase0.py --readonly",
+                              p0o(api_, "RED[axiom] axiom sweep  [exit 1]"))
+    say("c2-21: a RED build step beside the core file's own RED step is not the core file's (every line foreign); "
+        "its own step alone is", mixed_[0] == [] and bool(mixed_[1]) and bool(alone_[0]))
     # the DESIGN-E2 integrity_blocks controls moved to _floor_controls (the full selftest runs them too)
     return res
 
@@ -3745,6 +3844,27 @@ def _selftest():
         repair_lock(cfg, "audits", "a killed commit left it")
         say("repair-lock removes a stale lock and logs it",
             not os.path.exists(lk) and "repair-lock audits" in open(os.path.join(rd, "RUN_LOG.md")).read())
+        # macOS lin-2026 TP1 (2026-11-16): the libproc branch's git check, on a faked table (runs on every platform)
+        import lanecheck as lc_
+        keep_ = (lc_._darwin_table, lc_._cwd)
+        gone_ = subprocess.Popen(["true"]); gone_.wait()
+        live_ = subprocess.Popen(["sleep", "30"])
+        def no_cwd(pid):
+            raise OSError(f"no cwd for pid {pid}")
+        try:
+            lc_._cwd = no_cwd
+            lc_._darwin_table = lambda: [(gone_.pid, 1, 1, "git", "git status")]
+            vanished_ok = refused(_darwin_git_check, os.path.realpath(d)) == ""
+            lc_._darwin_table = lambda: [(live_.pid, 1, 1, "git", "git status")]
+            live_no = refused(_darwin_git_check, os.path.realpath(d))
+            lc_._cwd = lambda pid: d
+            here_no = refused(_darwin_git_check, os.path.realpath(d))
+        finally:
+            lc_._darwin_table, lc_._cwd = keep_
+            live_.kill(); live_.wait()
+        say("macOS TP1: repair-lock skips a listed git process gone before lsof reads its cwd; a live one whose cwd "
+            "cannot be read, or one running in the repository, still refuses",
+            vanished_ok and "cannot read the working directory" in live_no and "is running in" in here_no)
         say("L4: ... and records it in the stop record (committed once), which the report lists",
             G("log", "-1", "--format=%s") == "stop repair R1" and repair_rows(cfg)[0]["stop"] == "repair R1"
             and "a killed commit left it" in repair_rows(cfg)[0]["what"] and not trail_problems(cfg, d, rd))
@@ -3892,6 +4012,12 @@ def _selftest():
         outs["lanecheck"] = (1, "PROBLEM[label] x\n")
         say("release: open refuses a failure all of whose causes are disclosed", "disclosed in release mode, not a stop" in refused(
             open_stop, cfg_r, cmd="python3 audits/lanecheck.py --round 2026-10-19-full-1a2b3c4"))
+        # B15 (RM-20): a disclosed cause beside a blocking one is not "every cause disclosed" (the open goes on to
+        # the round check below, which refuses it before anything is recorded)
+        outs["lanecheck"] = (1, "PROBLEM[label] x\nPROBLEM[stray-loop] pid 7\n")
+        rm20 = refused(open_stop, cfg_r, cmd="python3 audits/lanecheck.py --round 2026-10-19-full-1a2b3c4")
+        say("RM-20: open does not refuse as all-disclosed a failure with a blocking cause beside a disclosed one",
+            "disclosed in release mode, not a stop" not in rm20 and "not a round of this run" in rm20)
         outs["lanecheck"] = (1, "PROBLEM[reader] x\nPROBLEM[stray-loop] pid 7\n")
         # RELEASE-SWEEP S4: a release stop naming a round that is not one of the run is refused at open, before
         # anything is recorded (before: recorded, then "every self-cure of it is the human's now")
@@ -3961,18 +4087,28 @@ def _selftest():
         PHASE0_LINES = lambda c_: [("docstring", "A.lean:3  a placeholder"), ("docstring", "B.lean:9  NEWQZ")]
         g1b, n1b = math_gate(cfg_r)
         PHASE0_LINES = lambda c_: [("docstring", "A.lean:3  a placeholder")]
-        say("H3 (approver 2026-10-28): the delivery gate's disclosure bookkeeping is notes only: a recorded disclosure "
-            "is no note, a live one with no D record is a note, never a refusal; dev has none; no disclosing check "
-            "(readers, decisions, make_report, selftests) is run by the gate",
+        keep_p0 = outs["phase0"]
+        outs["phase0"] = (0, "DISCLOSED[escalation-cite] RUN_LOG.md cites escalation E9, which ESCQZ\nPHASE 0: GREEN\n")
+        nd = math_gate(cfg)[1]
+        outs["phase0"] = keep_p0
+        say("H3 (approver 2026-10-28): the delivery gate's disclosure bookkeeping is notes only, never a refusal; "
+            "DESIGN-SW2 1.14: every live disclosure is a note naming its D record (or '(no D record)'), in both modes "
+            "(dev: only the DISCLOSED lines Phase 0 printed, phase0's own docstring/run-log findings are RED there); "
+            "no disclosing check (readers, decisions, make_report, selftests) is run by the gate",
             g1 == [] and not any("no D record" in x for x in n1) and g1b == []
+            and any("A.lean:3 a placeholder (D5)" in x for x in n1)
             and any("NEWQZ" in x and "no D record" in x for x in n1b)
-            and not any("DISCLOSED" in x for x in math_gate(cfg)[1]) and deliver_gate(cfg) == [])
+            and sum("A.lean:3 a placeholder" in x for x in n1) == 1
+            and [x for x in nd if "DISCLOSED" in x] == ["DISCLOSED[escalation-cite] RUN_LOG.md cites escalation E9, "
+                                                        "which ESCQZ (no D record)"]
+            and deliver_gate(cfg) == [])
         dr = disclose(cfg_r, cmd="python3 audits/readers.py --doc report --check")
         outs["readers"] = stale(2, "ba9876543210")
         g2 = deliver_gate(cfg_r)
+        dr2 = disclose(cfg_r, cmd="python3 audits/readers.py --doc report --check")   # B15 (RR-H3c): no D7
         say("H3 / B10: a stale pass whose hashes and pass number moved keeps its record; REPORT.md and DECISIONS.md "
             "need not name a reader disclosure (README D lists it: a reader pass never makes a document stale, U2 "
-            "§6.6)", dr == "D6" and g2 == [] and "D6" not in unnamed(cfg_r).get("REPORT.md", [])
+            "§6.6)", dr == "D6" and dr2 == "D6" and g2 == [] and "D6" not in unnamed(cfg_r).get("REPORT.md", [])
             and "D6" in [r_["fault"] for r_ in disclosed_rows(cfg_r, phase="delivery")]
             and "D6" not in [r_["fault"] for r_ in disclosed_rows(cfg_r, phase="run")])
         names(["D1", "D2", "D3", "D4", "D5", "D6"])
@@ -4117,6 +4253,23 @@ def _selftest():
             "alike (never --cured, never --delegated); the answer is recorded verbatim; the level is unchanged and "
             "the hands-off run resumes as before (its next fault is the operator's self-cure); dev: a stop too",
             all(amb) and len(amb) == 8)
+        # DESIGN-MT D2: the human's verbatim answer is their words, never a decision tag; a tag-like phrase in it
+        # ("[delegated to you]") must not fail the report check (no permitted action could clear it: the line is the
+        # stop trail's, and a second answer adds a line). A dated tag typed in the quote stays linted (it would be
+        # counted as a decision), and so does an operator's text that only quotes the human prefix (C5).
+        import decisions as _dc
+        d2 = []
+        for c2_ in (dict(cfg, mode="dev"), cfg_r):
+            s2h, _ = open_stop(c2_, note="Lemma 1.2: two readings", cause="ambiguity")
+            close_stop(c2_, s2h, human="go ahead [delegated to you], as you think best")
+            lg2 = open(os.path.join(rd, "RUN_LOG.md"), encoding="utf-8").read()
+            d2.append("[delegated to you]" in lg2 and _dc.tag_problems(lg2) == [] and not strail(c2_, s2h))
+        d2.append(len(_dc.tag_problems("## Stops\n- stop S9 (2026-01-02, the human's answer, verbatim: \"ok "
+                                       "[DELEGATED 2026-01-02, operator]\")\n")) == 1)
+        d2.append(len(_dc.tag_problems("## Stops\n- stop S9 self-cured (x; `y` passes): see the human's answer, "
+                                       "verbatim: \"[delegated to you]\")\n")) == 1)
+        say("DESIGN-MT D2: a tag-like phrase inside the human's verbatim stop answer is not tag-linted (dev and "
+            "release); a dated tag inside it, and an operator's text quoting the prefix, still are", all(d2))
         outs["fingerprint"] = (1, "DRIFT[drift] Thm 1 changed\n")
         sx, _ = open_stop(cfg_r, cmd="python3 audits/fingerprint.py --check")
         e1 = refused(close_stop, cfg_r, sx, cured="restored the statement")
@@ -4763,6 +4916,154 @@ def _selftest():
             G("add", "-A"); G("commit", "--amend", "-qm", f"stop {s5} close")
             say("B1b: the trail rejects a redo_round outside the redo lineage (its TARGET.json has no redo_of naming "
                 "the set-aside round)", any("not a fresh round" in p for p in trail_problems(c_, d, rd)))
+            # STOPFIX (lin-2026 S1, 2026-11-15): a RERUN-kind self-cure stop (signoff-check) whose check is bound
+            # to its round, set aside by that stop and redone in a fresh round: close --cured re-runs the check on
+            # the fresh round (before: on the set-aside round, whose write-once records keep it failing for ever)
+            R6a, R6b = "2026-10-22-full-4d5e6f7", "2026-10-23-full-5e6f7a8"
+            real_round(R6a)
+            sig = lambda argv: ((1, "PROBLEM[signoff-check] INFORMAL.json cites `G.x`, which is no declaration\n")
+                                if argv[argv.index("--round") + 1] == R6a else (0, "sign-off check: 0 problem(s)\n"))
+            RUNNER = lambda argv: (sig(argv) if any(x.endswith("signoff.py") for x in argv) else
+                                   real_lc(argv) if any(x.endswith("lanecheck.py") for x in argv) else (0, "ok\n"))
+            s6, _m6 = open_stop(c_, cmd=f"python3 audits/signoff.py check --round {R6a}", round_name=R6a)
+            d6 = load(os.path.join(rd, STOPS, s6, "STOP.json"))
+            set_aside(c_, R6a, f"release self-cure of {s6}", stop=s6)
+            early6 = refused(close_stop, c_, s6, cured="redone")         # no fresh round yet: refused, nothing spent
+            real_round(R6b, redo=R6a)
+            rec6 = close_stop(c_, s6, cured=f"redone in {R6b}")
+            say("STOPFIX: a rerun-kind self-cure stop (signoff-check) whose check names its round, set aside by that "
+                "stop, re-runs its check on the fresh round that redoes it (no lanecheck added), which passes; while "
+                "there is none, close --cured is refused and no attempt is spent; trail and delivery accept it",
+                cure_plan(c_, d6) == ["rerun"] and "no cure attempt was spent" in early6 and not cure_attempts(c_, s6)
+                and rec6.get("redo_round") == R6b and rec6["check"] == f"python3 audits/signoff.py check --round {R6b}"
+                and rec6["rerun"]["passes"] and "redo_lanecheck" not in rec6
+                and not [p for p in trail_problems(c_, d, rd) if s6 in p]
+                and f"python3 audits/signoff.py check --round {R6b}" in deliver_blocking(c_))
+            # DESIGN-ND (lin-2026 S1, 2026-11-15): a fresh round whose sealed lane left an item NotDoneYet covers it
+            # only once its adjudicator recorded it UNCOVERED for that lane (AUDIT_PROTOCOL step E), in ADOPTED.md as
+            # first committed by `adjudicate <fresh>` (cases (a)-(k) of the design and its review C5)
+            R7a, F7 = "2026-10-24-full-6f7a8b9", "2026-10-25-full-7a8b9c0"
+            sc7 = {"correspondence": ["N.a", "N.b"], "non-vacuity": ["N.a"]}
+
+            def nd_round(rnd, ents, redo=None, kind="statements", tamper=False, scope=None):
+                # ents: {lane file stem: [(item, verdict)]}; every file sealed by its own lane
+                r = os.path.join(rd, rnd)
+                os.makedirs(os.path.join(r, "prompts"))
+                open(os.path.join(r, "TARGET.json"), "w").write(json.dumps(dict(
+                    scope or sc7, _meta=dict({"kind": kind}, **({"redo_of": redo} if redo else {})))))
+                G("add", "-A"); G("commit", "-qm", f"scope {rnd}")
+                for stem, es in ents.items():
+                    v = os.path.join(r, stem + ".json")
+                    pf = os.path.join(r, "prompts", stem + ".txt")
+                    open(pf, "w").write(f"Write that JSON object, and nothing else, to {v}\n")
+                    tok = re.search(r"lane_token is ([0-9a-f]{64})", lane_auth.issue_prompt(pf)).group(1)
+                    data = json.dumps({"lane_token": tok, "probes": lane_auth.probe_manifest(v), "verdicts": [
+                        {"item": i, "verdict": vd, "next_step": "-"} for i, vd in es]}).encode()
+                    open(v, "wb").write(data)
+                    lane_auth.seal(v, lane_auth.sha(data), "agent-" + stem)
+                G("add", "-A"); G("commit", "-qm", f"lanes {rnd}")
+                if tamper:
+                    v = os.path.join(r, "correspondence.json")
+                    open(v, "w").write(open(v).read().replace('"next_step": "-"', '"next_step": "x"'))
+                    G("add", "-A"); G("commit", "-qm", f"edit {rnd}")
+
+            HDR = "| lane | item | verdict | decision | reason |\n|---|---|---|---|---|\n"
+            ROW = "| correspondence | N.b | NotDoneYet | **UNCOVERED** | the lane left it NotDoneYet |\n"
+
+            def adopt(rnd, rows, subject=None):
+                open(os.path.join(rd, rnd, "ADOPTED.md"), "w").write("# Adjudication\n\n" + HDR + rows)
+                G("add", "-A"); G("commit", "-qm", subject or f"adjudicate {rnd}")
+
+            good7 = {"correspondence": [("N.a", "Pass"), ("N.b", "NotDoneYet")], "non-vacuity": [("N.a", "Pass")]}
+            nd_round(R7a, {"correspondence": [("N.a", "Fail"), ("N.b", "Ambiguous")], "non-vacuity": [("N.a", "Pass")]})
+            sig7 = lambda argv: ((1, "PROBLEM[signoff-check] INFORMAL.json cites `G.y`, which is no declaration\n")
+                                 if argv[argv.index("--round") + 1] == R7a else (0, "sign-off check: 0 problem(s)\n"))
+            RUNNER = lambda argv: (sig7(argv) if any(x.endswith("signoff.py") for x in argv) else
+                                   real_lc(argv) if any(x.endswith("lanecheck.py") for x in argv) else (0, "ok\n"))
+            s7, _m7 = open_stop(c_, cmd=f"python3 audits/signoff.py check --round {R7a}", round_name=R7a)
+            set_aside(c_, R7a, f"release self-cure of {s7}", stop=s7)
+            h7 = G("rev-parse", "HEAD")
+            back7 = lambda: (G("reset", "-q", "--hard", h7), G("clean", "-fdq"))
+            nd = {}
+
+            def case(k, ents=good7, rows=None, subject=None, tamper=False, then=None, direct=False):
+                nd_round(F7, ents, redo=R7a, tamper=tamper)
+                if rows is not None:
+                    adopt(F7, rows, subject)
+                if then:
+                    then()
+                nd[k] = (redo_scope_problem(c_, R7a, F7) if direct else refused(close_stop, c_, s7, cured="redone"),
+                         cure_attempts(c_, s7), os.listdir(os.path.join(rd, STOPS, s7)))
+                back7()
+            case("a")                                                         # no ADOPTED.md
+            case("h", rows=ROW, subject=f"record-fix {F7}")                  # first added by no adjudicate commit
+            case("c", rows="| correspondence | N.a | Pass | **ADOPT** | ok |\n",
+                 then=lambda: adopt(F7, ROW, f"adjudicate {F7} revotes"))     # the row only in a later commit
+            case("i", rows="| correspondence | N.a | Pass | **ADOPT** | ok |\n",
+                 then=lambda: (G("rm", "-q", f"P/{F7}/ADOPTED.md"), G("commit", "-qm", f"adjudicate {F7}"),
+                               adopt(F7, ROW)))                               # deleted, re-added with the row
+            case("d1", rows=ROW.replace("| correspondence | N.b", "| non-vacuity | N.b"))   # another lane
+            case("d2", rows=ROW.replace("| N.b | NotDoneYet", "| N.a | NotDoneYet"))       # another item
+            case("f", rows=ROW.replace("**UNCOVERED**", "**ADOPT**")
+                 + ROW.replace("**UNCOVERED**", "**QUESTION**"))              # only ADOPT / QUESTION rows
+            case("e1", ents=dict(good7, correspondence=good7["correspondence"] + [("N.b", "NotDoneYet")]), rows=ROW)
+            case("e2", rows=ROW, tamper=True)                                 # changed after its seal
+            case("j", rows=ROW.replace("**UNCOVERED**", "UNCOVERED (expected: D1)"), direct=True)
+            case("k", ents={"correspondence@1": good7["correspondence"], "non-vacuity": good7["non-vacuity"]},
+                 rows=ROW, direct=True)                                       # a batch part, the row names the lane
+            nd_round(F7, good7, redo=R7a)
+            adopt(F7, ROW)
+            rec7 = close_stop(c_, s7, cured=f"redone in {F7}")
+            spent = lambda k: nd[k][1] or any(x.startswith("CURE") for x in nd[k][2])
+            ndt = lambda k: "NotDoneYet" in nd[k][0] and "step E" in nd[k][0] and "use --full" not in nd[k][0]
+            say("DESIGN-ND (a, h, c, i): a fresh round's sealed NotDoneYet with no UNCOVERED row in ADOPTED.md as first "
+                "committed by `adjudicate <fresh>` (none; first added by another commit; added only later; deleted and "
+                "re-added) does not cover the set-aside scope: refused, the text says what is missing, no attempt spent",
+                all(ndt(k) and not spent(k) and "no cure attempt was spent" in nd[k][0] for k in "ahci")
+                and "is not adjudicated yet" in nd["a"][0] and "not by `adjudicate" in nd["h"][0]
+                and "no UNCOVERED row naming that lane and item" in nd["c"][0] + nd["i"][0]
+                and "there is none yet" not in nd["a"][0])
+            say("DESIGN-ND (d, f, e): an UNCOVERED row naming another lane or another item, only an ADOPT / QUESTION "
+                "row, a duplicated NotDoneYet entry, or a lane file changed after its seal covers nothing: refused",
+                all(ndt(k) and not spent(k) for k in ("d1", "d2", "f")) and not spent("e1") and not spent("e2")
+                and "N.b" in nd["e1"][0] and "not judged" in nd["e1"][0] and "not sealed" in nd["e2"][0])
+            say("DESIGN-ND (j, k): a row `UNCOVERED (expected: <id>)`, and a batch part <lane>@k with the row naming "
+                "the lane, are the adjudicator's record: the fresh round covers the scope", nd["j"][0] is None
+                and nd["k"][0] is None)
+            say("DESIGN-ND (b): with the UNCOVERED row in `adjudicate <fresh>`'s ADOPTED.md, close --cured re-runs the "
+                "check on the fresh round and passes; trail and delivery accept it",
+                rec7.get("redo_round") == F7 and rec7["check"] == f"python3 audits/signoff.py check --round {F7}"
+                and rec7["rerun"]["passes"] and not [p for p in trail_problems(c_, d, rd) if s7 in p]
+                and f"python3 audits/signoff.py check --round {F7}" in deliver_blocking(c_))
+            # (g) the `wide` hint says "use --full" only when it is true
+            O8, D8 = "2026-10-26-full-8b9c0d1", "2026-10-27-9c0d1e2"
+            nd_round(O8, {}, kind="full", scope={"correspondence": ["N.c"]})
+            nd_round(D8, {"correspondence": [("N.d", "Pass")]}, kind="diff", scope={"correspondence": ["N.d"]})
+            say("DESIGN-ND (g): a statements round redone by a statements round is not told to use --full; a full round "
+                "redone by a diff round still is", "use --full" not in nd["a"][0]
+                and "use --full" in (redo_scope_problem(c_, O8, D8) or ""))
+            # review C3: tool_patch.forced_round_problems (a full round after an affects-review-inputs patch) counts
+            # a full round whose NotDoneYet its adjudicator recorded UNCOVERED, and not the same round without it
+            import tool_patch
+            hA = G("rev-parse", "HEAD")
+            G9 = "2026-10-28-full-0d1e2f3"
+            nd_round(G9, good7, kind="full")
+            adopt(G9, "| correspondence | N.a | Pass | **ADOPT** | ok |\n")
+            keep_tp = (tool_patch.tps, tool_patch.apply_commit, tool_patch.links, tool_patch.load)
+            try:
+                tool_patch.tps, tool_patch.apply_commit = (lambda rd_: ["TP1"]), (lambda a_, tp_: hA)
+                tool_patch.links = lambda a_, rd_: [(None, "TP1", None, None, {"attempt": 1})]
+                tool_patch.load = lambda p_: {"affects_review_inputs": "yes"}
+                fr_un = tool_patch.forced_round_problems(c_)
+                G("reset", "-q", "--hard", hA); G("clean", "-fdq")
+                nd_round(G9, good7, kind="full")
+                adopt(G9, ROW)
+                fr_ok = tool_patch.forced_round_problems(c_)
+            finally:
+                tool_patch.tps, tool_patch.apply_commit, tool_patch.links, tool_patch.load = keep_tp
+            say("DESIGN-ND (review C3): a full round after an affects-review-inputs tool patch counts once its "
+                "adjudicator recorded the NotDoneYet UNCOVERED; without that row it does not",
+                fr_un and "TP1" in fr_un[0] and fr_ok == [])
         finally:
             lanecheck.stray_files = saved_sf
         # --- B1b: the failure tally (U2 §4 M1) and the redo lineage, in a fresh release fixture -------------
@@ -5476,6 +5777,12 @@ def _selftest_withdrawn():
             and not trail(s10)
             and not only_left_out(dict(d10, causes=[{"code": "adj-record"}]), outs["make_report"][1])
             and not only_left_out(d10, outs["make_report"][1] + "FAIL[missing-theory] again\n"))
+        dw = ("FAIL[dead-witness] PAPER_DEFECTS.md row 1: its witness cell names `old`, not a declaration of this project\n"
+              "FAIL[record-cite] ! SKIPPED.md cites VACUOUS.md row 4, which VACUOUS.md does not have\n")
+        say("SW2-C24: a cure whose re-run prints only a dead-witness / record-cite residue (a rename of a cited "
+            "declaration) passes; a stop opened on a dead-witness does not close on it; a withdrawal is not eased",
+            only_left_out(d10, dw) and not only_left_out(dict(d10, causes=[{"code": "dead-witness"}]), dw)
+            and not only_left_out(d10, dw, residue=False))
         # a withdrawal whose check no longer prints the stop's own code gets a NOTE (a flag, never a refusal)
         outs["make_report"] = (1, "FAIL[missing-theory] RUN_LOG.md: not canonical\nreport check FAILED: 1 problem(s)\n")
         s11, _m = open_stop(cfg_r, cmd=mrc)

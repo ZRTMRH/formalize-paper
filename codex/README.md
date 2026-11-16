@@ -144,6 +144,19 @@ adjudicator settles.
 The actual per-child status matters; a parent process can exit 0 after reporting a child's error.
 Never retry a failed reviewer outside the sandbox automatically.
 
+After a delivery under `statements-only` or `hands-off`, the completion message offers the **K reply**:
+type `K` as a normal message in the same session to go through the open K items one at a time
+(`audits/run/stage5-delivery.md` step 8). Lanes and helpers compile probes through
+`audits/lean_slot.py run`, which may wait up to 300 s for a machine-wide Lean slot: keep Codex's
+tool-call timeout at least 600 s (`audits/run/codex.md`).
+
+**Memory guard.** Codex has no session hooks, so the memory guard that keeps a run from starving
+the computer is started by the protocol's own scripts: `python3 audits/lean_slot.py --show`
+(Stage 1, next to the watchdog), and every lane prompt and lane return (`prompt.py`,
+`lanecheck.py`). You can start it yourself before opening Codex with
+`python3 -B audits/lean_slot.py guard --ensure` in the project (it returns at once and prints
+nothing). It only pauses and resumes the run's own Lean probes; it never refuses or kills anything.
+
 ## Watchdog: notification when a run stops (optional, notify-only)
 
 A Codex turn can end on a service error instead of a result: in the reference run the parent

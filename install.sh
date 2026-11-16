@@ -18,10 +18,12 @@
 #      project's .git/info/exclude, so the record never enters the project's own history.
 #   3. installs the reviewer agent and the skill for your user: ~/.claude/agents/auditor.md and
 #      ~/.claude/skills/formalize-paper/ (an existing different copy is backed up first).
-#   4. sets "env": {"PYTHONDONTWRITEBYTECODE": "1"} and the protocol's permission rules (allow and
-#      deny; INSTALL.md, "Permissions") in the PROJECT's .claude/settings.json (created, or merged
-#      keeping every other key; an unparsable file is refused before step 1), and excludes the
-#      run's .formalization-work/ and deliverables/ from the project's git history.
+#   4. sets "env": {"PYTHONDONTWRITEBYTECODE": "1"}, the protocol's permission rules (allow and
+#      deny; INSTALL.md, "Permissions") and the memory guard's SessionStart hook (it only starts
+#      `audits/lean_slot.py guard --ensure`, silenced, exit 0) in the PROJECT's .claude/settings.json
+#      (created, or merged keeping every other key and hook; an unparsable file is refused before
+#      step 1), and excludes the run's .formalization-work/ and deliverables/ from the project's git
+#      history.
 # With --codex it also installs generated project roles and the required bytecode-prevention
 # shell environment setting in the user and project Codex configs (see codex/README.md).
 # It never pushes anything and never touches the network.
@@ -118,8 +120,8 @@ else
 fi
 [[ -e "$TARGET/.claude/agents/auditor.md" ]] \
   && fail "$TARGET/.claude/agents/auditor.md exists; it would override the pinned reviewer. Remove it first."
-# (A project .claude/settings.json is fine and is kept: step 4 only adds an env variable and
-# permission rules to it.)
+# (A project .claude/settings.json is fine and is kept: step 4 only adds an env variable,
+# permission rules and one SessionStart hook to it.)
 SETTINGS="$TARGET/.claude/settings.json"
 python3 -B "$HERE/audits/claude_settings.py" --dry-run "$SETTINGS" \
   || fail "fix $SETTINGS first (see the message above); nothing was installed"
