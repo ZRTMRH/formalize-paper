@@ -83,7 +83,9 @@ Each round, in order:
      refuse any other row, and only a row of the same lane and item settles a REVOTE NEEDED row. A
      re-vote lane that exists unsealed blocks the item's decision until it is sealed or set aside.
    - A re-vote is never re-voted: a re-vote lane with its own NOTE leaves its row open for the
-     human (the adjudicator writes `LEFT OPEN`, never `CLEARED`; the decisions document lists it). A re-vote lane
+     human (the adjudicator writes `LEFT OPEN`, never `CLEARED`; the decisions document lists it), except a
+     NOTE[independence] that is its only NOTE and mentions only a record file other than ADOPTED.md (a docstring's
+     "VACUOUS.md row 7"): the adjudicator may write `CLEARED` for it. A re-vote lane
      that was sealed is committed; its row, if left unsettled, stays listed for the human. A
      re-vote lane that returned but cannot be sealed leaves its files uncommitted, and the next
      integrity check fails on them. Never delete or move them: `stops.py set-aside <R> --lane
@@ -92,7 +94,10 @@ Each round, in order:
 6. **Implement.** Run `python3 audits/prompt.py 5 --round <R>` and do exactly what it says. A
    declaration a new `VACUOUS.md` row names gets a docstring sentence saying it is true only
    vacuously (Phase 0 checks the word "vacuous").
-7. **Exit check.** Read `ADOPTED.md`.
+7. **Exit check.** Read `ADOPTED.md`. Under `involved`, ask the human each reading QUESTION row of the
+   round at once (RUN.md "How you decide": the passage, the readings, the Lean's reading and the
+   recommendation in one message; wait for the answer, a designed human wait; record it verbatim under
+   `## Answered`). Under a delegating level, decide it as RUN.md says and add the `CONDITIONS.md` item.
    - **Go to Stage 5** if it has no **ADOPT**, no **REVOTE NEEDED**, and no **UNCOVERED** row
      except those marked "(expected: …)".
    - **At the round cap** (the budget's, `stage0-intake.md`; under a delegating level `thorough` is

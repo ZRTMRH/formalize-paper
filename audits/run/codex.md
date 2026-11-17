@@ -27,7 +27,7 @@ under Codex is in `spawn-and-seal.md` ("Under Codex"), since spawns happen in St
   | PDF renderer A, verifier B, cover, cover verifier, both checkers | `formalize_renderer` | `prompt.py --prompt render-a\|render-b\|render-cover\|render-cover-check\|render-check ... --write` (`render-pdf.md`); each saves with `render_record.py save`, a child that ends without saving is `render_record.py fail`, never a stop |
   | citation agents 1 and 2 | `formalize_citations` | `prompt.py --prompt citations-draft\|citations-review --write` (Stage 5 step 5a), two different children |
   | author-side helpers (statements, proofs) | `formalize_helper` | the brief `prompt.py --prompt formalizer` prints, then the assignment (Stages 2, 3) |
-  | delivery reviewers (CLAIMS, READABILITY, DECISIONS, TRUST; advisory) | `formalize_reader` | the "Delivery reviewer prompt" of `stage5-delivery.md`, filled in (step 5, "Review"); four different children; each returns its findings as its final message |
+  | delivery reviewers (CLAIMS, READABILITY, DECISIONS, TRUST; advisory), and the NOTES reviewer | `formalize_reader` | the "Delivery reviewer prompt" of `stage5-delivery.md`, filled in (step 5, "Review"); four different children; each returns its findings as its final message. After the first `--deliver`, one more child with perspective NOTES (step 5, "Deliver") |
   | tool-patch reviewer, core-fault reviewer, acknowledgment reviewer (release mode) | `formalize_tool_patch_reviewer` | `tool_patch.py review --tp TP<k>`, `stops.py core-fault --stop S<n> ...`, `integrity.py --ack-request ...` (RUN.md "Tool patches"); sealed with `lane_auth.py seal` |
 
   The roles carry no network, sandbox or tool setting of their own: each child inherits the
@@ -42,7 +42,9 @@ under Codex is in `spawn-and-seal.md` ("Under Codex"), since spawns happen in St
 - **The delivery reviewers** (advisory, at delivery; `stage5-delivery.md` step 5) run as `formalize_reader`
   (`fork_turns` "none"), one child per perspective, each given the "Delivery reviewer prompt" filled in. Save
   each child's final message verbatim as `delivery-review/<PERSPECTIVE>.md`; no seal. A child that fails is
-  replaced once by a fresh one, then noted in `JUDGEMENT.md`; never a stop. (The status check role
+  replaced once by a fresh one, then noted in `JUDGEMENT.md`; never a stop. After the first `--deliver`, the
+  NOTES reviewer runs the same way (`formalize_reader`, `fork_turns` "none", perspective NOTES); save its message
+  as `delivery-review/NOTES.md` and commit it under the subject `delivery review` (stage5-delivery.md, "Deliver"). (The status check role
   `formalize_status_check` is no longer used at delivery: approver, 2026-10-28.)
 - **A tool patch's reviewer** (release mode; RUN.md "Tool patches") runs as the generated role
   `formalize_tool_patch_reviewer` (`fork_turns` "none"), spawned with the line `tool_patch.py review
@@ -111,6 +113,22 @@ under Codex is in `spawn-and-seal.md` ("Under Codex"), since spawns happen in St
   one shell call with a timeout longer than the command (Codex's per-call timeout), never a loop of
   short calls; Codex has no Monitor tool (do not rely on background tasks), and any polling loop you start
   carries `FORMALIZE_PAPER_OPERATOR=1` (RUN.md, rule 9).
+- **Tool-call timeout at least 600 s.** Lanes and helpers compile probes with `python3
+  audits/lean_slot.py run --timeout 240 -- lake env lean <file>`, which may first wait up to 300 s
+  for one of the machine's Lean slots: give every such call a timeout of at least 600 s (600000 ms).
+  The slot files are in `/tmp/formalize-paper-lean-slots/`; the workspace-write sandbox normally
+  allows /tmp, and if it does not, the wrapper prints one NOTE and runs the probe without a slot.
+  The adjudicator's `--own --foreground` checks run Phase 0, the coverage roll-up and `scope.py
+  --verify` one after another (there is no detached worker under Codex).
+- **Memory guard.** Codex has no session hooks, so the guard (`lean_slot.py guard`) is started by
+  code: `python3 audits/lean_slot.py --show` at Stage 0/1, and every `prompt.py` and `lanecheck.py`
+  call (each lane's prompt and return) and every `lean_slot.py run`. A probe started before the
+  first of these is not watched. A probe the guard paused may wait in a tool call (at most 10 minutes
+  per pause): keep the 600 s timeouts above, and do not treat a slow probe as a hang. If the
+  sandbox keeps the guard from seeing or signalling the run's `lean` processes, the run behaves as
+  before (no protection, nothing refused).
+- **Spawning many children.** Codex's own thread limit (`agents.max_threads`) caps the children open
+  at once; spawn the lanes in waves (`spawn-and-seal.md`) and close each finished child.
 - **Sandbox failures and logs.** Do not retry a sandbox failure outside the sandbox. Record the
   actual `--log-dir` path (or the default printed final-message path) in `RUN_LOG.md`; it
   overrides the cache location.

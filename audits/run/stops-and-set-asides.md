@@ -3,7 +3,9 @@
 Read this when a check stops the round (RUN.md, failure table) or a round must be set aside. What
 happens to each cause is decided by its code (`project.CAUSES`, shown as `KIND[code]` on the failure
 line), never by its wording. Every stop is recorded, whoever clears it (the run record
-`RUN_RECORD.md`, "Every stop of the run").
+`RUN_RECORD.md`, "Every stop of the run"). Under Claude Code's auto mode the permission classifier may
+refuse `stops.py close` and some cures; then ask the human to run the printed command (it is a mechanical
+step, not a decision).
 
 1. **Record the stop** with the failing check in its exact read-only form, for example
    `python3 audits/stops.py open --cmd "python3 audits/integrity.py --check --round <R>" --round <R>`.
@@ -85,8 +87,11 @@ line), never by its wording. Every stop is recorded, whoever clears it (the run 
    even if the file was changed after its seal, and is refused when the sealed verdict cannot be
    found); its `close --cured` then re-runs the check on the fresh round that redoes it (a round scoped
    after the set-aside while the stop is open, so its TARGET.json names the set-aside round as
-   `redo_of`, its sealed verdicts judging every item of the set-aside scope -- use `--full` to redo
-   a full or statements round; recorded as `redo_round`; refused, no attempt spent, until there is
+   `redo_of`, its sealed verdicts judging every item of the set-aside scope, an item a lane left
+   NotDoneYet counting once that round's adjudicator recorded it UNCOVERED for that lane (AUDIT_PROTOCOL
+   step E; read from ADOPTED.md as first committed by `adjudicate <fresh round>`) -- scope it with the
+   set-aside round's kind (`--statements` for a statement round, `--full` for a full round; a diff
+   round cannot redo either); recorded as `redo_round`; refused, no attempt spent, until there is
    one; a check naming no round also runs `lanecheck.py --round <fresh round>`; a failure with other
    codes there is charged to those codes), since the set-aside round keeps its faulty files; an ownership FAIL is reverted, never waived: `stops.py revert --stop S<n> --commit <the
    commit the FAIL names>` restores the records it changed without owning them, and integrity.py accepts

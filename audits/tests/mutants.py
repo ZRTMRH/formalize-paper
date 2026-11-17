@@ -266,4 +266,5 @@ def main():
 
 
 if __name__ == "__main__":
+    os.environ["FORMALIZE_PAPER_NO_GUARD"] = "1"     # DESIGN-RAM: no test starts a memory guard
     sys.exit(main())

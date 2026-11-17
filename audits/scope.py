@@ -850,6 +850,28 @@ def _round_settled(rd):
     return None
 
 
+def adopted_doc_fix(cfg, repo, c):
+    """[declaration] of an index row whose latest non-Pass verdict its round's adjudicator ADOPTed (route `decided`)
+    and whose text -- docstring included -- changed since the last audited commit `c["commit"]` (next batch B2,
+    AUDIT-P3 §2: an ADOPTed docstring Fail on an index Definition, fixed in comments only, was never re-read and read
+    "not established" for ever). A diff round scopes it (parse_decls includes the docstring) and its fresh verdict
+    replaces the decided one."""
+    import result_status as rs_
+    rs_.routes(cfg, {})
+    ctx = rs_.ctx_of(cfg, {})
+    names = set()
+    for v in (ctx.get("decided_rows") or {}).values():
+        if "ADOPT" in (v.get("decs") or []):
+            names |= {str(n).rsplit(".", 1)[-1] for n in v.get("names") or []}
+    if not names:
+        return []
+    files = cfg.get("lean_files") or []
+    old, _ = decls_at(repo, c["commit"], files)
+    new, _ = decls_at(repo, "HEAD", files)
+    return sorted(q for q, d in new.items() if q.rsplit(".", 1)[-1] in names
+                  and (q not in old or old[q][2] != d[2]))
+
+
 def no_round_line(cfg, repo, kind, stage):
     """Stage 5 (trial #11: a full round and a diff round, about 84 minutes, for docstring-only fixes): the
     NEXT[no-round] line when the round would audit nothing new, else None. Both need the Lean unchanged since the
@@ -884,6 +906,8 @@ def no_round_line(cfg, repo, kind, stage):
         if make_report.stale_problems(cfg) or make_report.pending_adjudication(cfg) \
                 or make_report.unverified_problems(cfg):
             return None
+        if kind == "diff" and changed and adopted_doc_fix(cfg, repo, c):
+            return None     # next batch B2: an ADOPTed docstring fix on an index row is re-read by the diff round
     except Exception:       # noqa: BLE001 -- fail towards the round that audits more
         return None
     what = (f"only comments and docstrings changed since round {c['round']} ({str(c['commit'])[:11]}), "
@@ -896,7 +920,8 @@ def no_round_line(cfg, repo, kind, stage):
         return (f"NEXT[no-round] {what}, and that round is a full-scope round, adjudicated and settled: it is Stage 5's "
                 "full-scope round. Run no round: commit, run Phase 0 (it checks the approved statements are unchanged) "
                 "and go on with stage5-delivery.md step 2")
-    return (f"NEXT[no-round] {what}: no diff round (no lane re-reads a comment or docstring; the report and the "
+    return (f"NEXT[no-round] {what}: no diff round (no lane re-reads a comment or docstring, except an ADOPTed "
+            "docstring fix on an index row, which the next diff round re-reads; the report and the "
             "decisions document say so). Commit, run Phase 0 (it checks the approved statements are unchanged) and "
             "go on with stage5-delivery.md step 2")
 
@@ -1209,14 +1234,14 @@ def _no_round_controls(check):
         ok &= bool(cond)
     keep = (project.changes_after_last_audit, project.rounds, project.round_kind, make_report.stale_problems,
             make_report.pending_adjudication, make_report.unverified_problems, stops.redo_target,
-            globals()["_round_settled"])
+            globals()["_round_settled"], globals()["adopted_doc_fix"])
     st5, st4 = "Stage 5 — final round", "Stage 4 — audit rounds"
     state = {}
 
     def run(rkind, stage=st5, **kw):
         s_ = dict(dict(commits=["abc docstrings"], dirty=[], comment_only=True, problem=None,
                        round="2026-01-01-full-aaaaaaa", kind="full", settled=None, stale=[], pend=[], unver=[],
-                       redo=None, boom=False, basis=None), **kw)
+                       redo=None, boom=False, basis=None, adopt=[]), **kw)
         state.update(s_)
         return no_round_line({"rounds_dir": "R", "lean_files": []}, "/nonexistent", rkind, stage)
 
@@ -1234,7 +1259,13 @@ def _no_round_controls(check):
     make_report.unverified_problems = lambda cfg, inp=None: state["unver"]
     stops.redo_target = lambda cfg: state["redo"]
     globals()["_round_settled"] = lambda rd: state["settled"]
+    globals()["adopted_doc_fix"] = lambda cfg, repo, c: state["adopt"]
     try:
+        chk("next batch B2 (AUDIT-P3 §2): a docstring-only change implementing an ADOPTed Fail on an index row's "
+            "declaration runs the diff round; the full-round skip, and a change touching no such row, are unchanged",
+            run("diff", adopt=["N.Def_2_1"]) is None
+            and "it is Stage 5's full-scope round" in (run("full", adopt=["N.Def_2_1"]) or "")
+            and (run("diff") or "").startswith("NEXT[no-round]"))
         chk("trial #11: Stage 5, a diff round on a docstring-only change (as --deliver's Lean check finds it): "
             "NEXT[no-round]", (run("diff") or "").startswith("NEXT[no-round] only comments and docstrings"))
         _wc, _ws, _wn = run("diff", basis="compiled") or "", run("diff", basis="source") or "", run("diff") or ""
@@ -1264,7 +1295,34 @@ def _no_round_controls(check):
     finally:
         (project.changes_after_last_audit, project.rounds, project.round_kind, make_report.stale_problems,
          make_report.pending_adjudication, make_report.unverified_problems, stops.redo_target,
-         globals()["_round_settled"]) = keep
+         globals()["_round_settled"], globals()["adopted_doc_fix"]) = keep
+    # next batch B2: adopted_doc_fix on a real git history (the record's decided rows stubbed)
+    import result_status as _rs
+    d2 = tempfile.mkdtemp(prefix="scope-b2-")
+    keep2 = (_rs.routes, _rs.ctx_of)
+    try:
+        g2 = lambda *a: subprocess.run(["git", "-C", d2, *a], capture_output=True, text=True).stdout.strip()
+        g2("init", "-q"); g2("config", "user.email", "t@t"); g2("config", "user.name", "t")
+        lf = os.path.join(d2, "P.lean")
+        open(lf, "w").write("namespace N\n/-- old doc -/\ndef Def_2_1 : Nat := 1\n/-- h -/\ndef helper : Nat := 2\nend N\n")
+        g2("add", "-A"); g2("commit", "-qm", "a"); c0 = g2("rev-parse", "HEAD")
+        open(lf, "w").write("namespace N\n/-- new doc -/\ndef Def_2_1 : Nat := 1\n/-- h2 -/\ndef helper : Nat := 2\nend N\n")
+        g2("add", "-A"); g2("commit", "-qm", "b")
+        _rs.routes = lambda cfg, inp=None: []
+        rows_ = {}
+        _rs.ctx_of = lambda cfg, inp=None: {"decided_rows": rows_}
+        cfg2 = {"lean_files": ["P.lean"]}
+        none_ = adopted_doc_fix(cfg2, d2, {"commit": c0})
+        rows_[("r", "correspondence", ("x",))] = {"result": "Definition 2.1", "names": ["N.Def_2_1"], "decs": ["ADOPT"]}
+        hit_ = adopted_doc_fix(cfg2, d2, {"commit": c0})
+        rows_[("r", "correspondence", ("x",))]["decs"] = ["DEFER"]
+        defer_ = adopted_doc_fix(cfg2, d2, {"commit": c0})
+        chk("next batch B2: adopted_doc_fix names an index row's declaration whose docstring changed since the audited "
+            "commit and whose latest Fail was ADOPTed; nothing for a DEFER or when no row is decided",
+            none_ == [] and hit_ == ["N.Def_2_1"] and defer_ == [])
+    finally:
+        _rs.routes, _rs.ctx_of = keep2
+        shutil.rmtree(d2, ignore_errors=True)
     d = tempfile.mkdtemp(prefix="scope-settled-")
     try:
         rd = os.path.join(d, "R", "2026-01-01-full-aaaaaaa")

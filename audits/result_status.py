@@ -185,6 +185,24 @@ def mentions(text, label, names):
     return False
 
 
+def primary_subject(text, kind):
+    """The part of a record's subject cell that names the result the row is ABOUT (next batch B6, AUDIT-P4 D1: a
+    VACUOUS row on a helper that names the goal as context gave the goal "true only vacuously"; a SKIPPED row on
+    Remark 5.2 that mentions "condition (ii) of Theorem C" gave Theorem C "not formalized"). `kind` "vacuous": the
+    first backticked Lean name (AUDIT_PROTOCOL's VACUOUS template puts it first); "skipped": whichever comes first,
+    a result label or a backticked name. The whole cell when it holds neither (as before). Only the status reads
+    this; the same test decides whether the row is one of the result's records (rec_ok; fix round 1, attack 1)."""
+    t = " ".join(str(text).split())
+    code = re.search(r"`[^`]+`", t)
+    if kind == "vacuous":
+        return code.group(0) if code else t
+    # a label is a kind word and a number-like token ("Remark 5.2", "Theorem C"), never "remark on" (gate 3a: P4)
+    lab = re.search(rf"\b(?i:{project.RESULT_KINDS_RE})\s+(?:[A-Z]?\d[\w.]*\w|[A-Z]?\d|[A-Z](?![\w]))"
+                    rf"(?:\s*\([a-z0-9ivx]+\))?", t)
+    first = min((m for m in (code, lab) if m), key=lambda m: m.start(), default=None)
+    return first.group(0) if first else t
+
+
 def _snapshots(rd):
     """[(round name, {decl: fp}, deps or None)] oldest first, over the rounds that are not set aside."""
     dirs = [os.path.dirname(f) for f in glob.glob(os.path.join(rd, "*", "FINGERPRINTS.json"))
@@ -912,7 +930,10 @@ def analyse(cfg, row, c):
     sh, srows = c["skipped"]
     for r in srows:
         # the row's subject (its `what` cell), never its reasons: a skip that cites a result is not about it
-        if mentions(_col(sh, r, "what") or (r[1] if len(r) > 1 else ""), label, names):
+        what_ = _col(sh, r, "what") or (r[1] if len(r) > 1 else "")
+        # fix round 1 (attack 1): the row answers a Fail (records) only for the result it is ABOUT, the one that also
+        # gets its status; a context mention gives neither (else a Fail it does not answer read "faithful")
+        if mentions(primary_subject(what_, "skipped"), label, names):
             st.append(f"not formalized (SKIPPED row {r[0]})")
             records.add("skipped")
     opn = [q for q in c["questions"] if mentions(q[2], label, names)]
@@ -963,7 +984,7 @@ def analyse(cfg, row, c):
     vh, vrows = c["vacuous"]
     vtexts = []
     for r in vrows:
-        if mentions(_col(vh, r, "statement"), label, names):
+        if mentions(primary_subject(_col(vh, r, "statement"), "vacuous"), label, names):
             records.add("vacuous")
             stv = " ".join(_col(vh, r, "status").split())
             vtexts.append(f"vacuous (VACUOUS row {r[0]}" + (f"; {stv}" if stv else "") + ")")
@@ -1024,6 +1045,433 @@ def _code(route):
 def result_status(cfg, row, inp=None):
     """[status] of one index row (B10's SUMMARY and page 1 call this; see the module docstring)."""
     return analyse(cfg, row, ctx_of(cfg, inp))[0]
+
+
+# ---- next batch G1 (approver D1, CR-5/CR-6/CR-11): the conditions checklist and the K certificate ---------------
+# K1: the Lean statement says exactly what the paper says; K2: kernel-checked, no `sorry`, standard axioms; K3: every
+# nontrivial representation proved equivalent in Lean (a bridge theorem); K4: no unproved assumption. These readers
+# FLAG only: they never refuse, never stop (reviewers judge triviality and adequacy; code checks mechanics).
+# K-REMOVE (approver 2026-11-16): no K verdict is computed here; the formalizing agent writes the K certificate.
+CONDITIONS_MD = "CONDITIONS.md"
+COND_KINDS = ("condition", "scope", "known-issue", "bridge", "reading", "source-def", "finding")
+COND_CLOSED = ("met", "not applicable")
+COND_STATUSES = ("met", "open", "out of reach", "not applicable")
+COND_ID = re.compile(r"^(?:C\??-?\d+|K3-\d+)$")     # C<n>, an adjudicator's C?-<n> (a condition missing from the list), K3-<n>
+RAW_ID_WHY = "id not in C<n>/K3-<n> form"     # fix round K (AUDIT-P5 §3): such a row is kept under its raw id, open
+
+
+_STATUS_RE = re.compile(r"^(met|open|out of reach|not applicable)(?:\s*(?:—|–|--|-|:)\s*(.*))?$")
+
+
+def _cond_status(cell):
+    """(status, tail) of a `## Conditions` status cell, read by EXACT word (fix round 1, attack 4): `met`, `open`, `out
+    of reach` or `not applicable`, alone or followed by a dash or colon and a remark (`not applicable — now C4`).
+    Anything else ("met only for part (a)", "Met?", "metric argument pending") reads `open`."""
+    t = " ".join(str(cell).replace("*", "").replace("`", "").split()).lower().rstrip(".")
+    m = _STATUS_RE.match(t)
+    return (m.group(1), (m.group(2) or "").strip()) if m else ("open", t)
+
+
+def _clean_id(cell):
+    return str(cell).replace("*", "").replace("`", "").strip().rstrip(".:").strip()
+
+
+def conditions(cfg, rd=None):
+    """{id: item} of the run's conditions and open K items: every row of `<rounds>/CONDITIONS.md` (the operator's
+    checklist: id | kind | results | text | source) and every id first seen in an adjudicator's `## Conditions` table
+    (ADOPTED.md: id | status | evidence | reason; `K3-<n>` a bridge, `C?-<n>` a condition missing from the list).
+    Each item carries its latest status row (rounds oldest first; a later row replaces an earlier one): `status` (no
+    row: "no status row"), `evidence`, `reason`, `round`, and `why_open` when a closing status cannot be confirmed:
+    `met` with no evidence, `not applicable — now C<k>` naming no listed C<k> (fix round 1, attack 4). An item is
+    closed only when its status is met or not applicable AND that is confirmed. The key "_unparsed" holds the table
+    rows whose id is not in the C<n>/C?-<n>/K3-<n> form (attack 3) -- fix round K (AUDIT-P5 §3): such a row is still
+    kept under its raw id, its kind from its kind cell (unknown: K4), and it counts open (why_open RAW_ID_WHY: never
+    met, never dropped); "_headers" the tables whose header does not start with `id` (fix
+    round 2, M2): their rows are read by the first column and their items count open (never met)."""
+    import decisions, hypotheses
+    rd = rd or os.path.join(project.REPO, cfg["rounds_dir"])
+    out, unparsed, headers = {}, [], []
+    odd_why = "read from a table whose header does not start with `id`"
+    try:
+        txt = open(os.path.join(rd, CONDITIONS_MD), encoding="utf-8").read()
+    except OSError:
+        txt = ""
+    for h, c in decisions.table_rows(txt):
+        if not h or len(c) < 2:
+            continue
+        odd = h[0].strip("* ").lower() != "id"     # fix round 2 (M2): noted, read by its first column, open
+        if odd and f"{CONDITIONS_MD}: {h[0]!r}" not in headers:
+            headers.append(f"{CONDITIONS_MD}: {h[0]!r}")
+        col = lambda n: c[h.index(n)].strip() if n in h and h.index(n) < len(c) else ""
+        i = _clean_id(c[0] if odd else col("id"))
+        if not COND_ID.match(i):
+            if odd or not i:
+                continue
+            unparsed.append(f"{CONDITIONS_MD}: {col('id')!r}")     # fix round K: kept under its raw id, open
+        out[i] = {"id": i, "kind": col("kind").strip("`* ").lower(), "results": col("results"), "text": col("text"),
+                  "source": col("source"), "status": "no status row", "evidence": "", "reason": "", "round": None,
+                  "listed": True, "odd": odd}
+    rows = []
+    for d in hypotheses._round_dirs(rd):
+        try:
+            a = open(os.path.join(d, "ADOPTED.md"), encoding="utf-8").read()
+        except OSError:
+            continue
+        m = re.search(r"^## Conditions\b.*?$(.*?)(?=^## |\Z)", a, re.M | re.S)
+        if not m:
+            continue
+        for h, c in decisions.table_rows(m.group(1)):
+            if not h or len(c) < 2:
+                continue
+            odd = h[0].strip("* ").lower() != "id"     # fix round 2 (M2)
+            where = f"{os.path.basename(d)}/ADOPTED.md ## Conditions: {h[0]!r}"
+            if odd and where not in headers:
+                headers.append(where)
+            col = lambda n: c[h.index(n)].strip() if n in h and h.index(n) < len(c) else ""
+            i = _clean_id(c[0] if odd else col("id"))
+            if not COND_ID.match(i):
+                if odd or not i:
+                    continue
+                unparsed.append(f"{os.path.basename(d)}/ADOPTED.md: {col('id')!r}")     # fix round K: raw id, open
+            rows.append((d, i, dict({n: col(n) for n in ("status", "evidence", "reason")}, odd=odd)))
+    for d, i, cells in rows:
+        col = cells.get
+        it = out.setdefault(i, {"id": i, "kind": "bridge" if i.startswith("K3-") else "condition",
+                                "results": "", "text": col("reason"), "source": f"{os.path.basename(d)}/ADOPTED.md",
+                                "listed": False})
+        st, tail = _cond_status(col("status"))
+        it.update(status=st, evidence=col("evidence"), reason=col("reason"), round=os.path.basename(d), why_open="")
+        if st == "met" and col("evidence").strip("`*- ") == "":
+            it["why_open"] = "`met` without evidence"
+        if cells.get("odd"):
+            it["why_open"] = odd_why
+        if st == "not applicable":
+            now = re.search(r"\bnow\s+(C\d+)\b", tail + " " + col("reason"), re.I)
+            if now and not (out.get(now.group(1).upper()) or {}).get("listed"):
+                it["why_open"] = (f"`not applicable — now {now.group(1).upper()}`, but {now.group(1).upper()} is not in "
+                                  f"{CONDITIONS_MD}")
+    for i, it in out.items():
+        it.setdefault("why_open", "")
+        if it.pop("odd", False):
+            it["why_open"] = odd_why
+        if not COND_ID.match(i):        # fix round K (AUDIT-P5 §3): an id the code cannot read never closes
+            it["why_open"] = RAW_ID_WHY
+        it["open"] = it["status"] not in COND_CLOSED or bool(it["why_open"])
+    if unparsed:
+        out["_unparsed"] = unparsed
+    if headers:
+        out["_headers"] = headers
+    return out
+
+
+def _items(cfg, rd=None):
+    """conditions() without its "_unparsed" and "_headers" keys."""
+    return {k: v for k, v in conditions(cfg, rd).items() if not k.startswith("_")}
+
+
+def _plural(kind):
+    return kind[:-1] + "ies" if kind.endswith("y") else kind + "s"
+
+
+# fix round P6 (AUDIT-P6 §2, fix 1): a list of labels in a `results` cell, "Theorems 1.3, 2.1, 2.2, 3.1", "Lemmas 2.4
+# and 2.6", "Lemmas 2.4–2.6"; a bare number after a kind word takes that kind ("Theorem 2.1 and 2.2")
+_LNUM = r"\d+(?:\.\d+)*(?:\s*\([a-z0-9ivx]{1,4}\))?"
+_LSEP = r"\s*(?:,\s*and\b|,|;|&|\band\b)\s*"
+_LRANGE = r"\s*(?:–|—|-|\bto\b)\s*"
+_LIST_RE = re.compile(r"\b(" + "|".join(sorted({x for k in project.RESULT_KINDS if " " not in k
+                                                  for x in (_plural(k), k)}, key=len, reverse=True))
+                      + rf")\s+({_LNUM}(?:(?:{_LSEP}|{_LRANGE}){_LNUM})*)(?![\w.])", re.I)
+_SINGULAR = {x.lower(): k for k in project.RESULT_KINDS if " " not in k for x in (_plural(k), k)}
+
+
+def expand_labels(cell):
+    """A results cell with each list of labels written out: "Theorems 1.3, 2.1 and 2.2" -> "Theorem 1.3, Theorem 2.1,
+    Theorem 2.2"; a range "Lemmas 2.4–2.6" (same prefix, integer last part, at most 50 numbers) -> each number; a
+    list with a range it cannot write out stays as written (its plural kind word matches no row: counted against every
+    result)."""
+    def rep(m):
+        kind = _SINGULAR[m.group(1).lower()]
+        body = m.group(2)
+        nums = list(re.finditer(_LNUM, body))
+        out, k = [], 0
+        while k < len(nums):
+            a = nums[k].group(0)
+            if k + 1 < len(nums) and re.fullmatch(_LRANGE, body[nums[k].end():nums[k + 1].start()]):
+                b = nums[k + 1].group(0)
+                pa, _, la = a.rpartition(".")
+                pb, _, lb = b.rpartition(".")
+                if pa == pb and la.isdigit() and lb.isdigit() and 0 < int(lb) - int(la) <= 50:
+                    out += [f"{kind} {pa + '.' if pa else ''}{x}" for x in range(int(la), int(lb) + 1)]
+                else:
+                    return m.group(0)       # as written (a plural kind word then matches no row: counted everywhere)
+                k += 2
+                continue
+            out.append(f"{kind} {a}")
+            k += 1
+        return ", ".join(out)
+    return _LIST_RE.sub(rep, " ".join(str(cell or "").split()))
+
+
+def unmatched_entries(cell, idx):
+    """[entry] of a `results` cell (split on `,`, `;`, `and`, `&`) that match no index row of idx = [(label, names)]
+    (fix round 2, M1): such an item counts against every result. A bare part such as "(c)" after "Lemma 5.4 (b)"
+    belongs to the entry before it and is not checked alone; `all` and an empty cell give []."""
+    cell = " ".join(str(cell or "").split())
+    if not cell or cell.lower() == "all":
+        return []
+    out = []
+    for e in re.split(r"[,;&]|\band\b", expand_labels(cell)):     # fix round P6: plural lists written out
+        e = e.strip(" .")
+        if not e or re.fullmatch(r"\(?[a-z0-9ivx]{1,4}\)", e, re.I):
+            continue
+        if not any(mentions(e, label, names) for label, names in idx):
+            out.append(e)
+    return out
+
+
+def index_names(cfg, inp=None):
+    """[(label, names)] of every index row."""
+    c = ctx_of(cfg, inp)
+    return [(" ".join(str(r[0]).split()), row_names(r[1] if len(r) > 1 else "", c["ns"], c["known"])) for r in c["index"]]
+
+
+# kinds that are context, never an item for the adjudicator to rule
+_CONTEXT_KINDS = ("scope", "known-issue")
+
+
+def inferred_items(cfg, rd, items, inp=None):
+    """Open K items the record shows but no checklist row holds (fix round 1, attack 5; flags, never refusals):
+    `R?-<n>` for a `[DELEGATED …] … take reading (x)` line on a QUESTION row whose item no `reading` item names, and
+    `K3?-<n>` for a lane's `REPRESENTATION: … nontrivial` note in a round with no `K3-` row at all. Fix round K
+    (AUDIT-P5 §4): one R? per decision -- the item is read from a leading `question:<decl>` anchor or the QUESTION-row
+    words, `answered …` copies are skipped, and a `reading` item naming the index row of that decl (its label or a
+    Lean name) counts as the item."""
+    import decisions
+    out = {}
+    try:
+        log = open(os.path.join(rd, "RUN_LOG.md"), encoding="utf-8").read()
+    except OSError:
+        log = ""
+    readings = [it for it in items.values() if it["kind"] == "reading"]
+    try:
+        idx = index_names(cfg, inp)
+    except Exception:       # noqa: BLE001 -- no index: only the literal match below
+        idx = []
+    try:        # fix round P6 (AUDIT-P6 §3): the current declaration set (empty: nothing is stale)
+        c_ = ctx_of(cfg, inp)
+        known = {str(k).split(" (private in ")[0] for k in (c_.get("known") or ())}
+        # fix round P6b (REVIEW-FIXP6-NB M2): the fingerprints, current and recorded (content, not the name)
+        cur_fp = {}
+        for k_, v_ in (c_.get("cur") or {}).items():
+            cur_fp.setdefault(v_, set()).add(str(k_).split(" (private in ")[0])
+        snaps = list(c_.get("snaps") or [])
+    except Exception:       # noqa: BLE001 -- unreadable: every inferred item stays counted open
+        known, cur_fp, snaps = set(), {}, []
+    ns = str(cfg.get("namespace") or "")
+
+    def last_fp(name):
+        """The declaration's fingerprint in the newest recorded snapshot that holds it, or None (unknown)."""
+        for s_ in reversed(snaps):
+            fps = s_[1] if len(s_) > 1 and isinstance(s_[1], dict) else {}
+            for k_, v_ in fps.items():
+                if str(k_).split(" (private in ")[0] == name and v_ is not None:
+                    return v_
+        return None
+
+    def stale(name):
+        """A project declaration (`<ns>.x`) no longer in the current declaration set AND whose last recorded
+        fingerprint no current declaration carries (a deletion the code can confirm): its item is not counted.
+        Fix round P6b (REVIEW-FIXP6-NB M2): an unknown old fingerprint, or one a current declaration carries (a
+        rename or a move), keeps the item open."""
+        name = str(name or "").strip().strip("`")
+        if not (known and ns and name.startswith(ns + ".") and _LEAN.match(name) and name not in known):
+            return False
+        fp = last_fp(name)
+        return fp is not None and fp not in cur_fp
+
+    def renamed(name):
+        """The one current declaration carrying the absent declaration's last fingerprint, or None."""
+        name = str(name or "").strip().strip("`")
+        if not name or name in known:
+            return None
+        fp = last_fp(name)
+        to = sorted(cur_fp.get(fp) or ()) if fp is not None else []
+        return to[0] if len(to) == 1 else None
+    n, seen = 0, set()
+    for ln in log.splitlines():
+        if "[DELEGATED" not in ln or "take reading" not in ln:
+            continue
+        # fix round K (AUDIT-P5 §4): one item per decision -- the `answered question:` copies (B20) are skipped, the
+        # item is read from a leading `question:<decl>` anchor too, and a reading item naming the row's label counts
+        body = ln.strip().lstrip("-* ").strip()
+        if re.match(r"(?i)answered\b", body):
+            continue
+        a = re.match(r"question:\s*([^\s:]+(?::[^\s:]+)*?):\s", body)
+        q = decisions.QROW_RE.search(ln)
+        lab = " ".join(((a.group(1) if a else "") or (q.group("item") if q else "") or "").split())
+        rows_ = [(l_, ns_) for l_, ns_ in idx if lab and (lab == l_ or lab in ns_ or mentions(lab, l_, ns_))]
+        # fix round P6 (AUDIT-P6 §2, fix 2): the line names the open `reading` item that carries this decision
+        # ("open item C3"): no R? item. A referenced id that is not an open reading item keeps the R? item (open).
+        # Fix round P6b (REVIEW-FIXP6-NB M1): the reference is honoured only for a decl on no index row (a helper,
+        # whose R? item would count against every result). A decl on an index row goes to the RAMK row test below
+        # alone: the item must name the decl or its row, so a reference to another result's item keeps it (open)
+        refs = [x.upper() for x in re.findall(r"(?i)\bopen (?:K )?items? (C\??-?\d+|K3-\d+)\b", ln)]
+        if not rows_ and refs and any(r_ in items and items[r_].get("open") and items[r_].get("kind") == "reading"
+                                      for r_ in refs):
+            continue
+        key = lab or " ".join(body.split())
+        if key in seen:
+            continue
+        seen.add(key)
+        # fix round RAMK (REVIEW-RAMK-NB, K): a `reading` item that names only the decl's ROW (its label or another
+        # Lean name of the row) counts as this decision's item only while it is open; a closed one may be another
+        # decision's, so the R? item is kept (counted open, never hidden)
+        if lab and any(lab in (it.get("results") or "") or lab in (it.get("text") or "")
+                       or (it.get("open") and any(mentions(" ".join([str(it.get("results") or ""),
+                                                                     str(it.get("text") or "")]), l_, ns_)
+                                                  for l_, ns_ in rows_)) for it in readings):
+            continue
+        n += 1
+        out[f"R?-{n}"] = {"id": f"R?-{n}", "kind": "reading", "results": lab, "text": f"a reading taken without a "
+                          f"`reading` item in {CONDITIONS_MD}: {project.clip(ln.lstrip('- '), 160)}",
+                          "source": "RUN_LOG.md", "status": "no status row", "open": True, "listed": False,
+                          "why_open": "no checklist item"}
+    # fix round P6 (AUDIT-P6 §2, fix 3): per round -- a round whose adjudicator wrote a `K3-<n>` row, or ruled
+    # `| K3-0 | not applicable | - | <reason> |` (B'': no nontrivial REPRESENTATION note), gives no K3? item from its
+    # own notes; every other round's notes are still read (before: one K3- row anywhere hid every round's)
+    ruled = _k3_rounds(rd)
+    k = 0
+    for f in sorted(glob.glob(os.path.join(rd, "*", "correspondence*.json"))):
+        if os.path.relpath(f, rd).split(os.sep)[0] in ruled:
+            continue
+        try:
+            vs = json.load(open(f, encoding="utf-8")).get("verdicts") or []
+        except (OSError, ValueError, AttributeError):
+            continue
+        for v in vs:
+            t = " ".join(str(v.get(x, "")) for x in ("checked", "evidence")) if isinstance(v, dict) else ""
+            if "REPRESENTATION:" in t and re.search(r"(?i)\bnontrivial\b", t):
+                k += 1
+                out[f"K3?-{k}"] = {"id": f"K3?-{k}", "kind": "bridge", "results": str(v.get("item", "")),
+                                   "text": "a nontrivial change of representation a reviewer named, with no bridge "
+                                           f"item: {project.clip(t[t.index('REPRESENTATION:'):], 160)}",
+                                   "source": os.path.relpath(f, rd), "status": "no status row", "open": True,
+                                   "listed": False, "why_open": "no K3 row"}
+    # fix round P6 (AUDIT-P6 §3): an item naming a project declaration that is no longer in the Lean is listed
+    # "stale, not counted" (never met, never open); an empty or unreadable declaration set keeps it open
+    # Fix round P6b (REVIEW-FIXP6-NB M2, L1): K3? items only (a reading decision may still govern the paper's
+    # result); a renamed or moved declaration (same fingerprint) keeps its item open, on the new name's rows
+    for it in out.values():
+        if it["kind"] != "bridge":
+            continue
+        if stale(it["results"]):
+            it.update(open=False, stale=True, status=STALE_STATUS, why_open="")
+        elif renamed(it["results"]):
+            # on the new name's index row only when a row lists that exact name; else the old name stays (it
+            # matches no row: counted against every result)
+            to = renamed(it["results"])
+            it["renamed_to"] = to
+            if any(to in ns_ for _l, ns_ in idx):
+                it.update(renamed_from=it["results"], results=to)
+    return out
+
+
+STALE_STATUS = "stale, not counted"
+
+
+def _k3_rounds(rd):
+    """{round name} whose ADOPTED.md `## Conditions` table has a `K3-<n>` row (n >= 1) or a `K3-0` row `not
+    applicable` with a reason (fix round P6: B'' found no nontrivial REPRESENTATION note in that round)."""
+    import decisions, hypotheses
+    out = set()
+    for d in hypotheses._round_dirs(rd):
+        try:
+            a = open(os.path.join(d, "ADOPTED.md"), encoding="utf-8").read()
+        except OSError:
+            continue
+        m = re.search(r"^## Conditions\b.*?$(.*?)(?=^## |\Z)", a, re.M | re.S)
+        for h, c in decisions.table_rows(m.group(1)) if m else ():
+            if not h or len(c) < 2 or h[0].strip("* ").lower() != "id":
+                continue
+            col = lambda n_: c[h.index(n_)].strip() if n_ in h and h.index(n_) < len(c) else ""
+            i = _clean_id(col("id"))
+            if not re.fullmatch(r"K3-\d+", i):
+                continue
+            if i != "K3-0" or (_cond_status(col("status"))[0] == "not applicable"
+                               and str(col("reason")).strip("-` *")):
+                out.add(os.path.basename(d))
+    return out
+
+
+def conditions_without_row(cfg, rd=None):
+    """[id] of the checklist items of a kind the adjudicator rules (every kind but scope and known-issue, an unknown
+    kind included) with no `## Conditions` status row yet (prompt.py 4 lists them; never a refusal)."""
+    return [i for i, it in _items(cfg, rd).items()
+            if it["status"] == "no status row" and it["kind"] not in _CONTEXT_KINDS]
+
+
+def provenance_notes(cfg, rd=None):
+    """[note] (code `deliver`, never a refusal): a `condition`, `scope` or `known-issue` item of CONDITIONS.md whose text
+    is not found verbatim (whitespace-normalised) in RUN_LOG.md or the file its source names; every checklist item of
+    a ruled kind with no status row; an unknown kind; an unparsed id; a closing status the code cannot confirm; a
+    `not applicable` with no reason; every open item inferred from the record (inferred_items); and (fix round 2) a
+    table whose header does not start with `id`, and a `results` entry that matches no index row."""
+    rd = rd or os.path.join(project.REPO, cfg["rounds_dir"])
+    norm = lambda t: " ".join(str(t).replace("“", '"').replace("”", '"').split()).strip('" ')
+    try:
+        log = open(os.path.join(rd, "RUN_LOG.md"), encoding="utf-8").read()
+    except OSError:
+        log = ""
+    out = []
+    allc = conditions(cfg, rd)
+    for x in allc.get("_unparsed", []):     # fix round K (AUDIT-P5 §3): kept under its raw id, counted open
+        out.append(f"{CONDITIONS_MD}: a row whose id is not in the C<n>/K3-<n> form ({x}): kept under that id and "
+                   f"counted open (never met); write C<n>, C?-<n> or K3-<n>")
+    for x in allc.get("_headers", []):      # fix round 2 (M2)
+        out.append(f"a conditions table whose header does not start with `id` ({x}): its rows are read by the first "
+                   f"column and its items count open (never met); write the header `| id | ...`")
+    items = {k: v for k, v in allc.items() if not k.startswith("_")}
+    for i, it in items.items():
+        if it.get("listed") and it["kind"] in ("condition", "scope", "known-issue"):
+            srcs = [log]
+            for f in re.findall(r"[\w./-]+\.(?:md|txt|tex|json)", str(it.get("source") or "")):
+                for base in (rd, project.REPO):
+                    try:
+                        srcs.append(open(os.path.join(base, f), encoding="utf-8").read())
+                        break
+                    except OSError:
+                        continue
+            t = norm(it["text"])
+            if not t or not any(t in norm(x) for x in srcs):
+                out.append(f"{CONDITIONS_MD} {i}: text not found in {it.get('source') or 'RUN_LOG.md'}")
+        if it["kind"] not in COND_KINDS:
+            out.append(f"{CONDITIONS_MD} {i}: unknown kind {it['kind']!r}")
+        if it.get("why_open") and it["why_open"] != RAW_ID_WHY:     # a raw id: the note above names it
+            out.append(f"{CONDITIONS_MD} {i}: counted open: {it['why_open']}")
+        if it["status"] == "not applicable" and not str(it.get("reason") or "").strip("-` "):
+            out.append(f"{CONDITIONS_MD} {i}: `not applicable` with no reason")
+    miss = conditions_without_row(cfg, rd)
+    if miss:
+        out.append(f"{CONDITIONS_MD}: {len(miss)} item(s) with no `## Conditions` status row of an adjudicator yet: "
+                   + ", ".join(miss))
+    for i, it in inferred_items(cfg, rd, items).items():
+        if it.get("stale"):     # fix round P6 (AUDIT-P6 §3)
+            out.append(f"{i} names `{it['results']}`, no longer in the Lean (not in the current declaration set; "
+                       f"from {it['source']}): {STALE_STATUS} (never met)")
+            continue
+        out.append(f"{i}: {it['text']}")
+    try:        # fix round 2 (M1): an entry of a results cell that matches no index row
+        idx = index_names(cfg)
+    except Exception:       # noqa: BLE001 -- no index: the note is skipped
+        idx = None
+    for i, it in items.items() if idx is not None else ():
+        if it["kind"] in _CONTEXT_KINDS:
+            continue
+        e = unmatched_entries(it.get("results"), idx)
+        if e:
+            out.append(f"{CONDITIONS_MD} {i}: results entry " + ", ".join(repr(x) for x in e) + " matches no result of "
+                       "the index")
+    return out
 
 
 def statuses(cfg, inp=None):
@@ -1115,12 +1563,113 @@ def selftest():
         hw = hypotheses.walk
         WALK = {"assumes": {}, "walked": decls, "results": decls, "axioms": {}}
         hypotheses.walk = lambda cfg_, rd_=None: (WALK, None)
+        hwp = hypotheses.walk_problem
+        hypotheses.walk_problem = lambda cfg_, rd_=None: None
         try:
             reset()
             mkround("2026-01-01-aaaaaaa", fp0, allpass())
             s = ST()
             say("F1 honest: every result with fresh Pass verdicts reads exactly 'faithful' (definitions included)",
                 all(s[l] == [FAITHFUL] for l in labels[:5]))
+            # next batch G1: the conditions checklist and the K certificate (flags only)
+            open(os.path.join(rd, "RUN_LOG.md"), "w").write(
+                '# log\n## Checkpoint B\n- human answer (2026-01-02): "(a) and keep the witnesses relative to the '
+                'authorized inputs COND1QZ"\n')
+            open(os.path.join(rd, CONDITIONS_MD), "w").write(
+                "| id | kind | results | text | source |\n|---|---|---|---|---|\n"
+                "| C1 | condition | Lemma 1.2 | keep the witnesses relative to the authorized inputs COND1QZ | RUN_LOG.md "
+                "## Checkpoint B 2026-01-02 |\n"
+                "| C2 | reading | Lemma 1.3 (a) | (b) is not covered | 2026-01-01-aaaaaaa/ADOPTED.md |\n"
+                "| C3 | scope | all | only what the authors asked NOTVERBATIMQZ | RUN_LOG.md |\n")
+            open(os.path.join(rd, "2026-01-01-aaaaaaa", "ADOPTED.md"), "a").write(
+                "\n## Conditions\n\n| id | status | evidence | reason |\n|---|---|---|---|\n"
+                "| C1 | open | - | not yet |\n| C1 | met | `P.lemma_1_2` | checked: relative inputs |\n"
+                "| K3-1 | open | - | bridge: the quotient is the paper's metric identification; serves Lemma 1.2 |\n"
+                "| C?-1 | open | - | not in CONDITIONS.md: \"use Theorem 2.1 as printed\"; RUN_LOG ## Answered |\n"
+                "| C9 | bogus | - | unknown status reads open (Conjecture 3.1) |\n")
+            cd_ = conditions(cfg)
+            pn_ = provenance_notes(cfg)
+            say("next batch G1: conditions() = CONDITIONS.md ∪ ids first seen in a `## Conditions` row (K3-<n>, C?-<n>); "
+                "the latest row wins; an unknown status reads open; a listed item with no row is open",
+                set(cd_) == {"C1", "C2", "C3", "K3-1", "C?-1", "C9"} and cd_["C1"]["status"] == "met"
+                and not cd_["C1"]["open"] and cd_["C2"]["status"] == "no status row" and cd_["C2"]["open"]
+                and cd_["K3-1"]["kind"] == "bridge" and cd_["C?-1"]["kind"] == "condition"
+                and cd_["C9"]["status"] == "open" and cd_["C9"]["open"])
+            say("next batch G1: a provenance NOTE names a condition/scope item whose text is not verbatim in RUN_LOG.md "
+                "(never one that is), and the items with no status row",
+                any(x.startswith("CONDITIONS.md C3: text not found") for x in pn_)
+                and not any(x.startswith("CONDITIONS.md C1:") for x in pn_)
+                and any("no `## Conditions` status row" in x and "C2" in x for x in pn_)
+                and conditions_without_row(cfg) == ["C2"])
+            # fix round 1 (attack review 2-6): what the code cannot match, parse or confirm counts as OPEN
+            adp = os.path.join(rd, "2026-01-01-aaaaaaa", "ADOPTED.md")
+            ad0 = open(adp).read()
+            open(adp, "a").write("| K3-2 | open | - | bridge: `P.quot_equiv` (the quotient); serves Theorem 1 |\n"
+                                 "| C1 | met only for part (a) | `P.lemma_1_2` | partly |\n"
+                                 "| C?-1 | not applicable — now C8 | - | added as C8 |\n"
+                                 "| **K3-3a** | open | - | malformed id |\n")
+            open(os.path.join(rd, CONDITIONS_MD), "a").write("| C5 | requirement | Lemma 1.3 (b) | must be constructive | "
+                                                             "RUN_LOG.md |\n| C6 | condition | Thm 9.9 | mistyped "
+                                                             "results cell | RUN_LOG.md |\n")
+            cd2 = conditions(cfg)
+            pn3 = provenance_notes(cfg)
+            say("fix round 1 (attack 2): an open item that attaches to no result (a bridge naming `Theorem 1`, a "
+                "mistyped results cell) stays open, never dropped, and the mistyped cell is noted (K-REMOVE: the "
+                "agent judges which results it affects)",
+                cd2["K3-2"]["open"] and cd2["C6"]["open"]
+                and any("C6: results entry 'Thm 9.9' matches no result" in x for x in pn3))
+            say("fix round 1 (attack 3, 4): an unknown kind is noted; a malformed id is noted; a status "
+                "read by exact word ('met only for part (a)' is open); 'not applicable — now C8' with no C8 stays open",
+                any("unknown kind 'requirement'" in x for x in pn3)
+                and any("not in the C<n>/K3-<n> form" in x and "K3-3a" in x and "counted open" in x for x in pn3)
+                and (cd2.get("K3-3a") or {}).get("open") and (cd2.get("K3-3a") or {}).get("why_open") == RAW_ID_WHY
+                and cd2["C1"]["status"] == "open" and cd2["C?-1"]["open"]
+                and any("C8 is not in CONDITIONS.md" in x for x in pn3)
+                and _cond_status("met — `P.x`") == ("met", "p.x") and _cond_status("metric pending")[0] == "open"
+                and _cond_status("Met?")[0] == "open")
+            open(adp, "w").write(ad0 + "| C1 | met | - | no evidence |\n")
+            say("fix round 1 (attack 4): `met` with no evidence stays open, with a note",
+                conditions(cfg)["C1"]["open"] and any("C1: counted open: `met` without evidence" in x
+                                                      for x in provenance_notes(cfg)))
+            open(adp, "w").write(ad0)
+            open(os.path.join(rd, CONDITIONS_MD), "w").write("| id | kind | results | text | source |\n|---|---|---|---|---|\n")
+            open(os.path.join(rd, "RUN_LOG.md"), "a").write(
+                "## Open questions\n- [DELEGATED 2026-01-03, operator under hands-off (intake); reversal: re-approve] "
+                "keep it (QUESTION row on Lemma 1.2, round 2026-01-01-aaaaaaa) take reading (a) — r\n")
+            inf6 = inferred_items(cfg, rd, _items(cfg, rd))
+            say("fix round 1 (attack 5): a delegated reading with no `reading` item is an inferred open item (R?-1), "
+                "noted for the agent",
+                list(inf6) == ["R?-1"] and inf6["R?-1"]["open"]
+                and any(x.startswith("R?-1:") for x in provenance_notes(cfg)))
+            # fix round 2 (REVIEW-FIX1-NB M1): a results cell with ANY entry matching no index row counts against
+            # every result, with a note naming the entry
+            cmd_ = os.path.join(rd, CONDITIONS_MD)
+            hdr_ = "| id | kind | results | text | source |\n|---|---|---|---|---|\n"
+            open(cmd_, "w").write(hdr_ + "| C7 | condition | Lemma 1.2, Thm 2.1 | partly mistyped | RUN_LOG.md |\n")
+            pn7 = provenance_notes(cfg)
+            open(cmd_, "w").write(hdr_ + "| C7 | condition | Lemma 1.2 and Theorem 2.1 | typed right | RUN_LOG.md |\n")
+            pn7b = provenance_notes(cfg)
+            say("fix round 2 (M1): a note names the entry 'Thm 2.1' of `Lemma 1.2, Thm 2.1` that matches no result; a "
+                "cell whose entries all match gives no such note",
+                any("C7: results entry 'Thm 2.1' matches no result" in x for x in pn7)
+                and not any("C7: results entry" in x for x in pn7b)
+                and unmatched_entries("Lemma 1.3 (a) and (b)", [("Lemma 1.3 (a)", []), ("Lemma 1.3 (b)", [])]) == []
+                and unmatched_entries("all", []) == [])
+            # fix round 2 (M2): a table whose header does not start with `id` is noted and its items count open
+            open(cmd_, "w").write("| item | kind | results | text | source |\n|---|---|---|---|---|\n"
+                                  "| C1 | condition | Lemma 1.3 (b) | a | RUN_LOG.md |\n")
+            cd8, pn8 = conditions(cfg), provenance_notes(cfg)
+            open(cmd_, "w").write(hdr_)
+            open(adp, "w").write(ad0.replace("| id | status | evidence | reason |", "| item | status | evidence | reason |"))
+            cd9, pn9 = conditions(cfg), provenance_notes(cfg)
+            open(adp, "w").write(ad0)
+            say("fix round 2 (M2): a CONDITIONS.md or `## Conditions` table headed `item` is noted, its rows are read "
+                "by the first column and count open (a `met` row too)",
+                cd8["C1"]["open"]
+                and any("header does not start with `id`" in x and "CONDITIONS.md: 'item'" in x for x in pn8)
+                and (cd9.get("K3-1") or {}).get("open") and (cd9.get("C1") or {}).get("open")
+                and any("header does not start with `id`" in x and "ADOPTED.md ## Conditions" in x for x in pn9))
+            os.remove(os.path.join(rd, CONDITIONS_MD)); os.remove(os.path.join(rd, "RUN_LOG.md"))
             say("a conjecture reads 'stated only', with its statement checked faithful, never plain faithful",
                 s["Conjecture 3.1"] == ["stated only (a conjecture: stated as a proposition, asserted nowhere; its "
                                         "statement checked faithful)"])
@@ -1663,6 +2212,41 @@ def selftest():
             s = ST()
             say("a vacuous statement reads 'vacuous', its non-vacuity Fail answered by the VACUOUS row",
                 s["Lemma 1.3 (b)"] == ["vacuous (VACUOUS row 1; open)"] and s["Lemma 1.3 (a)"] == [FAITHFUL])
+            # next batch B6 (AUDIT-P4 D1): a VACUOUS row on a helper naming another result as context, and a SKIPPED
+            # row whose subject mentions another result, give that other result no status
+            open(os.path.join(rd, "VACUOUS.md"), "w").write(
+                "| # | statement | for which parameters | why | decision and reasoning | found | status |\n"
+                "|---|---|---|---|---|---|---|\n| 1 | `P.lemma_1_3_b`, the helper used in the proof of Lemma 1.3 (a) "
+                "(`P.lemma_1_3_a`) | all | unsat | keep | r | open |\n")
+            open(os.path.join(rd, "SKIPPED.md"), "w").write(
+                "| # | what | reason | what it would take | how this was checked | decided by |\n|---|---|---|---|---|---|\n"
+                "| 1 | Conjecture 3.1, which needs condition (ii) of Theorem 2.1 | open problem | a proof | read | human |\n")
+            s6 = ST()
+            say("next batch B6: a context mention in a VACUOUS statement cell or a SKIPPED `what` cell gives the "
+                "mentioned result no status; the row's own result keeps it",
+                s6["Lemma 1.3 (b)"] == ["vacuous (VACUOUS row 1; open)"] and s6["Lemma 1.3 (a)"] == [FAITHFUL]
+                and s6["Conjecture 3.1"][0] == "not formalized (SKIPPED row 1)"
+                and not any(x.startswith("not formalized") for x in s6["Theorem 2.1"])
+                and primary_subject("Proof of Conjecture 3.1", "skipped") == "Conjecture 3.1"
+                and primary_subject("the bound in the remark on k = h², Remark 5.2", "skipped") == "Remark 5.2"
+                and primary_subject("condition (ii) of Theorem C", "skipped") == "Theorem C"
+                and primary_subject("`P.x` for Lemma 2", "vacuous") == "`P.x`"
+                and primary_subject("no name here", "vacuous") == "no name here")
+            # fix round 1 (attack 1, demonstrated): a VACUOUS row about `P.lemma_1_3_a` that names the helper
+            # `P.lemma_1_3_b` (which has the non-vacuity Fail) as context: the helper's Fail is NOT answered by it
+            reset()
+            mkround("2026-01-01-aaaaaaa", fp0, allpass([("non-vacuity", "P.lemma_1_3_b", "Fail")]),
+                    "| non-vacuity | P.lemma_1_3_b | Fail | **ADOPT** — VACUOUS row 1 | x |\n")
+            open(os.path.join(rd, "VACUOUS.md"), "w").write(
+                "| # | statement | for which parameters | why | decision and reasoning | found | status |\n"
+                "|---|---|---|---|---|---|---|\n| 1 | `P.lemma_1_3_a` is proved from the helper `P.lemma_1_3_b`, whose "
+                "hypotheses are unsatisfiable | all | unsat | keep | r | open |\n")
+            open(os.path.join(rd, "SKIPPED.md"), "w").write("| # | what | reason |\n|---|---|---|\n")
+            s7 = ST()
+            say("fix round 1 (attack 1): a VACUOUS row that names a result only as context neither gives it a status nor "
+                "answers its Fail: it never reads plain 'faithful'",
+                s7["Lemma 1.3 (b)"] != [FAITHFUL] and s7["Lemma 1.3 (a)"][0].startswith("vacuous"))
+            os.remove(os.path.join(rd, "SKIPPED.md"))
             os.remove(os.path.join(rd, "VACUOUS.md"))
             # excluded at B; SKIPPED; open question (PROXY/open questions under involved)
             json.dump({"rows": {"Lemma 1.2": {"decls": ["P.lemma_1_2"], "status": "excluded"}}, "fingerprints": fp0},
@@ -1789,6 +2373,7 @@ def selftest():
                 and got["integrity.py"] == base)
         finally:
             decisions.unproved, make_report.open_questions, hypotheses.walk = dq_un, mq, hw
+            hypotheses.walk_problem = hwp
             make_report.REPO = mr_repo
     finally:
         project.REPO = old_repo
@@ -1825,8 +2410,277 @@ def selftest():
         and not mentions("Lemma 5.4 (c), `X.lemma_5_4_c`", "Lemma 5.4 (a)", ["X.lemma_5_4_a"])
         and mentions("Lemma 5.4(c) is cited", "Lemma 5.4", []) and not mentions("Lemma 5.41", "Lemma 5.4", [])
         and mentions("Lemma 5.4 (b) and (c)", "Lemma 5.4 (c)", []))
+    _selftest_p5(say)
+    _selftest_p6(say)
     print("selftest: " + ("ok" if not fails else f"FAILED ({len(fails)})"))
     return 1 if fails else 0
+
+
+def _selftest_p5(say):
+    """Fix round K (AUDIT-P5): the conditions checklist and inferred items replayed on the e2e run's own K records (tests/lane_samples/k-p5-records.json,
+    verbatim), each index row's status as the run's records gave it."""
+    import shutil, subprocess, tempfile, hypotheses
+    P = json.load(open(os.path.join(project.AUDITS, "tests", "lane_samples", "k-p5-records.json"), encoding="utf-8"))
+    ns = P["namespace"]
+    tmp = tempfile.mkdtemp(prefix="rstatus-p5-")
+    saved = (project.REPO, globals()["context"], globals()["analyse"], hypotheses.walk, hypotheses.walk_problem)
+    try:
+        project.REPO = tmp
+        subprocess.run(["git", "init", "-q", tmp]); subprocess.run(["git", "-C", tmp, "commit", "-q", "--allow-empty", "-m", "x"])
+        rd = os.path.join(tmp, "audits", "P5")
+        cfg = {"name": "P5", "namespace": ns, "rounds_dir": "audits/P5", "involvement": "hands-off", "mode": "release",
+               "literature_hypotheses": P["literature_hypotheses"]}
+        st = {lab: s for lab, _n, s in P["rows"]}
+        ctx = {"rd": rd, "ns": ns, "known": set(), "problems": [],
+               "index": [(lab, ", ".join(f"`{n}`" for n in names)) for lab, names, _s in P["rows"]]}
+        globals()["context"] = lambda cfg_, live=None: ctx
+        globals()["analyse"] = lambda cfg_, r, c: (st[" ".join(str(r[0]).split())],)
+        DOC = {"assumes": P["assumes"], "bare": P["bare"]}
+        hypotheses.walk = lambda cfg_, rd_=None: (DOC, None)
+        hypotheses.walk_problem = lambda cfg_, rd_=None: None
+
+        def write(conditions, adopted, log):
+            shutil.rmtree(rd, ignore_errors=True)
+            os.makedirs(rd)
+            open(os.path.join(rd, CONDITIONS_MD), "w", encoding="utf-8").write(conditions)
+            open(os.path.join(rd, "RUN_LOG.md"), "w", encoding="utf-8").write(log)
+            for d, sec in adopted.items():
+                os.makedirs(os.path.join(rd, d))
+                open(os.path.join(rd, d, "ADOPTED.md"), "w", encoding="utf-8").write(
+                    "| lane | item | verdict | decision | reason |\n|---|---|---|---|---|\n\n" + sec)
+
+        write(P["conditions"], P["adopted"], P["run_log"])
+        cd, pn = conditions(cfg), provenance_notes(cfg)
+        say("fix round K (AUDIT-P5 §3): ids `K1` and `K-2` are kept under their raw ids, open (K1's `met` rows update "
+            "it but never close it), with a note saying they are counted open; never dropped",
+            cd["K1"]["open"] and cd["K1"]["status"] == "met" and cd["K1"]["kind"] == "source-def"
+            and cd["K1"]["why_open"] == RAW_ID_WHY and cd["K-2"]["open"] and cd["K-2"]["kind"] == "reading"
+            and not any("not counted" in x for x in pn)
+            and sum("not in the C<n>/K3-<n> form" in x and "counted open" in x for x in pn) == 4
+            and "K-2" in conditions_without_row(cfg))
+        say("fix round K (AUDIT-P5 §4): the three log copies of one Lemma 2.5 decision give no R? item when the "
+            "`reading` item K-2 names its row by label",
+            not any(x.startswith("R?-") for x in pn))
+        lines = [l for l in P["run_log"].splitlines() if "take reading" in l]
+        no_k2 = "\n".join(l for l in P["conditions"].splitlines() if not l.startswith("| K-2 |")) + "\n"
+        rq = lambda log: sorted(i for i in inferred_items(cfg, rd, _items(cfg, rd), {CTX_KEY: ctx}))
+        write(no_k2, P["adopted"], "\n".join(lines) + "\n")
+        r_all = rq(None)
+        write(no_k2, P["adopted"], lines[2] + "\n")
+        r_ans = rq(None)
+        write(P["conditions"], P["adopted"], lines[1] + "\n")
+        r_anchor = rq(None)
+        write(P["conditions"], P["adopted"], lines[0] + "\n")
+        r_qrow = rq(None)
+        say("fix round K (AUDIT-P5 §4): without K-2 the three copies give one R? item; an "
+            "`answered` copy alone gives none; with K-2 neither the `question:` anchor line nor the QUESTION-row line "
+            "gives one (K-2's label `Lemma 2.5` names the decl's row)",
+            r_all == ["R?-1"] and r_ans == [] and r_anchor == [] and r_qrow == [])
+        # fix round RAMK: the same reading item under a readable id and MET names only the row: it may be another
+        # decision's item, so the R? item stays (counted open); naming the decl's Lean name, it is the item
+        c9 = lambda s: s.replace("| K-2 |", "| C9 |")
+        met = {d: sec.rstrip("\n") + "\n| C9 | met | VACUOUS.md row 1 | kept as printed, as the decision says |\n"
+               for d, sec in P["adopted"].items()}
+        write(c9(P["conditions"]), met, lines[1] + "\n")
+        its9 = _items(cfg, rd)
+        r_met = rq(None)
+        lit = c9(P["conditions"]).replace("| C9 | reading | Lemma 2.5 |", "| C9 | reading | Lemma 2.5, `ColoringSmallKtMinorFree.lemma_2_5` |")
+        write(lit, met, lines[1] + "\n")
+        r_lit = rq(None)
+        say("fix round RAMK: a CLOSED `reading` item naming only the decl's row (by label) no longer hides the delegated "
+            "decision's R? item (counted open); one naming the decl itself still counts as its item",
+            its9["C9"]["open"] is False and r_met == ["R?-1"] and r_lit == [])
+    except Exception as e:      # noqa: BLE001 -- a crash of the fixture is a failure
+        say(f"fix round K (AUDIT-P5): the replay of the run's K records ran ({type(e).__name__}: {e})", False)
+    finally:
+        project.REPO, globals()["context"], globals()["analyse"], hypotheses.walk, hypotheses.walk_problem = saved
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _selftest_p6(say):
+    """Fix round P6 (AUDIT-P6): the inferred items replayed on the final e2e run's own K records
+    (tests/lane_samples/k-p6-records.json, verbatim): as recorded, three helper-level K3? items on notes the
+    adjudicators ruled trivial in prose; none with the adjudicators' B'' ruling written as the `K3-0` row it asks for
+    now (AUDIT-P6 §2). K-REMOVE: which results an item affects is the formalizing agent's judgement."""
+    import shutil, subprocess, tempfile, hypotheses
+    P = json.load(open(os.path.join(project.AUDITS, "tests", "lane_samples", "k-p6-records.json"), encoding="utf-8"))
+    ns = P["namespace"]
+    tmp = tempfile.mkdtemp(prefix="rstatus-p6-")
+    saved = (project.REPO, globals()["context"], globals()["analyse"], hypotheses.walk, hypotheses.walk_problem)
+    try:
+        project.REPO = tmp
+        subprocess.run(["git", "init", "-q", tmp]); subprocess.run(["git", "-C", tmp, "commit", "-q", "--allow-empty", "-m", "x"])
+        rd = os.path.join(tmp, "audits", "P6")
+        cfg = {"name": "P6", "namespace": ns, "rounds_dir": "audits/P6", "involvement": "hands-off", "mode": "release",
+               "literature_hypotheses": P["literature_hypotheses"]}
+        st = {lab: s_ for lab, _n, s_ in P["rows"]}
+        # fix round P6b (REVIEW-FIXP6-NB M2): fingerprints by content -- an older round still held the deleted
+        # `isMinor_of_iso` (a fingerprint no current declaration carries)
+        cur = {n: f"fp:{n}" for n in P["known"]}
+        old_snap = dict(cur, **{f"{ns}.isMinor_of_iso": "fp:isMinor_of_iso"})
+        ctx = {"rd": rd, "ns": ns, "known": set(P["known"]), "problems": [], "cur": cur,
+               "snaps": [("old", old_snap, None), ("new", dict(cur), None)],
+               "index": [(lab, ", ".join(f"`{n}`" for n in names)) for lab, names, _s in P["rows"]]}
+        globals()["context"] = lambda cfg_, live=None: ctx
+        globals()["analyse"] = lambda cfg_, r, c: (st[" ".join(str(r[0]).split())],)
+        DOC = {"assumes": P["assumes"], "bare": P["bare"]}
+        hypotheses.walk = lambda cfg_, rd_=None: (DOC, None)
+        hypotheses.walk_problem = lambda cfg_, rd_=None: None
+        K30 = "| K3-0 | not applicable | - | no nontrivial REPRESENTATION note: each is immediate by unfolding |\n"
+
+        def write(conditions=P["conditions"], adopted=P["adopted"], log=P["run_log"], k30=(), corr=P["correspondence"]):
+            shutil.rmtree(rd, ignore_errors=True)
+            os.makedirs(rd)
+            open(os.path.join(rd, CONDITIONS_MD), "w", encoding="utf-8").write(conditions)
+            open(os.path.join(rd, "RUN_LOG.md"), "w", encoding="utf-8").write(log)
+            for d, sec in adopted.items():
+                os.makedirs(os.path.join(rd, d), exist_ok=True)
+                sec = sec.rstrip("\n") + "\n" + (K30 if d in k30 else "") + "\n"
+                open(os.path.join(rd, d, "ADOPTED.md"), "w", encoding="utf-8").write(
+                    "| lane | item | verdict | decision | reason |\n|---|---|---|---|---|\n\n" + sec)
+            for f, vs in corr.items():
+                os.makedirs(os.path.join(rd, os.path.dirname(f)), exist_ok=True)
+                json.dump({"verdicts": vs}, open(os.path.join(rd, f), "w", encoding="utf-8"))
+
+        def run():
+            return inferred_items(cfg, rd, _items(cfg, rd), {CTX_KEY: ctx}), provenance_notes(cfg)
+        opn = lambda inf_: sorted(it["results"].rsplit(".", 1)[-1] for it in inf_.values() if it["open"])
+        R = sorted(P["adopted"])
+        D1 = "2026-11-14-full-d1d7d5ebd69"
+        write()
+        inf, pn = run()
+        on_rows = {n_ for _l, ns_, _s in P["rows"] for n_ in ns_}
+        say("fix round P6 (AUDIT-P6): as recorded, the open inferred items on helpers (on no index row) are the K3? "
+            "items on `iterInv_step`, `isMinor_induce`, `isMinor_of_injective_hom`; no R? item (each delegated line "
+            "names the open item C3)",
+            not any(i.startswith("R?-") for i in inf)
+            and sorted(it["results"].rsplit(".", 1)[-1] for it in inf.values() if it["open"]
+                       and it["results"] not in on_rows) == ["isMinor_induce", "isMinor_of_injective_hom", "iterInv_step"])
+        stale_ = [i for i, it in inf.items() if it.get("stale")]
+        say("fix round P6 (AUDIT-P6 §3): the K3? item on the deleted `isMinor_of_iso` is listed 'stale, not counted' "
+            "(never open, never met) with a note; no result counts it",
+            len(stale_) == 1 and inf[stale_[0]]["results"].endswith(".isMinor_of_iso")
+            and inf[stale_[0]]["status"] == STALE_STATUS and inf[stale_[0]]["open"] is False
+            and any(x.startswith(stale_[0] + " names") and "stale, not counted" in x for x in pn))
+        say("fix round P6 (AUDIT-P6 §2, fix 1): C1's 'Theorems 1.3, 2.1, 2.2, 3.1' names four index rows (no "
+            "unmatched-entry note)", not any(x.startswith(f"{CONDITIONS_MD} C1: results entry") for x in pn)
+            and unmatched_entries("Theorems 1.3, 2.1, 2.2, 3.1", index_names(cfg, {CTX_KEY: ctx})) == [])
+        write(k30=R)
+        inf, pn = run()
+        say("fix round P6 (AUDIT-P6 §2): with each round's B'' ruling as the row `K3-0 | not applicable`, no open "
+            "inferred item and no K3? note; C3 stays open",
+            opn(inf) == [] and _items(cfg, rd)["C3"]["open"]
+            and not any(x.startswith("K3?-") for x in pn))
+        write(k30=[r for r in R if r != D1])
+        inf_d, pn_d = run()
+        noreason = dict(P["adopted"])
+        write(k30=R)
+        open(os.path.join(rd, D1, "ADOPTED.md"), "w", encoding="utf-8").write(
+            "| lane | item | verdict | decision | reason |\n|---|---|---|---|---|\n\n" + P["adopted"][D1].rstrip("\n")
+            + "\n| K3-0 | not applicable | - | - |\n\n")
+        inf_nr = run()[0]
+        bridge = {d: (sec.rstrip("\n") + "\n| K3-1 | met | `SmallKtMinorFree.IsMinor` | bridge: proved |\n\n"
+                      if d == R[0] else sec) for d, sec in noreason.items()}
+        write(adopted=bridge)
+        inf_b = inferred_items(cfg, rd, _items(cfg, rd), {CTX_KEY: ctx})
+        say("fix round P6 (AUDIT-P6 §2, fix 3): the ruling is per round -- without it in round full-d1d7d5ebd69 its "
+            "helper notes are open items again (the deleted helper's stays stale); a `K3-0` "
+            "row with no reason rules nothing; one round's `K3-1` row no longer hides the other rounds' notes",
+            opn(inf_d) != [] and any("stale, not counted" in x for x in pn_d) and opn(inf_nr) != []
+            and any(it["source"].startswith(D1) for it in inf_b.values())
+            and not any(it["source"].startswith(R[0]) for it in inf_b.values()))
+        c9 = P["run_log"].replace("open item C3", "open item C9")
+        write(k30=R, log=c9)
+        inf9 = run()[0]
+        c1 = P["run_log"].replace("open item C3", "open item C1")
+        write(k30=R, log=c1)
+        inf1 = run()[0]
+        c3m = {d: re.sub(r"(?m)^\| C3 \| open \|", "| C3 | met |", sec) for d, sec in P["adopted"].items()}
+        write(k30=R, adopted=c3m)
+        inf3 = inferred_items(cfg, rd, _items(cfg, rd), {CTX_KEY: ctx})
+        say("fix round P6 (AUDIT-P6 §2, fix 2): a delegated line naming an item that does not exist (C9), or one that "
+            "is closed (C1; C3 itself once met), keeps its R? item, open",
+            any(i.startswith("R?-") and it["open"] for i, it in inf9.items())
+            and any(i.startswith("R?-") and it["open"] for i, it in inf1.items()) and not _items(cfg, rd)["C3"]["open"]
+            and sorted(it["results"].rsplit(".", 1)[-1] for it in inf3.values()) == ["iterInv_step", "lem_2_5_proof"]
+            and sorted(it["results"].rsplit(".", 1)[-1] for it in inf9.values())
+            == ["iterInv_step", "lem_2_5_proof"] and inf9["R?-1"]["open"])
+        ctx["known"] = set()
+        write(k30=[r for r in R if r != D1])
+        ctx["known"] = set(P["known"])
+        inf_e = [it for it in inferred_items(cfg, rd, _items(cfg, rd), {CTX_KEY: ctx}).values()
+                 if it["results"].endswith(".isMinor_of_iso")]
+        ctx["known"] = set()
+        inf_e0 = [it for it in inferred_items(cfg, rd, _items(cfg, rd), {CTX_KEY: ctx}).values()
+                  if it["results"].endswith(".isMinor_of_iso")]
+        ctx["known"] = set(P["known"])
+        say("fix round P6 (AUDIT-P6 §3): with no readable declaration set the deleted helper's item stays open",
+            len(inf_e0) == 1 and inf_e0[0]["open"] is True
+            and len(inf_e) == 1 and inf_e[0]["open"] is False)
+        # fix round P6b (REVIEW-FIXP6-NB M2): a rename (same fingerprint, new name) is no deletion: the item stays
+        # open, on the new name; an unknown old fingerprint keeps the deleted helper's item open too
+        IMI, NEW = f"{ns}.isMinor_induce", f"{ns}.IsMinor.induce"
+        ctx["known"] = set(P["known"]) - {IMI} | {NEW}
+        ctx["cur"] = dict({k_: v_ for k_, v_ in cur.items() if k_ != IMI}, **{NEW: cur[IMI]})
+        ctx["snaps"] = [("old", old_snap, None), ("new", dict(ctx["cur"]), None)]
+        write(k30=[r for r in R if r != D1])
+        inf_r = inferred_items(cfg, rd, _items(cfg, rd), {CTX_KEY: ctx})
+        ren = [it for it in inf_r.values() if it.get("renamed_to") == NEW]
+        gone = [it for it in inf_r.values() if it["results"].endswith(".isMinor_of_iso")]
+        ctx["snaps"] = [("new", dict(ctx["cur"]), None)]
+        inf_u = [it for it in inferred_items(cfg, rd, _items(cfg, rd), {CTX_KEY: ctx}).values()
+                 if it["results"].endswith(".isMinor_of_iso")]
+        ctx["known"], ctx["cur"] = set(P["known"]), cur
+        ctx["snaps"] = [("old", old_snap, None), ("new", dict(cur), None)]
+        say("fix round P6b (REVIEW-FIXP6-NB M2): renamed `isMinor_induce` -> `IsMinor.induce` (same fingerprint): its "
+            "K3? item stays open; the deleted `isMinor_of_iso` is "
+            "stale; with its old fingerprint unknown, it stays open",
+            len(ren) == 1 and ren[0]["open"] is True and not ren[0].get("stale") and ren[0]["results"] == IMI
+            and len(gone) == 1 and gone[0].get("stale") is True
+            and len(inf_u) == 1 and inf_u[0]["open"] is True and not inf_u[0].get("stale"))
+        # fix round P6b (REVIEW-FIXP6-NB L1): an R? item on a deleted declaration is never stale (a reading decision
+        # may still govern the paper's result)
+        LP = f"{ns}.lem_2_5_proof"
+        ctx["known"] = set(P["known"]) - {LP}
+        ctx["cur"] = {k_: v_ for k_, v_ in cur.items() if k_ != LP}
+        write(k30=R, log=c9)
+        inf_l = [it for it in inferred_items(cfg, rd, _items(cfg, rd), {CTX_KEY: ctx}).values() if it["results"] == LP]
+        ctx["known"], ctx["cur"] = set(P["known"]), cur
+        say("fix round P6b (REVIEW-FIXP6-NB L1): an R? item on a declaration no longer in the Lean stays open",
+            len(inf_l) == 1 and inf_l[0]["id"].startswith("R?-") and inf_l[0]["open"] is True
+            and not inf_l[0].get("stale"))
+        # fix round P6b (REVIEW-FIXP6-NB M1): "open item C3" (C3 is about Lemma 2.5) on a line about Lemma 2.4's
+        # own declaration hides nothing: the R? item stays open on Lemma 2.4
+        L24 = f"{ns}.lem_2_4"
+        ln24 = (f"- [DELEGATED 2026-11-14, operator under hands-off (intake); reversal: none] take reading (b) "
+                f"(QUESTION row on {L24}, round 2026-11-14-cdcb74f8540) -- reading (b) of Lemma 2.4's hypothesis")
+        for tail in ("; open item C3", ""):
+            write(k30=R, log=P["run_log"].replace("## Checkpoint C", ln24 + tail + "\n## Checkpoint C"))
+            inf24 = inferred_items(cfg, rd, _items(cfg, rd), {CTX_KEY: ctx})
+            r24 = [i for i, it in inf24.items() if i.startswith("R?-") and it["results"] == L24]
+            say(f"fix round P6b (REVIEW-FIXP6-NB M1): a delegated reading on `lem_2_4`{' citing C3 (about Lemma 2.5)' if tail else ''} "
+                "keeps its R? item open",
+                "## Checkpoint C" in P["run_log"] and len(r24) == 1 and inf24[r24[0]]["open"] is True)
+        ln25 = ln24.replace(L24, f"{ns}.lem_2_5").replace("Lemma 2.4's", "Lemma 2.5's") + "; open item C3"
+        write(k30=R, log=P["run_log"].replace("## Checkpoint C", ln25 + "\n## Checkpoint C"))
+        inf25 = inferred_items(cfg, rd, _items(cfg, rd), {CTX_KEY: ctx})
+        say("fix round P6b (REVIEW-FIXP6-NB M1): the same reference on Lemma 2.5's own declaration (C3 names Lemma 2.5) "
+            "is honoured: no R? item", not any(i.startswith("R?-") for i in inf25) and opn(inf25) == [])
+        say("fix round P6 (AUDIT-P6 §2, fix 1): plural lists and ranges are written out; a range it cannot write out "
+            "stays as written (matching no row)",
+            expand_labels("Theorems 1.3, 2.1, 2.2, 3.1") == "Theorem 1.3, Theorem 2.1, Theorem 2.2, Theorem 3.1"
+            and expand_labels("Lemmas 2.4 and 2.6") == "Lemma 2.4, Lemma 2.6"
+            and expand_labels("Lemmas 2.4–2.6") == "Lemma 2.4, Lemma 2.5, Lemma 2.6"
+            and expand_labels("Corollaries 3 and 4") == "Corollary 3, Corollary 4"
+            and expand_labels("Theorem 2.1 and 2.2") == "Theorem 2.1, Theorem 2.2"
+            and expand_labels("Lemmas 2.4–3.1") == "Lemmas 2.4–3.1"
+            and unmatched_entries("Lemmas 2.4–3.1", [("Lemma 2.4", [])]) == ["Lemmas 2.4–3.1"]
+            and expand_labels("Lemma 5.4 (b) and (c)") == "Lemma 5.4 (b) and (c)")
+    except Exception as e:      # noqa: BLE001 -- a crash of the fixture is a failure
+        say(f"fix round P6 (AUDIT-P6): the replay of the run's K records ran ({type(e).__name__}: {e})", False)
+    finally:
+        project.REPO, globals()["context"], globals()["analyse"], hypotheses.walk, hypotheses.walk_problem = saved
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def main(argv=None):

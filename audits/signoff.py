@@ -1150,7 +1150,10 @@ def _as_list(x):
 def cited_name_problems(cfg, round_dir):
     """[problem] for each Lean name the writer's and informalizer's text (SIGNOFF.json, INFORMAL.json) cites that
     does not exist (make_report.cited_name_problems, resolved in Lean). Trial #10: a Mathlib
-    name with the wrong namespace reached the approved sheet."""
+    name with the wrong namespace reached the approved sheet. DESIGN-SW2B X1: a name whose first component is no
+    global name (`G.Adj`) is no problem but a note, kept in `cited_name_problems.notes` (`check` prints them; the
+    same names come back at delivery, from SIGNOFF.md, as notes for the NOTES reviewer)."""
+    cited_name_problems.notes = []
     import make_report as mr
 
     def strings(x):
@@ -1165,7 +1168,7 @@ def cited_name_problems(cfg, round_dir):
             docs[f] = "\n".join(strings(json.load(open(os.path.join(round_dir, f), encoding="utf-8"))))
         except (OSError, ValueError):
             pass
-    return mr.cited_name_problems(cfg, docs)
+    return mr.cited_name_problems(cfg, docs, notes=cited_name_problems.notes)
 
 
 def lean_names(x):
@@ -1696,13 +1699,18 @@ def main(argv=None):
         return 0
     if a.cmd == "check":
         probs, disc = project.split(cfg, check(cfg, rd, rows, defs, md) + cited_name_problems(cfg, rd))
+        # DESIGN-SW2B X1: the names the check cannot decide (a stand-in for the function has none)
+        notes_ = getattr(cited_name_problems, "notes", [])
         for p in probs:
             print(project.problem_line(p, "signoff-check"))
         for p in disc:
             print(project.disclosed_line(p))
+        for n_ in notes_:
+            print(f"NOTE[signoff-check] {' '.join(str(n_).split())}")
         print(f"sign-off check: {row_count(cfg, [r[0] for r in rows])}, {len(defs)} Lean definitions in the bundle, "
               f"{len(probs)} problem(s)"
-              + (f", {len(disc)} disclosed (release mode: stops.py disclose records them)" if disc else ""))
+              + (f", {len(disc)} disclosed (release mode: stops.py disclose records them)" if disc else "")
+              + (f", {len(notes_)} note(s): judged at delivery" if notes_ else ""))
         return 1 if probs else 0
     if a.cmd == "render":
         probs, disc = project.split(cfg, check(cfg, rd, rows, defs, md))
@@ -2842,6 +2850,66 @@ def selftest_b2_round3(d, say):
         globals()["REAPPROVAL_READER_GATE"] = reapproval_reader_gate
 
 
+def selftest_sw2b(say):
+    """DESIGN-SW2B X1 (+ REVIEW C1): `check` prints a cited name whose first component is no global name (`G.Adj`) as
+    NOTE[signoff-check] and passes; a wrong global name still fails. Step 7's text names the cure that works for a
+    hit in INFORMAL.json (set-aside on the stop, a new round of R's kind)."""
+    import io, contextlib, dependencies, stops
+    import make_report as mr
+    g = globals()
+    keep = (project.REPO, project.select, g["build_bundle"], g["check"], project.run_lean, mr.imported_libraries,
+            mr._declared_earlier, dependencies.project_decls)
+    repo = tempfile.mkdtemp(prefix="sgsw2b-")
+    try:
+        rd = os.path.join(repo, "R", "2026-11-16-full-abc")
+        os.makedirs(rd)
+        cfg = {"name": "P", "rounds_dir": "R", "source_cite": "t", "index_file": "Main.lean", "namespace": "Paper",
+               "lean_files": ["Main.lean"]}
+        open(os.path.join(repo, "Main.lean"), "w").write("/-\n| result | Lean |\n|---|---|\n| Theorem 1.1 | `N.a` |\n-/\n")
+        project.REPO = repo
+        mr.imported_libraries = lambda cfg_: ["Mathlib"]
+        mr._declared_earlier = lambda cfg_, n: False
+        dependencies.project_decls = lambda cfg_: set()
+
+        def sb(cfg_, table=None):
+            build_bundle.missing = []
+            return "b\n", [("Theorem 1.1", ["N.a"])], []
+        g["build_bundle"], g["check"] = sb, (lambda *a_, **k_: [])
+        project.select = lambda name=None: (cfg, "stub")
+        project.run_lean = mr._names_stub({"SimpleGraph.chromaticNumber", "Finset.card"}, {"SimpleGraph", "Finset"})
+
+        def run(name):
+            json.dump({"rows": [{"result": "Theorem 1.1", "plain_english": f"the number `{name}` is small"}],
+                       "definitions": []}, open(os.path.join(rd, "INFORMAL.json"), "w"))
+            json.dump({"commit": "abc", "rows": []}, open(os.path.join(rd, "SIGNOFF.json"), "w"))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = main(["check", "--round", os.path.basename(rd)])
+            return rc, out.getvalue()
+        rc1, o1 = run("G.chromaticNumber")
+        say("DESIGN-SW2B X1: INFORMAL.json citing `G.chromaticNumber` (dot notation on the graph) passes the check with "
+            "a NOTE[signoff-check] line that no stop reads as a failure",
+            rc1 == 0 and "NOTE[signoff-check] INFORMAL.json cites `G.chromaticNumber`: its first component `G`" in o1
+            and "0 problem(s), 1 note(s): judged at delivery" in o1 and "PROBLEM" not in o1 and stops.causes(o1) == []
+            and "error:" not in o1)
+        rc2, o2 = run("Finset.Foo.card_le")
+        say("DESIGN-SW2B X1: a wrong global name (`Finset.Foo.card_le`, trial #10) still fails the check",
+            rc2 == 1 and "PROBLEM[signoff-check] INFORMAL.json cites `Finset.Foo.card_le`, which is no declaration" in o2
+            and "note(s)" not in o2)
+        t = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "run", "stage2-statements.md"),
+                 encoding="utf-8").read()
+        s7 = t.split("7. **Prepare the sheet.**", 1)[-1].split("\n8. **", 1)[0]
+        say("DESIGN-SW2B T1 (REVIEW C1, REVIEW-STOPFIX N2): step 7 no longer cures a blind-reading hit by a writer rerun; "
+            "it sets the round aside on the open stop and redoes it with a round of R's kind",
+            "rerun the sign-off writer (a mechanical failure)" not in t and "NOTE[signoff-check]" in s7
+            and "stops.py set-aside <R> --stop S<n>" in " ".join(s7.split()) and "--full" in s7 and "--statements" in s7
+            and "close --stop S<n> --cured" in " ".join(s7.split()))
+    finally:
+        (project.REPO, project.select, g["build_bundle"], g["check"], project.run_lean, mr.imported_libraries,
+         mr._declared_earlier, dependencies.project_decls) = keep
+        shutil.rmtree(repo, ignore_errors=True)
+
+
 def selftest_c6(say):
     """C6: the counts say index rows, numbered results and definitions apart (make_report.count_text), never
     "N results" for every row; check's message counts the bundle's Lean definitions as such."""
@@ -3651,6 +3719,7 @@ def selftest():
         selftest_b4(d, say)
         selftest_b13_interrupted(d, say)
         selftest_c6(say)
+        selftest_sw2b(say)
     finally:
         globals()["RENDER_GUARD"], globals()["RENDER_SHOWN"] = _guard0
         shutil.rmtree(d, ignore_errors=True)

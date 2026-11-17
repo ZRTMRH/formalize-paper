@@ -27,6 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 AUDITS_SRC = os.path.dirname(HERE)
 sys.path.insert(0, AUDITS_SRC)
 import project  # noqa: E402
+import run_record  # noqa: E402
 
 LEAN = ("/-!\n| Paper | Lean |\n|---|---|\n| Theorem 1.1 | `thm_1_1` |\n| Lemma 1.2 | `lemma_1_2` |\n-/\n"
         "theorem thm_1_1 : True := trivial\ntheorem lemma_1_2 : 1 = 1 := rfl\n")
@@ -317,6 +318,11 @@ def scenario(base, mode, level):
         answer_c()
         # review 2026-10-28: an open stop waits for the human in dev (PENDING[stop]); in release a stop that is no
         # human stop (here tool-call, a rerun) is a note
+        # next batch D3: the stray-script listing (integrity.unpinned_py, unit-tested there; this fixture has no
+        # first pin) reaches the delivery notes and the README, never a refusal
+        import integrity
+        _up0 = integrity.unpinned_py
+        integrity.unpinned_py = lambda a_, r_: ["R/stray_helper.py"]
         rc_open, out_open = f.deliver()
         if mode == "release":
             wait_ok = rc_open == 0 and f"stop {s_} is open (not a human stop)" in out_open
@@ -327,6 +333,7 @@ def scenario(base, mode, level):
                        and not os.path.isdir(os.path.join(f.repo, "deliverables")))
             stops.close_stop(f.cfg, s_, human="go on")
             rc1, out1 = f.deliver()
+        integrity.unpinned_py = _up0
         open(dep, "w").write(dep_keep)
         n_stops = [x for x in stops.stops(f.cfg) if x != s_]
         try:
@@ -341,6 +348,8 @@ def scenario(base, mode, level):
         ok = (refused_ok and rc1 == 0 and project.NOTES_HEADING in out1
               and not stops.FAIL_LINE.search(out1) and "PENDING[" not in out1
               and "SUMMARY.md is stale" in out1 and wait_ok
+              and "[unpinned-py] " in out1 and "stray_helper.py" in out1
+              and "not part of the pinned checking software" in readme
               and (mode == "release" or "note: [status-unmapped]" in out1)
               and not n_stops and stop_refused
               and "AGENTQZ" in sm and project.JUDGEMENT_MD in got
@@ -353,7 +362,8 @@ def scenario(base, mode, level):
               and readme.index(project.CHECKED_HEADING) < readme.index("## A.")
               and "README.md sha256 " in open(os.path.join(f.rd, "RUN_LOG.md"), encoding="utf-8").read()
               and project.check_delivered(f.cfg, with_readme=True) == [])
-        why = (f"stale={rc_st} {out_st[:200]!r}; sorry={rc_so} {out_so[:200]!r}; open={rc_open} {out_open[:200]!r}; "
+        why = (f"D3={'[unpinned-py] ' in out1}/{'not part of the pinned checking software' in readme}; "
+               f"stale={rc_st} {out_st[:200]!r}; sorry={rc_so} {out_so[:200]!r}; open={rc_open} {out_open[:200]!r}; "
                f"deliver={rc1} {out1[:900]!r}; "
                f"stops={stops.stops(f.cfg)} refused={stop_refused}; got={got}")
         return ok, why
@@ -439,7 +449,9 @@ def preconditions(base):
         out.append(("the prepared, read fixture passes make_report.py --check --delivery", dp() == []))
         sp = os.path.join(f.rd, "SUMMARY.md")
         keep = open(sp).read()
-        open(sp, "w").write(keep.replace("Lemma 1.2 |", "Lemma 1.2 (edited) |").replace("Lemma 1.2;", "Lemma 1.2 (edited);"))
+        # next batch B3: the note reads the summary as the README does, so "Lemma 1.2 (edited)" pairs with Lemma 1.2;
+        # a result renamed out of recognition is still lost
+        open(sp, "w").write(keep.replace("Lemma 1.2 |", "Lemma one-two |").replace("Lemma 1.2;", "Lemma one-two;"))
         p1 = dp()
         open(sp, "w").write(keep)
         out.append(("approver 2026-10-28: the main agent's summary may differ from the facts draft (never 'changed after "
@@ -952,17 +964,19 @@ def route_change_after_adjudication(base):
 
 
 def operator_sourced_answers(base):
-    """[(name, ok)]: integrated review fix 7. Under `involved` a `## Answered` line citing an escalation ("escalation
-    E<n>"), an adjudicator's record or the conservative rule is the operator's decision: it never closes Checkpoint C
-    as the human's answer; the human's own words do."""
-    import decisions
+    """[(name, ok)]: integrated review fix 7, REVERSED by the approver's decision of 2026-11-15 (DESIGN-SW2 1.2, Q5).
+    Under `involved` a `## Answered` line that points to a source (an escalation's answer, an adjudicator's record, the
+    conservative rule) is the human's answer: recorded verbatim, it closes Checkpoint C, and the summary shows it with
+    "your answer adopts <source> as your own". A [PROXY] or [DELEGATED] tag still answers nothing."""
+    import decisions, make_report
     out = []
     f = Fixture(base, "release", "involved", tag="esc")
     try:
         f.prepare(); f.read_all()
         items = decisions.checkpoint_c_open(f.cfg)
         res = {}
-        for tag, ans in (("esc", "keep it, as escalation E1 answered (ANSWERABLE)"),
+        for tag, ans in (("tag", "[DELEGATED 2026-01-03, operator] keep it"),
+                         ("esc", "keep it, as escalation E1 answered (ANSWERABLE)"),
                          ("adj", f"follow the adjudicator's row in {f.r1}/ADOPTED.md"),
                          ("cons", "keep the paper's statement (conservative rule)"),
                          ("human", "yes, keep it")):
@@ -973,12 +987,23 @@ def operator_sourced_answers(base):
             if tag == "esc":
                 f.prepare(); f.read_all(["decisions", "summary", "report"])
                 res["deliver"] = f.deliver()
-        out.append(("fix 7: under involved, a Checkpoint C answer citing an escalation (escalation E<n>), an adjudicator's "
-                    "record or the conservative rule leaves C open (--deliver waits: PENDING[question], a wait, never a "
-                    "stop); the human's own words close it",
-                    items and res["esc"] == items and res["adj"] == items and res["cons"] == items and res["human"] == []
-                    and res["deliver"][0] == 1 and res["deliver"][1].startswith("PENDING[question]")
-                    and decisions.human_answer(f"answered {items[0]} (2026-01-03, {f.r1}): yes, keep it")))
+                res["shown"] = [t for _k, _l, t, _w in make_report.recorded_human_answers(f.cfg)]
+        line = f"answered {items[0] if items else 'x'} (2026-01-03, {f.r1}): "
+        out.append(("SW2-C3 (fix 7 reversed, Q5): under involved, a Checkpoint C answer citing an escalation, an "
+                    "adjudicator's record or the conservative rule is the human's answer (C closes, --deliver does not "
+                    "wait on it); a [DELEGATED] tag still answers nothing",
+                    items and res["tag"] == items and res["esc"] == [] and res["adj"] == [] and res["cons"] == []
+                    and res["human"] == [] and not res["deliver"][1].startswith("PENDING[question]")
+                    and all(decisions.human_answer(line + a) for a in (
+                        "follow the conservative rule", "as in ADOPTED.md", "as in round 2026-10-30-abcdef1",
+                        "go with escalation E2", "yes, keep it"))
+                    and not any(decisions.human_answer(line + a) for a in ("", "[DELEGATED 2026-01-03, x] keep",
+                                                                            "keep [PROXY]"))))
+        out.append(("SW2-C3: the shown-back answer says it adopts the source as the human's own (offered by the operator)",
+                    any("escalation E1 answered" in t and "your answer adopts escalation E1's answer, offered by the "
+                        "operator as your own" in t for t in res.get("shown", []))
+                    and decisions.adopted_mark("yes, keep it") == ""
+                    and "proposed in the adjudicator's record" in decisions.adopted_mark("as in ADOPTED.md")))
     finally:
         f.close()
     return out
@@ -1319,6 +1344,48 @@ def delivery_log(base):
     return out
 
 
+def k_certificate(base):
+    """[(name, ok)] next batch G1 (D1, CR-5/CR-6), K-REMOVE (approver 2026-11-16, option A): a hands-off delivery
+    with an open bridge and an open reading item in CONDITIONS.md: the code writes no K content -- no README K line,
+    no K line in the facts draft's SUMMARY, and REPORT's section 12 holds only the definition and the place for the
+    formalizing agent's judgement; a SUMMARY K count of the agent's is never compared, noted or refused."""
+    import make_report
+    out = []
+    f = Fixture(base, "release", "hands-off", tag="kcert")
+    try:
+        open(os.path.join(f.rd, "CONDITIONS.md"), "w").write(
+            "| id | kind | results | text | source |\n|---|---|---|---|---|\n"
+            "| C1 | reading | Lemma 1.2 | (b) the other reading is not covered | R1/ADOPTED.md |\n"
+            "| C2 | bridge | Theorem 1.1 | the quotient is the paper's identification | R1/ADOPTED.md |\n")
+        g(f.aud, "add", "--", "R/CONDITIONS.md"); g(f.aud, "commit", "-qm", "conditions: test")
+        f.prepare()
+        rep = open(os.path.join(f.rd, project.FACTS_DIR, "REPORT.md"), encoding="utf-8").read()
+        smd = open(os.path.join(f.rd, project.FACTS_DIR, "SUMMARY.md"), encoding="utf-8").read()
+        f.write_docs()
+        rc, o = f.deliver()
+        readme = open(os.path.join(f.repo, "deliverables", "README.md"), encoding="utf-8").read() if rc == 0 else ""
+        sp = os.path.join(f.rd, "SUMMARY.md")
+        open(sp, "a").write("\nK (the formalizing agent's judgement): K is reached for 2 of 2 results.\n")
+        g(f.aud, "add", "--", "R/SUMMARY.md"); g(f.aud, "commit", "-qm", "deliverables: write")
+        rc2, o2 = f.deliver()
+        sec12 = rep.split("## 12. K certificate", 1)[-1]
+        out.append(("K-REMOVE: a SUMMARY K count is the agent's judgement: no note compares it, no 'no K line' note, "
+                    "never a refusal",
+                    rc2 == 0 and "the records give" not in o2 and 'no "K reached" line' not in o2
+                    and 'no "K reached" line' not in o))
+        out.append(("next batch G1 / K-REMOVE: with an open bridge and reading item the deliverables carry no "
+                    "code-written K content (README, facts-draft SUMMARY, REPORT section 12 = the definition and the "
+                    "agent's place), and --deliver delivers" + ("" if rc == 0 else f" [{o[-400:]!r}]"),
+                    rc == 0 and "K standard" not in readme and "K certificate" not in readme
+                    and "## 12. K certificate" in rep and sec12.strip() == make_report.K_SECTION_DRAFT.strip()
+                    and "C1 (reading" not in rep and "| K1 |" not in rep
+                    and "K reached" not in smd and "reached for" not in smd
+                    and "no `## Conditions` status row" in o))
+    finally:
+        f.close()
+    return out
+
+
 def withdrawn_stop(base):
     """[(name, ok)] A2 (Pisani S1; design review HIGH-1): a release run with one stop withdrawn as opened in error
     (`stops.py close --withdrawn`) delivers at every level; RUN_RECORD.md lists the stop, and neither the summary
@@ -1383,6 +1450,173 @@ def _fail_lemma_1_2(f):
             v.update(verdict="Fail", evidence="the Lean drops the hypothesis n>=2")
     json.dump(j, open(p, "w"))
     g(f.aud, "add", "-A"); g(f.aud, "commit", "-qm", f"seal {f.r1} paper-faithfulness")
+
+
+def notes_judged(base):
+    """[(name, ok)] DESIGN-SW2 1.14 (+ review R4): every delivery note has a stable id and a `judged:` field in the
+    delivered RUN_RECORD.md; README names every note no independent reviewer judged, every note nobody judged, and every
+    note the NOTES reviewer called a real problem (with the operator's line). "reviewer" needs the committed, clean
+    delivery-review/NOTES.md naming the id; JUDGEMENT.md's `## Delivery notes` line alone is "the operator only". The
+    delivery's exit code and file set never change (nothing refuses)."""
+    import re as _re
+    out = []
+    f = Fixture(base, "release", "hands-off", tag="nj")
+    try:
+        _fail_lemma_1_2(f)
+        f.prepare()
+        facts = open(os.path.join(f.rd, project.FACTS_DIR, "SUMMARY.md")).read()
+        sm = _re.sub(r"not established[^|\n]*", "faithful", with_status(facts, "Lemma 1.2", "faithful"))
+        for n, body in (("SUMMARY.md", sm), ("REPORT.md", "# Report\n\nEvery result is faithfully formalized.\n")):
+            open(os.path.join(f.rd, n), "w").write(body)
+        os.makedirs(os.path.join(f.rd, project.REVIEW_DIR), exist_ok=True)
+        for P in project.REVIEW_PERSPECTIVES:
+            open(os.path.join(f.rd, project.REVIEW_DIR, P + ".md"), "w").write("No findings.\n")
+        jt = "(no findings)\n"
+        open(os.path.join(f.rd, project.JUDGEMENT_MD), "w").write(jt)
+        g(f.aud, "add", "--", "R/SUMMARY.md", "R/REPORT.md", "R/JUDGEMENT.md", "R/delivery-review")
+        g(f.aud, "commit", "-qm", "deliverables: write")
+        dv = os.path.join(f.repo, "deliverables")
+
+        def go():
+            rc, o = f.deliver()
+            rr = open(os.path.join(dv, project.RUN_RECORD), encoding="utf-8").read() if rc == 0 else ""
+            rme = open(os.path.join(dv, "README.md"), encoding="utf-8").read() if rc == 0 else ""
+            part = rr.split("### " + run_record.NOTES_AT_DELIVERY, 1)[-1]
+            lines = [l for l in part.splitlines() if l.startswith("- ")]
+            got = {m.group(1): m.group(2) for l in lines for m in [_re.match(r"^- \[(n[0-9a-f]{6})\] .* -- judged: (.+)$", l)]
+                   if m}
+            return rc, o, lines, got, rme.split(project.CHECKED_HEADING, 1)[-1].split("\n## ", 1)[0], sorted(os.listdir(dv))
+        rc0, o0, l0, j0, sec0, fs0 = go()
+        ids = list(j0)
+        rc1, _o1, _l1, j1, _s1, fs1 = go()
+        out.append(("SW2 1.14: every delivery note in RUN_RECORD.md carries an id and `judged:`; ids are stable across "
+                    "two deliveries; with no judgement on record every note is 'nobody' and README names each under "
+                    "'Notes nobody judged' (the other two lists: None.)",
+                    rc0 == 0 and len(ids) >= 2 and len(l0) == len(j0) and set(j0.values()) == {"nobody"}
+                    and list(j1) == ids and f"**Notes nobody judged.** {len(ids)}:" in sec0
+                    and all(f"- [{i}] " in sec0 for i in ids)
+                    and "**Notes no independent reviewer judged (the agent that ran the tool judged them).** None." in sec0
+                    and "**Notes an independent reviewer called a real problem.** None." in sec0
+                    and all(f"(id {i})" in o0 for i in ids)))
+        if len(ids) < 2:        # nothing to judge: the first check above already failed (no crash: a mutant is killed)
+            return out
+        a, b = ids[:2]
+        np_ = os.path.join(f.rd, project.REVIEW_DIR, project.NOTES_REVIEW + ".md")
+        open(np_, "w").write(f"- {a}: real problem -- the summary says faithful; fix it\n- nzzzzzz: no problem\n")
+        open(os.path.join(f.rd, project.JUDGEMENT_MD), "w").write(
+            jt + f"\n## Delivery notes\n\n- {a}: see delivery-review/NOTES.md -- corrected the summary\n")
+        g(f.aud, "add", "--", "R/JUDGEMENT.md"); g(f.aud, "commit", "-qm", "judgement")
+        rc2, _o2, _l2, j2, sec2, fs2 = go()
+        g(f.aud, "add", "--", "R/delivery-review"); g(f.aud, "commit", "-qm", "delivery review")
+        rc3, _o3, _l3, j3, sec3, fs3 = go()
+        open(os.path.join(f.rd, project.JUDGEMENT_MD), "a").write(f"- {b}: no action needed, the record is right\n")
+        g(f.aud, "add", "--", "R/JUDGEMENT.md"); g(f.aud, "commit", "-qm", "judgement 2")
+        rc4, _o4, _l4, j4, sec4, fs4 = go()
+        lst = lambda sec, head, nxt: sec.split(head, 1)[-1].split(nxt, 1)[0] if nxt else sec.split(head, 1)[-1]
+        R_, O_, N_ = ("**Notes an independent reviewer called a real problem.**",
+                      "**Notes no independent reviewer judged", "**Notes nobody judged.**")
+        out.append(("SW2 1.14 (R4): an uncommitted NOTES.md judges nothing (the operator's line alone: 'the operator "
+                    "only'); once committed, the reviewer's verdict word is carried and a 'real problem' note is listed "
+                    "by name with the agent's line; a note with no line is listed under 'nobody', then, once the "
+                    "operator writes its line, under 'no independent reviewer'; exit code and delivered file set "
+                    "unchanged",
+                    rc2 == 0 and j2.get(a) == "the operator only" and j2.get(b) == "nobody"
+                    and rc3 == 0 and j3.get(a) == "the NOTES reviewer (real problem; file saved by the formalizing agent)"
+                    and j3.get(b) == "nobody"
+                    and f"- [{a}] " in lst(sec3, R_, O_)
+                    and "the agent: see delivery-review/NOTES.md -- corrected the summary" in lst(sec3, R_, O_)
+                    and f"- [{b}] " in lst(sec3, N_, None) and f"- [{b}] " not in lst(sec3, O_, N_)
+                    and rc4 == 0 and j4.get(b) == "the operator only" and f"- [{b}] " in lst(sec4, O_, N_)
+                    and f"- [{b}] " not in lst(sec4, N_, None)
+                    and fs0 == fs1 == fs2 == fs3 == fs4))
+        # REVIEW-SAFETY-SW2 F1/F2, REVIEW-COMPAT-SW2 F4: a numbered line (`1. <id>: …`) and a dash line are both read;
+        # under a subject other than "delivery review" the verdicts read as the operator's (a label, no refusal);
+        # under "delivery review" they are the reviewer's, a `cannot tell` note is named in its own list, and the
+        # README says the record cannot show who wrote NOTES.md
+        open(np_, "w").write(f"1. {a}: no problem -- the summary was corrected\n- [{b}]: cannot tell -- unclear\n")
+        g(f.aud, "add", "--", "R/delivery-review"); g(f.aud, "commit", "-qm", "notes by hand")
+        rc5, _o5, _l5, j5, sec5, fs5 = go()
+        open(np_, "a").write("\n(end)\n")
+        g(f.aud, "add", "--", "R/delivery-review"); g(f.aud, "commit", "-qm", "delivery review (NOTES)")
+        rc6, _o6, _l6, j6, sec6, fs6 = go()
+        C_ = "**Notes the independent reviewer could not judge"
+        cav = "The formalizing agent saved it, so the record cannot show who wrote it."
+        out.append(("SW2 R1 (safety F1/F2, compat F4): NOTES.md lines numbered `1. <id>:` or `- [<id>]:` are read; "
+                    "committed under another subject they read as the operator's (listed as not judged by a reviewer, "
+                    "verdict shown); under 'delivery review' they are the reviewer's, the 'cannot tell' note is named "
+                    "in its own list with the agent's line, and README carries the who-wrote-it caveat; exit code and "
+                    "delivered file set unchanged",
+                    rc5 == 0 and j5.get(a) == ("the operator only (NOTES.md says no problem but was not committed "
+                                               "under `delivery review`)")
+                    and j5.get(b, "").startswith("the operator only (NOTES.md says cannot tell")
+                    and f"- [{a}] " in lst(sec5, O_, N_) and "says: no problem)" in lst(sec5, O_, N_)
+                    and f"{C_} (“cannot tell”).** None." in sec5
+                    and rc6 == 0 and j6.get(a) == "the NOTES reviewer (no problem; file saved by the formalizing agent)"
+                    and j6.get(b) == "the NOTES reviewer (cannot tell; file saved by the formalizing agent)"
+                    and f"- [{b}] " in lst(sec6, C_, O_)
+                    and "the agent: no action needed, the record is right" in lst(sec6, C_, O_)
+                    and f"- [{b}] " not in lst(sec6, O_, N_) and f"- [{a}] " not in lst(sec6, O_, N_)
+                    and cav in sec5 and cav in sec6 and fs4 == fs5 == fs6))
+        out.append(("SW2 1.14: a note id ignores the code's own D-record suffix (it changes once a disclosure is "
+                    "recorded)", project.note_id("DISCLOSED[render] x y (no D record)") == project.note_id("DISCLOSED[render] x  y (D3)")
+                    != project.note_id("DISCLOSED[render] x z (D3)")))
+    finally:
+        f.close()
+    return out
+
+
+def head_notes(base):
+    """[(name, ok)] DESIGN-SW2B X1 (c) and X2 (g): a delivered document citing `G.Adj` (a first component that is no
+    global name) gives a delivery note with an id, the head wording and `judged: nobody`, named in README's "nobody
+    judged" list until a committed NOTES.md line judges it; the generated report's undecided record citation (X2's
+    NOTE) is a delivery note too. Nothing refuses (exit code 0)."""
+    import re as _re, make_report, dependencies
+    out = []
+    f = Fixture(base, "release", "hands-off", tag="hn")
+    keep = (project.run_lean, make_report.report_md)
+    try:
+        project.run_lean = make_report._names_stub({"SimpleGraph.Adj"}, {"SimpleGraph"})
+        f.prepare()
+        f.write_docs()
+        open(os.path.join(f.rd, "REPORT.md"), "a").write("\nThe step uses `G.Adj` for the graph's edges.\n")
+        os.makedirs(os.path.join(f.rd, project.REVIEW_DIR), exist_ok=True)
+        for P in project.REVIEW_PERSPECTIVES:
+            open(os.path.join(f.rd, project.REVIEW_DIR, P + ".md"), "w").write("No findings.\n")
+        g(f.aud, "add", "--", "R/REPORT.md", "R/delivery-review"); g(f.aud, "commit", "-qm", "deliverables: write")
+        dv = os.path.join(f.repo, "deliverables")
+
+        def go():
+            rc, o = f.deliver()
+            rr = open(os.path.join(dv, project.RUN_RECORD), encoding="utf-8").read() if rc == 0 else ""
+            rme = open(os.path.join(dv, "README.md"), encoding="utf-8").read() if rc == 0 else ""
+            got = {m.group(1): m.group(2) for l in rr.splitlines()
+                   for m in [_re.match(r"^- \[(n[0-9a-f]{6})\] .*REPORT\.md cites `G\.Adj`: its first component `G` is "
+                                       r"no declaration.* -- judged: (.+)$", l)] if m}
+            return rc, o, got, rme.split(project.CHECKED_HEADING, 1)[-1].split("\n## ", 1)[0]
+        rc0, o0, j0, sec0 = go()
+        ids = list(j0)
+        out.append(("DESIGN-SW2B X1 (c): REPORT.md citing `G.Adj` gives one delivery note with an id and the head "
+                    "wording, judged by nobody and named in README's 'Notes nobody judged'; the delivery is not refused"
+                    + ("" if rc0 == 0 else f" [{o0[-300:]!r}]"),
+                    rc0 == 0 and len(ids) == 1 and j0[ids[0]] == "nobody"
+                    and f"- [{ids[0]}] " in sec0.split("**Notes nobody judged.**", 1)[-1]))
+        if ids:
+            open(os.path.join(f.rd, project.REVIEW_DIR, project.NOTES_REVIEW + ".md"), "w").write(
+                f"- {ids[0]}: no problem -- `G.Adj` is dot notation for SimpleGraph.Adj G\n")
+            g(f.aud, "add", "--", "R/delivery-review"); g(f.aud, "commit", "-qm", "delivery review")
+            rc1, _o1, j1, _s1 = go()
+            out.append(("DESIGN-SW2B X1 (c): a committed NOTES.md line for that id makes it judged by the NOTES reviewer",
+                        rc1 == 0 and j1.get(ids[0]) == "the NOTES reviewer (no problem; file saved by the formalizing agent)"))
+        note = ("SKIPPED.md row 1: `G.Adj` is cited at Main.lean:1, which does not contain it, and "
+                + make_report.X2_NOTE_MARK + ": dot notation on a variable or a wrong pointer")
+        make_report.report_md = lambda cfg_, *a_, **k_: f"# Report\n\n> **Citations**:\n>\n> * {note}\n> * other note\n"
+        dn = [t for c, t in make_report.delivery_problems(f.cfg) if c == "deliver" and make_report.X2_NOTE_MARK in t]
+        out.append(("DESIGN-SW2B X2 (g) (FLOOR SW2B-M9): the generated report's undecided record citation is one "
+                    "delivery note, word for word", dn == [note]))
+    finally:
+        project.run_lean, make_report.report_md = keep
+        f.close()
+    return out
 
 
 def checked_section(base):
@@ -1640,7 +1874,13 @@ def selftest():
             say(name, ok)
         for name, ok in withdrawn_stop(base):
             say(name, ok)
+        for name, ok in k_certificate(base):
+            say(name, ok)
         for name, ok in checked_section(base):
+            say(name, ok)
+        for name, ok in notes_judged(base):
+            say(name, ok)
+        for name, ok in head_notes(base):
             say(name, ok)
         for name, ok in forgery_gate(base):
             say(name, ok)

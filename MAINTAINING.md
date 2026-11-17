@@ -52,7 +52,8 @@ one of those needs extra care, and closing such a gap is welcome work.
   the paper's statement and hypotheses and documents unused or vacuous parts in docstrings. Enforced
   in `RUN.md` (level table, failure table) and `run/stage2-statements.md`. **(not yet enforced:
   instruction only.)**
-- **F4 A goal result is never skipped.** If a goal result is unproved or looks false, the run stops
+- **F4 A goal result is never skipped.** If a goal result is unproved, looks false, or is true only
+  vacuously (a VACUOUS.md row or a confirmed non-vacuity finding on it; approver D2, 2026-11-11), the run stops
   (`unproved-goal`, class H) -- except for missing library theory (U2 §7, B6): then, under a delegating
   level, the theory is built if only definitions and easy lemmas are missing, else the result is proved
   assuming a named hypothesis `H` (a canonical `RUN_LOG.md` line, `hypotheses.missing_theory`,
@@ -120,8 +121,9 @@ one of those needs extra care, and closing such a gap is welcome work.
 ### Stop policy per mode
 
 - **S1 In release mode, exactly four stops reach the human, at every level** (approver, 2026-10-24;
-  `project.RELEASE_STOPS`, the codes of kind human): (1) a goal result that is false or unprovable for
-  a reason other than missing library theory (F4, `unproved-goal`); (2) an outward action the intake
+  `project.RELEASE_STOPS`, the codes of kind human): (1) a goal result that is false, true only
+  vacuously (approver D2, 2026-11-11: the batch's one stop-list change, under the existing code), or
+  unprovable for a reason other than missing library theory (F4, `unproved-goal`); (2) an outward action the intake
   did not allow (`outward-action`); (3) something only the human can fix -- a login, administrator
   rights, quota or payment, a change to the user's own files, or another program that keeps changing
   the project's files during the run (`env-unknown` after the retry budget, `codex-approval`,
@@ -185,8 +187,13 @@ one of those needs extra care, and closing such a gap is welcome work.
   RED, so the next adjudication can still run. Enforced case by case in `phase0.gate`,
   `project.deliver`, `integrity.py` (adjudication paths), `tree_state.resave_operator`, and
   `prompt.render_adjudicator`, following deadlock sweep D1–D3 and the replays in
-  `audits/tests/replay.py`. **(not yet enforced:** no systematic check; each new blocking condition
-  must be argued by hand.**)**
+  `audits/tests/replay.py`. The machine's probe limit (`lean_slot.py run`, next batch D5) is a bounded
+  wait: after `lean_max_wait` (300 s) it runs without a slot and says so, a probe is cut at 240 s, so a
+  call stays under a 600 s harness cap; it slots only agents' probes, never a protocol command. The memory
+  guard (`lean_slot.py guard`, DESIGN-RAM) is bounded the same way: it only pauses probes (never a tool
+  check), each pause is capped at 10 minutes and recorded before the stop, and every start of a dead guard
+  resumes what it left paused.
+  **(not yet enforced:** no systematic check; each new blocking condition must be argued by hand.**)**
 - **L2 Every non-zero exit prints a coded FAIL line** (`FAIL[<code>]`, with the code listed in
   `project.CAUSES`). A crash is coded: every script's entry is `project.run_main`, which prints
   `FAIL[uncoded] <script>` after the traceback (`uncoded`: class I, kind rerun, keyed with
@@ -217,7 +224,10 @@ one of those needs extra care, and closing such a gap is welcome work.
   non-Pass verdict with no decision row, an adjudicator-record fault, a `leave … unproved` line or route
   change after the last adjudication, a redo, or a forced tool-patch round. A decided row (ADOPT, DEFER, a
   QUESTION since answered, a `## Hypotheses` row saying `no`) never scopes one: a new round sees the same
-  Lean and writes the same decision. Its result keeps "not established: … decision: X". Enforced by
+  Lean and writes the same decision. Its result keeps "not established: … decision: X". One exception (next
+  batch B2): in Stage 5 a comment-only change that implements an ADOPTed Fail on an index row's declaration
+  runs the diff round (`scope.adopted_doc_fix`), which re-reads the changed docstring; it counts toward
+  `DELIVERY_ROUND_CAP`. Enforced by
   `result_status` route `decided` and `make_report.pending_adjudication` (read by `scope.no_round_line`,
   `scope.empty_scope_next` and the delivery notes). What the extra round used to carry is kept elsewhere:
   a declined or never-carried-out ADOPT reaches the human as a decisions item (`decisions.declined_adopts`)
@@ -267,16 +277,22 @@ one of those needs extra care, and closing such a gap is welcome work.
   the report says no human reviewed them. Enforced by `decisions.tag_problems`,
   `delegated_entries`, and `make_report.delegation_problems` / `delegated_list`.
 - **V2 Questions the human must answer go to the human.** Under `involved`: Checkpoints B and C,
-  [PROXY] rows and any change to an approved statement; under `statements-only`: Checkpoint B and
-  any change to a statement the human approved (the run goes on; only `--deliver` waits); under
-  `hands-off`: none (U2 §0). No operator line closes them. Enforced by `decisions.needs_human`,
+  [PROXY] rows, any change to an approved statement and every reading QUESTION row when it appears
+  (any stage: a designed human wait like Checkpoint B, never a stop code; next batch D1); under
+  `statements-only`: Checkpoint B and any change to a statement the human approved that remains a
+  question (missing theory turned into a named hypothesis; the run goes on; only `--deliver` waits); a
+  post-approval faithfulness finding or a refuted non-goal statement is kept, disclosed and offered in
+  the K stage (approver D2); under `hands-off`: none (U2 §0), and the K stage after delivery under
+  both delegating levels. No operator line closes them. Enforced by `decisions.needs_human`,
   `open_question_rows`; an open re-approval refuses `--deliver` (the math gate).
   Checkpoint C under `involved` is asked before delivery: `--deliver` waits (PENDING[question], a
   designed human wait, not a deliverable check) while an item of the decisions document has no answer
   of the human's, a [PROXY] answer counting for nothing (`decisions.checkpoint_c_open`, B12); after the answers, stage5 step 7 (Lean changed: a diff round;
   statement changed: re-approval; then the documents again).
-- **V3 A delegated decision never strengthens or generalizes a statement.** A change that is unclear
-  counts as a weakening and is disclosed. Enforced by `RUN.md` and `run/reapproval.md`, with
+- **V3 A delegated decision never strengthens or generalizes a statement beyond a reading the paper's
+  text admits.** Choosing the stronger of two readings the adjudicator found the paper admits (D1) is
+  not a strengthening; F3 keeps the paper's hypotheses. A change that is unclear counts as a weakening
+  and is disclosed. Enforced by `RUN.md` and `run/reapproval.md`, with
   `fingerprint.py` re-approval records making the change visible. **(not yet enforced:** whether a
   change strengthens a statement is the operator's judgment; no script checks it.**)**
 - **V4 Selftests pass at every level.** Enforced by tier 1, which runs the fast selftests once per
@@ -291,6 +307,11 @@ one of those needs extra care, and closing such a gap is welcome work.
   rules include outward actions. The pin also records the Stage 1 snapshot of git hooks, config,
   remotes/credentials/user and HEADs (`tree_state.snapshot`), which the release `gitmeta` cure
   restores (only its keys); a remote, credential or user change or rewritten history is stop 3.
+  `lean_slot.py` is pinned like every top-level script but is not in `tool_patch.CORE`: no core file
+  and no tool-internal Lean call imports or runs it (agents run it in front of their probes; prompt.py
+  and lanecheck.py import it only to start the memory guard, errors swallowed). A `*.py`
+  in audits/ that the first pin did not have is listed as `NOTE[unpinned-py]` (integrity.unpinned_py;
+  listed, never judged, never a stop).
 - **A2 Integrity failures are never silent.** In dev a tamper is a stop. In release it is self-cured
   (discard and redo the review, or restore the pin and re-run) and disclosed in the report's "Run
   mode" row. A revert is accepted by content, never by its commit subject: HEAD's tree equal to the
@@ -337,6 +358,8 @@ Anything beyond a one-liner goes through these steps. Each step is done by a **f
      release, and after any change to `mutants.py`.
    - A unit check in the script's selftest, plus mutants in `tests/mutant_list.py` that the
      selftest kills. A mutant marked `lean` must have the right kind.
+   - Before calling a commit final, run `selftest_all.py` in full -- it includes `tool_patch.py
+     --selftest`, the slowest pure selftest, never left out -- and say in the hand-off that it passed.
    - Scenario tests that rebuild a real run's situation and assert invariants across all the gates,
      not only the function that changed (as in `tests/replay.py`). `tests/snapshot_replay.py`
      (tier 2) replays the mini1–5 run snapshots through the read-only gates under release x dev x

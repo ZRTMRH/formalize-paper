@@ -2,6 +2,240 @@
 
 ## Unreleased
 
+### Filling a proof inside an approved definition is no drift; hands-off re-approves (2026-11-16; DESIGN-FP, approver)
+
+- **Proof-erased definition fingerprints (decision 1).** In a definition's value every proof subterm (an
+  expression whose type is a proposition, decided by Lean's `Meta.isProof` on the elaborated term, never on the
+  source text) is replaced by one fixed marker before hashing (`fingerprint_tail.lean`, `auditFpEraseProofs`).
+  Filling a `sorry` in a proof field of an approved instance or structure value, or rewriting such a proof, no
+  longer drifts the approval (De Medts e2e, stop S1: 14 of 33 approved declarations drifted because Lean names the
+  aux proofs of an instance's proof fields and reuses them across a module). Everything else is hashed as before:
+  a theorem's statement, a definition's type, its data (also data built by a tactic), a structure field's type,
+  a `Decidable`/`DecidableEq` value. A definition with no proof subterm keeps its old hash exactly.
+- **Disclosed consequences.** (a) A definition used only inside a proof is no longer a dependency, so the sign-off
+  sheet's "Definitions these statements use" may list fewer definitions (only those reached through data or
+  types; approver: "Accept, disclose it"); by proof irrelevance such a definition cannot change what a statement
+  means. (b) `opaque` values are not erased (they still drift on any change). (c) A change confined to the proof
+  inside a `Decidable` value (`isTrue rfl` to `isTrue (by decide)`) does not drift; a change of the decision
+  procedure does. (d) A proof written inside a statement (`(⟨2, by decide⟩ : Fin 3)`) is part of the type and still
+  drifts. (e) The approved statement text (STATEMENTS_BUNDLE.md) still shows a named definition's source, so filling
+  a proof field written there still changes that text (a freeze self-cure, then a re-approval).
+- **Upgrading.** Hashes change for definitions with a proof subterm, so an approval made with the old code does not
+  match the new one: a run in progress keeps its pinned code; a project upgraded between runs starts a fresh run
+  and re-approves (INSTALL.md, "Upgrading"; it never checks an old `APPROVED_FINGERPRINTS.json` with the new tail).
+  Runs are not upgraded mid-run: a maintainer `--repin` of a running run onto this version (dev only) makes every
+  approved result over a definition containing a proof show DRIFT (it fails safe).
+- **Helper names (REVIEW-SAFETY-FP F1).** The fingerprint program's own helpers (`auditFpStripMData`, `auditFpKey`,
+  `auditFpEraseProofs`) are excluded only as declarations of the appended file; in `import` sweep mode (the
+  default) a project module's declaration under those names (`auditFpEraseProofs.evil`) is now fingerprinted. In
+  `append` sweep mode the project's text is part of the appended file, so such a name is still excluded there
+  (as before this version; KNOWN_LIMITATIONS).
+- **Hands-off re-approval (decision 2).** The 2026-11-14 restriction that a `hands-off` run re-approves only missing
+  theory turned into a named hypothesis is removed: under `hands-off` the agent decides any intended change of an
+  approved statement by re-approval, except the D2 cases (a faithfulness finding after the sign-off, a refuted
+  non-goal statement: keep the approved statement, [DELEGATED keep], a `CONDITIONS.md` `finding` item; the
+  adjudicator never ADOPTs such a change, it writes a QUESTION row). `involved` and `statements-only` unchanged.
+  Text only (`RUN.md`, `run/reapproval.md`, `run/stage3-proofs.md`); no new stop or refusal.
+
+### The code writes no K content; the run's agent judges K (2026-11-16; K-REMOVE, approver's decision, option A)
+
+- Approver: "remove the code output. Just let agent judge." All code-generated K content is removed from the
+  deliverables: the SUMMARY's "K reached for X of N results" line, REPORT's K count, per-result K1-K4 table and
+  open-items list, the README's K line, and the delivery notes that compared the SUMMARY's count with the code's or
+  reported a missing K line. `result_status.k_status` and `make_report.k_facts` are gone. The code's K was wrong on
+  the last run (AUDIT-P7 §8): an open item on a helper lemma counted against every result.
+- REPORT keeps section 12 "K certificate": the facts draft holds the definition and a place for the formalizing
+  agent's judgement, which run/stage5-delivery.md tells the agent to write (per result K1-K4 with reasons and
+  file:line evidence, the count, the open K gaps with the results each affects) together with SUMMARY's K line.
+  The CLAIMS delivery reviewer checks it. The conditions-checklist notes (inferred items included) stay, as flags
+  for the agent. Only removals and wording: no new check, stop or refusal.
+
+### A redo's fresh round cures a set-aside stop (2026-11-15; STOPFIX and DESIGN-ND)
+
+- **A self-cure bound to a set-aside round re-runs on the redo (STOPFIX).** A self-cure stop whose check names its
+  round (`--round R`), when R was set aside naming that stop, now re-runs its check on the fresh round that redoes R
+  (`TARGET.json` `redo_of` R), as a redo-kind stop already did. Before, the check kept running on the set-aside
+  round, whose write-once records kept it failing for ever. A check that names no round is unchanged.
+- **A NotDoneYet in the fresh round counts once the adjudicator ruled it (DESIGN-ND).** An item a sealed lane of the
+  fresh round left NotDoneYet counts as covered for the redo when ADOPTED.md, as first committed by
+  `adjudicate <fresh round>`, has an UNCOVERED row for that lane and item (the existing step E ruling; no new form).
+  The item is still reported as not examined, with no verdict; nothing reads it as passed.
+
+### Undecidable name and label extractions no longer stop a run (2026-11-16; DESIGN-SW2B and its review)
+
+Each change only removes a hard stop or failure; no new refusal or stop.
+- **Dot notation on a variable (X1).** A dotted name the sign-off sheet's texts cite whose first component is no Lean
+  name (`G.Adj`, `G.chromaticNumber`) is printed as `NOTE[signoff-check]` and no longer fails `signoff.py check`; it
+  comes back at delivery as a note for the NOTES reviewer. A wrong global name (`Finset.Foo.card_le`) still fails. Stage 2 step 7 names the cure for a wrong name in the blind reading: set the round
+  aside on its stop (`--stop S<n>`), redo it with a round of the same kind, close the stop `--cured`.
+- **Record citations of library names (X2).** A dotted non-project name cited at `File.lean:N` is resolved in Lean:
+  a wrong global name is still a dead citation; a variable's field at the line that shows it passes; elsewhere it is
+  a note in the report ("Citations the check could not decide") and a delivery note. No answer from Lean: as before.
+- **Lettered, appendix, primed and part labels (X3).** A SKIPPED.md "what" cell naming `Theorem A`, `Lemma A.2`,
+  `Theorem 1.1'` or `Lemma 2.3(b)` exactly explains the index row.
+- **Dates in row citations (X4).** "VACUOUS row 4, 2026-11-15" cites row 4 only.
+- TRADEOFFS T65-T67; KNOWN_LIMITATIONS updated.
+- Fix round (REVIEW-SAFETY-SW2B, REVIEW-COMPAT-SW2B): a name whose first part does not look like a variable
+  (`Reals.sqrt_le`, "Mathlib's `Turan.bound_le`") is noted "likely a wrong name"; a name only in a Lean comment at the
+  cited line is a note, not a pass; a SKIPPED.md cell explains a lettered label only as its first label, the letter
+  case-sensitive; four more unsafe-direction mutants in the tool-patch floor; step 7 says what `dev` does.
+
+### Hard prose checks become curable; flags reach a judge (2026-11-15; DESIGN-SW2 and its review)
+
+Each change only removes a hard stop, refusal or wait; no new refusal or stop.
+- **An old round is judged on its own Lean (C2).** The settle check that `integrity.py --check` and the report check
+  re-run on committed adjudications reads the names declared at the Lean commit the round audited, or now: a later
+  rename no longer makes an old adjudication `FAIL[unsettled]`; a fault present at both commits still is.
+- **A human answer counts by provenance (C3, approver Q5).** Under `involved`, a Checkpoint C answer that points to an
+  option the operator offered (an escalation's answer, an adjudicator's record, the conservative rule) is the human's
+  answer; the summary shows "your answer adopts … as your own". A [PROXY]/[DELEGATED] tag still answers nothing.
+- **The human's verbatim words (C4, C6).** A tag-like phrase or a "VACUOUS row N" citation inside the human's
+  `- answered …` words (and the other human-quote forms) is no longer a report failure.
+- **Missing-theory head (C7, C8).** A `missing theory:` line whose body is no decision goes to the adjudicator
+  (`MT RULED`) instead of a FAIL with no honest cure; a hypothesis that restates a goal result is the operator's
+  curable FAIL ("use that result"), no longer stop 1.
+- **A stale leave line (C10).** A `leave <goal> unproved` line no longer opens stop 1 once the goal has no `sorry`;
+  Phase 0 prints it as stale.
+- **The paper's own negative result (C5).** A `¬ X` declaration (X a project Prop) that its own index row cites is not
+  read as refuting a printed statement; the correspondence lane of that row is told so (NEGATIONS TO JUDGE).
+  `_statement`/`_as_printed` targets and refutation-like names stay hard.
+- **Adjudication commit (C19, C24, C15, C32, C9).** The commit no longer refuses a missing-theory suspect its prompt
+  did not list (the next round's prompt lists it); a cure that leaves only a dead-witness or record-cite residue
+  closes `--cured`; a re-vote lane whose only NOTE mentions a record file other than ADOPTED.md may be CLEARED; a
+  Fail on another item that only mentions a hypothesis no longer forces `matches source: no`; the adjudicator's
+  STOP text goes on past non-core integrity codes and record-only Phase 0 REDs (doclint pins the code list).
+- **Delivery notes are judged (1.14).** Every disclosure reaches the delivery notes in both modes, with its D record;
+  every note has an id and a `judged:` field in RUN_RECORD.md; one fresh NOTES reviewer judges them after the first
+  delivery; README names every note no independent reviewer judged, every note nobody judged, every note the
+  reviewer called a real problem and every note it could not judge ("cannot tell"). A verdict in
+  `delivery-review/NOTES.md` counts as the reviewer's only when the file was committed under the subject
+  "delivery review" (otherwise it reads as the operator's); README and RUN_RECORD.md say that the formalizing agent
+  saves the file, so the record cannot show who wrote it. Nothing refuses.
+- Deferred: the Checkpoint A resume hint (TRADEOFFS T64). TRADEOFFS T58-T64; KNOWN_LIMITATIONS updated.
+
+### Missing-theory suspects ruled by the adjudicator (2026-11-15; DESIGN-MT and its review)
+
+- **A missing-theory line only suspected from its words is no longer a failure.** A RUN_LOG.md decision line whose
+  words mention missing theory, that is not in the canonical form and that no later canonical line naming its
+  result cures, is now `PENDING[adjudication]` (code `adj-record`) instead of `FAIL[missing-theory]`: Phase 0 stays
+  GREEN, the adjudicator's prompt lists the line with its id, and `integrity.py --commit-adjudication` refuses
+  until the adjudicator rules it once in ADOPTED.md (`- MT RULED <id> | not a missing-theory decision: …` or `| a
+  missing-theory decision for `<Lean name>`: …`). Ruled a decision, the operator logs its canonical line
+  (`FAIL[missing-theory]` until then). The id binds the line's anchor and its text from the `[DELEGATED` tag on, so
+  a Checkpoint C line and its `## Answered` copy share one ruling. Every other missing-theory check is unchanged.
+  `--deliver` notes an unruled line as "not judged by an independent agent"; stage5-delivery.md runs one full
+  round first. A line naming no Lean result had no cure before (live e2e 2609.08713, stop S1).
+- **The human's verbatim words are not tag-linted (D2).** A tag-like phrase (`[delegated to you]`) inside a stop's
+  verbatim human answer or a `- human answer (…): "…"` line no longer fails the report check; a dated tag there
+  still does.
+- **Fix round (REVIEW-SAFETY-MT, REVIEW-COMPAT-MT).** A ruling counts only from a round's ADOPTED.md as of its
+  first `adjudicate R` (or `revotes`) commit and only for an id that round's adjudicator prompt lists, so a later
+  re-commit of an old round cannot rule a line. A line that tries the canonical form (`missing theory: …`) and names
+  its result keeps the hard FAIL. After a decision ruling for a hypothesis the Lean assumes, only its `assume` line
+  cures it; a `build` line for a result cures it only once no unclassified hypothesis of it is left. The operator
+  may dissent once (`- MT DISSENT <id>: <why>`): the line goes back to the next adjudicator, and a second decision
+  ruling is final. The summary, report and README name an unruled line by its anchor, "not judged by an
+  independent agent". The ruling id normalizes only a line that opens with its tag; the human-quote mask ends at the
+  quote's own closing quote.
+- **Fix round 2 (REVIEW-FIXMT).** A re-vote adjudication commit rules only when it holds the round's re-vote
+  reviews. A disputed line not yet re-ruled is shown as "ruled a missing-theory decision by an independent reviewer;
+  disputed by the operator; not re-ruled", never as "not judged". TRADEOFFS T57: the prompt check reads an
+  uncommitted file.
+- Docs: `decisions.py --check` is described as advisory (it never blocks `--deliver`). KNOWN_LIMITATIONS and
+  TRADEOFFS T53-T56.
+
+### Next batch (2026-11-14; DESIGN-NB: approver decisions D1-D5, fixes B1-B28)
+
+- **The K standard in every level (D1).** A result reaches K when its Lean statement says exactly what the paper
+  says, its proof is kernel-checked, every nontrivial change of representation is proved in Lean (a bridge
+  theorem), and nothing is assumed. The operator keeps `CONDITIONS.md`, a checklist of the human's own conditions
+  (verbatim), scope limits, known issues and open K items; no reviewer reads it. Each adjudicator rules it every
+  round (`## Conditions` rows; a condition missing from the list is a `C?-<n>` row, closed once the operator adds
+  it). The correspondence reviewer names every change of representation; nontrivial ones become bridge items the
+  run proves as pure additions. Ambiguous readings: under `involved` the human is asked when the question appears;
+  under the delegating levels the stronger reading, both readings, or the adjudicator's choice, with an open K item.
+  REPORT gains a section "K certificate" (K1-K4 per result, the open items numbered), SUMMARY a line "K reached for
+  X of N results", the README the same line and, above the approved sheet's CHECK lines, a note that the sheet is
+  the statement-stage record. After delivery the human may reply **K** to go through the open items one at a time
+  (`project.py --k-stage`; the K stage gets its own two diff rounds). Never a stop or a refusal: notes only.
+- **Strict before the sign-off (D2).** Every statement-faithfulness finding is resolved before Checkpoint B (one
+  open at the statement-round cap is a Checkpoint B question; under hands-off the last statement is kept and
+  disclosed). A notion the paper takes from a citation follows the source and says "taken from <source>, not
+  printed in the paper". After the sign-off the adjudicator never changes an approved statement: a finding becomes
+  a question (involved) or a kept statement with an open K item (delegating levels); a refuted non-goal statement
+  is left unproved, not repaired. **A goal result true only vacuously now stops for the human** (stop 1, the existing
+  `unproved-goal` code: the batch's one stop-list change, the approver's wording).
+- **A stray script is listed (D3).** `NOTE[unpinned-py]`: every `*.py` in audits/ that no pin's tree holds and no
+  tool patch brought, shown by `integrity.py --check`, in the README and in the run record. Never a stop.
+- **README:12 L∞ line kept** (D4, approver 2026-11-11).
+- **A machine-wide limit on Lean probes (D5, CR-9).** `audits/lean_slot.py run --timeout 240 -- lake env lean
+  <file>`: reviewers and helpers compile probes through it; it waits at most 300 s for one of the config's
+  `lean_slots` (and `lean_free_mb` of free memory), then runs anyway and says so; a probe is cut at 240 s. It only
+  delays, never refuses; tool-internal Lean calls are not slotted. The adjudicator's background checks now run
+  `scope.py --verify` too (B13/B11), so it starts no Lean command of its own in Step A.
+- **A run cannot starve the computer's memory (DESIGN-RAM).** A memory guard (`lean_slot.py guard`), one per
+  account, started by code: a Claude Code `SessionStart` hook that install.sh adds to the project's
+  `.claude/settings.json` (it only starts the guard, is silenced and always exits 0), and the pinned scripts
+  (`prompt.py`, `lanecheck.py`, `lean_slot.py run` and `--show`; under Codex these are the only starters). Every
+  second, when free memory falls below a reserve (max(4 GB, a quarter of the memory)), it pauses this run's Lean
+  probes however they were started (all but the oldest at once, or all while a tool check runs) and resumes them
+  one at a time when memory recovers. Tool checks, editor `lean --server` processes and Lean outside a run are
+  never paused. A pause lasts at most 10 minutes; each pause is recorded before the stop, and a dead guard's
+  pauses are resumed by the next start. It never kills, refuses or stops anything. The probe wrapper's settings
+  are now derived from the memory when absent (1 slot on 8 and 16 GB, 3 on 32 GB; a floor that can be met on
+  8 GB) instead of "no limit", and it says when a probe was paused. Checkpoint A shows the guard's line; a heavy
+  Lean file is a note. New optional config keys `lean_ram_mb`, `lean_reserve_mb`.
+- **The memory guard also reads memory pressure and new probes' needs (DESIGN-RAM V2).** Besides low free memory,
+  it pauses probes when the kernel reports memory pressure (Linux PSI: 5 % or more of the last 2 s spent waiting
+  for memory; a resume needs under 1 % over 5 s), and it presumes each probe in its first minute (or first minute
+  after a resume) still needs up to 5 GB, so a burst of new probes is paused before it allocates. In a 16 GB test
+  with 12 probes started together the machine stayed responsive (memory peak 7.6 GB, no memory stall); without the
+  guard seven probes were killed.
+- **Fix round P6 (AUDIT-P6): the K certificate no longer counts false sources against every result.** The final
+  e2e run (arXiv:2609.08713 at b91644b) reported "K reached for 0 of 25"; the run's own records support 15. The rule
+  that an open item naming no result counts against every result is kept; what changed is what makes such items.
+  A delegated reading whose RUN_LOG line names the open `reading` item that carries it ("open item C3") gives no
+  inferred R? item (a reference to a closed or missing item keeps it, counted open). The adjudicator's B'' gains a
+  machine-readable ruling: when no REPRESENTATION note of the round needs a bridge, it writes `| K3-0 | not
+  applicable | - | <reason> |`, and no K3? item is inferred from that round's notes; the ruling, and any `K3-<n>`
+  row, now applies to its own round only (before, one `K3-` row in any round hid every round's notes). An inferred
+  item naming a project declaration that is no longer in the Lean is listed "stale, not counted" (never met), with a
+  note and its own list in REPORT's K certificate; with no readable declaration set it stays open. A results cell
+  may list labels in plural form ("Theorems 1.3, 2.1, 2.2, 3.1", "Lemmas 2.4 and 2.6", "Lemmas 2.4–2.6"). A result
+  with several `proved assuming …` statuses (Theorem 1.4 there) has K1 yes (K4 still fails it). The adjudicator's
+  `--wait-adjudicator-checks` returns after at most 150 s (was 540), before Claude Code moves a foreground call to the
+  background at 180 s (the two adjudicator respawns of that run); exit 3 still means "wait again". RUN.md asks the
+  delegated reading line to end with `open item C<n>`. Replay test on the run's records
+  (tests/lane_samples/k-p6-records.json: 0 as recorded, 15 with the `K3-0` rows), mutants P6-1..16.
+- **Fix round RAMK (REVIEW-RAMK-NB).** A probe cut at 240 s after a guard pause now says "paused M s by the memory
+  guard; the time limit includes the pause -- re-run, this is not a too-large probe", and the reviewer rules call
+  such a cut inconclusive, never a reason to mark an item NotDoneYet for its size. The presumed need is sized to
+  the machine (2 GB on 8 GB, 5 GB from 16 GB), a resume needs 1 GB above the reserve, and a probe so resumed is not
+  paused again by the presumption alone, so a second probe can run on an 8 GB machine or on 16 GB with 8 GB
+  available; while the run's own checks run, a probe paused 15 minutes in all runs beside them. A check started as
+  `cd audits && python3 phase0.py`, `python3 ./audits//phase0.py` or `python3 -m audits.phase0` is recognised as
+  the run's own check and never paused. The guard acts on every formalize-paper project of the account (the docs
+  said "this run's"). On macOS `lsof` is cached per tick and `ps` runs in the C locale. A closed `reading` item that
+  names only a result's row no longer hides another delegated reading on that row (it counts open).
+- **Fix round K (AUDIT-P5): the K certificate counts more strictly.** A result fails K4 when its proof uses a declared
+  literature or missing-theory hypothesis directly (an unreadable record gives "unknown", never "reached"); a
+  checklist item applies to a result whose Lean name its text names exactly; "proved assuming …" counts as K1 yes
+  (the statement is the paper's); an item whose id is not of the form `C<n>` or `K3-<n>` is kept under that id and
+  counted open, with a note (the report's wording changes from "not counted" to "counted open"); a delegated
+  reading gives one inferred open item per decision, not one per log line.
+- Fixes: the F12 re-approval matcher compares short names again (B1); an ADOPTed docstring fix on an index row is
+  re-read by the next diff round (B2); the delivery's coverage note reads the summary as the README does, and
+  labels with nested parentheses pair (B3/B16); README footnotes get blank lines and ‡ for the sheet's CHECK (B5); a
+  VACUOUS or SKIPPED row's context mention no longer gives another result its status (B6); `open`-style lines after
+  a definition: text and a known limitation (B7, code deferred); one rule on mid-run upgrades (B8); a literature
+  hypothesis without a valid row gets its own paper-faithfulness item, ending the commit dead end (B17); waves of
+  at most 20 subagents, spawn lines read whole (B18/B19); an open question answered under `## Answered` or at
+  Checkpoint B reads answered (B20); known issues and no-network runs are said plainly (B23/B24); a KNOWN_FAULTS
+  notice under the wrong commit subject is a NOTE, not a tamper stop, and human-stop messages mention auto mode
+  (B26); index rows added after the approval begin a re-approval first, pure additions never enter the index (B28);
+  `selftest_all.py --only` (B10); lane briefs name the paper and forbid file-system searches (B12); the 4b battery
+  ignores closures through the audited declaration (B4).
+
 ### In short
 
 - **Index rows labelled Problem or Question are results** (E2E fix 2, M1 of the audit of a real hands-off run;
@@ -21,9 +255,9 @@
   for defect and vacuous cells are 99d928e's plus Problem and Question (E2E fix 2d). The report's coverage table
   and statuses read the index as 99d928e did (indented rows, any case), plus Problem and Question. In the
   statements bundle, an unresolved name in a Problem or Question row is a NOTE, not a problem.
-- **A run started before this version and resumed on it** may see a freeze-check DRIFT for an index row that the
-  old reader skipped (a Problem or Question row): rerun the statement round (E2E fix 2c; the skip-and-compare
-  NOTE of fix 2b was removed).
+- **Do not upgrade in the middle of a run** (E2E fix 2c; the skip-and-compare NOTE of fix 2b was removed). A run
+  resumed on another version fails the tooling check (integrity) and may show a freeze-check DRIFT, for example
+  for an index row the old reader skipped (a Problem or Question row); start the next run on the new version.
 - **README "What the checking code found": no plain "faithful" for a result the sheet flags CHECK, and the
   summary's table is paired by its header** (E2E fix 2, M2).
   - A result rated *faithful* by the review records that the approved sign-off sheet flags CHECK (a reading

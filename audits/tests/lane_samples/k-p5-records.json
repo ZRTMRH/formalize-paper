@@ -1,0 +1,306 @@
+{
+ "_about": "AUDIT-P5 (e2e run on arXiv:2609.08713 at tool commit 63d8058): the K-relevant records, verbatim: each index row with its Lean names and its result_status, the assumption walk's assumes and bare, the declared literature hypotheses, CONDITIONS.md, the two rounds' ADOPTED.md ## Conditions sections, and RUN_LOG.md's headings and take-reading lines. result_status --selftest (fix round K) replays k_status on them.",
+ "namespace": "ColoringSmallKtMinorFree",
+ "rows": [
+  [
+   "Definition (chromatic number χ, tex l.62-63)",
+   [
+    "ColoringSmallKtMinorFree.chi"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (minor model, tex l.63-64)",
+   [
+    "ColoringSmallKtMinorFree.MinorModel"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (minor H ≼ G, tex l.63-64)",
+   [
+    "ColoringSmallKtMinorFree.IsMinor"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (K_t-minor-free, tex l.64-65)",
+   [
+    "ColoringSmallKtMinorFree.KMinorFree"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (log⁺, tex l.126-127)",
+   [
+    "ColoringSmallKtMinorFree.logPlus"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (vertex-disjoint induced stars with independent centers, tex l.134-140)",
+   [
+    "ColoringSmallKtMinorFree.StarPacking"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (contracting the stars, tex l.141-144)",
+   [
+    "ColoringSmallKtMinorFree.StarPacking.contract"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (total size of the leaf sets, tex l.223)",
+   [
+    "ColoringSmallKtMinorFree.StarPacking.totalLeaves"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (proper minor, tex l.281)",
+   [
+    "ColoringSmallKtMinorFree.IsProperMinor"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (Hadwiger number, from [duchet-meyniel], not printed in the paper)",
+   [
+    "ColoringSmallKtMinorFree.hadwigerNumber"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (f_{3.1}(G,t), tex l.421-425)",
+   [
+    "ColoringSmallKtMinorFree.dpF"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (theorem of Duchet and Meyniel [duchet-meyniel], tex l.146-147)",
+   [
+    "ColoringSmallKtMinorFree.DuchetMeynielHyp"
+   ],
+   [
+    "assumed, not proved (`DuchetMeynielHyp`: literature hypothesis (declared at Checkpoint A))"
+   ]
+  ],
+  [
+   "Definition ([delcourt-postle, Corollary 3.2], tex l.159-162)",
+   [
+    "ColoringSmallKtMinorFree.DelcourtPostleGreedyHyp"
+   ],
+   [
+    "assumed, not proved (`DelcourtPostleGreedyHyp`: literature hypothesis (declared at Checkpoint A))"
+   ]
+  ],
+  [
+   "Conjecture 1.1",
+   [
+    "ColoringSmallKtMinorFree.HadwigerConjecture"
+   ],
+   [
+    "stated only (a conjecture: stated as a proposition, asserted nowhere; its statement checked faithful)"
+   ]
+  ],
+  [
+   "Conjecture 1.2",
+   [
+    "ColoringSmallKtMinorFree.LinearHadwigerConjecture"
+   ],
+   [
+    "stated only (a conjecture: stated as a proposition, asserted nowhere; its statement checked faithful)"
+   ]
+  ],
+  [
+   "Theorem 1.3",
+   [
+    "ColoringSmallKtMinorFree.DelcourtPostleColoringHyp"
+   ],
+   [
+    "assumed, not proved (`DelcourtPostleColoringHyp`: literature hypothesis (declared at Checkpoint A))"
+   ]
+  ],
+  [
+   "Theorem 1.4",
+   [
+    "ColoringSmallKtMinorFree.theorem_1_4"
+   ],
+   [
+    "proved assuming `DelcourtPostleReductionHyp` (literature hypothesis (declared at Checkpoint A))"
+   ]
+  ],
+  [
+   "Theorem 2.1",
+   [
+    "ColoringSmallKtMinorFree.theorem_2_1"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Theorem 2.2",
+   [
+    "ColoringSmallKtMinorFree.theorem_2_2"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Theorem 2.3",
+   [
+    "ColoringSmallKtMinorFree.theorem_2_3"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Lemma 2.4",
+   [
+    "ColoringSmallKtMinorFree.lemma_2_4"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Lemma 2.5",
+   [
+    "ColoringSmallKtMinorFree.lemma_2_5"
+   ],
+   [
+    "vacuous (VACUOUS row 1; open)"
+   ]
+  ],
+  [
+   "Lemma 2.6",
+   [
+    "ColoringSmallKtMinorFree.lemma_2_6"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Lemma 2.7",
+   [
+    "ColoringSmallKtMinorFree.lemma_2_7"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Theorem 3.1",
+   [
+    "ColoringSmallKtMinorFree.DelcourtPostleReductionHyp"
+   ],
+   [
+    "assumed, not proved (`DelcourtPostleReductionHyp`: literature hypothesis (declared at Checkpoint A))"
+   ]
+  ]
+ ],
+ "assumes": {
+  "ColoringSmallKtMinorFree.theorem_1_4": [
+   {
+    "binder": "hDP",
+    "embedded": false,
+    "kind": "prop",
+    "name": "ColoringSmallKtMinorFree.DelcourtPostleReductionHyp",
+    "type_pp": "ColoringSmallKtMinorFree.DelcourtPostleReductionHyp"
+   }
+  ]
+ },
+ "bare": {
+  "ColoringSmallKtMinorFree.DelcourtPostleGreedyHyp": [
+   "ColoringSmallKtMinorFree.theorem_2_2"
+  ],
+  "ColoringSmallKtMinorFree.DelcourtPostleReductionHyp": [
+   "ColoringSmallKtMinorFree.theorem_1_4"
+  ],
+  "ColoringSmallKtMinorFree.DuchetMeynielHyp": [
+   "ColoringSmallKtMinorFree.Minors.theorem_2_1_aux",
+   "ColoringSmallKtMinorFree.theorem_1_4",
+   "ColoringSmallKtMinorFree.theorem_2_1",
+   "ColoringSmallKtMinorFree.theorem_2_2",
+   "ColoringSmallKtMinorFree.theorem_2_3"
+  ],
+  "ColoringSmallKtMinorFree.IsMinor": [
+   "ColoringSmallKtMinorFree.Aux.iter",
+   "ColoringSmallKtMinorFree.Minors.IsMinor.trans",
+   "ColoringSmallKtMinorFree.Minors.KMinorFree.of_isMinor",
+   "ColoringSmallKtMinorFree.Minors.card_le_of_isMinor",
+   "ColoringSmallKtMinorFree.Minors.finite_of_isMinor",
+   "ColoringSmallKtMinorFree.Minors.isProperMinor_of_card_lt",
+   "ColoringSmallKtMinorFree.Minors.le_hadwigerNumber_of_isMinor",
+   "ColoringSmallKtMinorFree.Minors.meas_le_of_isMinor",
+   "ColoringSmallKtMinorFree.Minors.ncard_edgeSet_le",
+   "ColoringSmallKtMinorFree.Minors.theorem_2_1_aux",
+   "ColoringSmallKtMinorFree.theorem_2_1"
+  ],
+  "ColoringSmallKtMinorFree.IsProperMinor": [
+   "ColoringSmallKtMinorFree.Minors.meas_lt_of_isProperMinor"
+  ],
+  "ColoringSmallKtMinorFree.KMinorFree": [
+   "ColoringSmallKtMinorFree.Minors.KMinorFree.mono",
+   "ColoringSmallKtMinorFree.Minors.KMinorFree.of_isMinor",
+   "ColoringSmallKtMinorFree.Minors.hadwigerNumber_le_of_kMinorFree",
+   "ColoringSmallKtMinorFree.Minors.theorem_2_1_aux",
+   "ColoringSmallKtMinorFree.theorem_2_1",
+   "ColoringSmallKtMinorFree.theorem_2_2",
+   "ColoringSmallKtMinorFree.theorem_2_3"
+  ]
+ },
+ "literature_hypotheses": [
+  {
+   "lean": "ColoringSmallKtMinorFree.DuchetMeynielHyp",
+   "paper": "[duchet-meyniel] (the source theorem (2 alpha - 1) h >= n; the paper's Theorem 2.1 is proved from it)"
+  },
+  {
+   "lean": "ColoringSmallKtMinorFree.DelcourtPostleReductionHyp",
+   "paper": "[delcourt-postle, Theorem 1.6], Theorem 3.1 of the paper"
+  },
+  {
+   "lean": "ColoringSmallKtMinorFree.DelcourtPostleColoringHyp",
+   "paper": "[delcourt-postle], Theorem 1.3 of the paper"
+  },
+  {
+   "lean": "ColoringSmallKtMinorFree.DelcourtPostleGreedyHyp",
+   "paper": "[delcourt-postle, Corollary 3.2] (the paper's Theorem 2.2 is proved from it with Theorem 2.1)"
+  }
+ ],
+ "conditions": "# Conditions\n\n| id | kind | results | text | source |\n|---|---|---|---|---|\n| C1 | condition | all | \"Results the paper cites from the literature without proof (Delcourt-Postle, Duchet-Meyniel) may be taken as named hypotheses, stated faithfully to their sources.\" | RUN_LOG.md ## Intake 2026-11-14 (answer 7) |\n| C2 | scope | all | \"public paper (arXiv non-exclusive distribution licence: do not redistribute it), not confidential; reviewers may use the network to check citations\" | RUN_LOG.md ## Intake 2026-11-14 (answer 1c) |\n| K1 | source-def | Theorem 2.1, Theorem 2.3, Theorem 1.4 | `ColoringSmallKtMinorFree.hadwigerNumber` (the Hadwiger number) is taken from [duchet-meyniel], as Pedersen–Toft state it; the paper does not print it. Check it against the source. | Stage 2, 2026-11-14 |\n| K3-1 | bridge | Lemma 2.4, Lemma 2.7, Theorem 2.3, Theorem 1.4 | Contracting the stars one at a time (G/A, tex l.141-144) gives a graph isomorphic to `StarPacking.contract` (the one-step quotient); no bridge declaration yet. | ADOPTED.md round 2026-11-14-full-8cda60f521b, ## Conditions |\n| K-2 | reading | Lemma 2.5 | QUESTION row (round 2026-11-14-full-8cda60f521b): the statement is kept as printed; it is vacuous for small r (VACUOUS.md row 1) and no witness is known for any r. | RUN_LOG.md ## Open questions 2026-11-14 |\n",
+ "adopted": {
+  "2026-11-14-full-8cda60f521b": "## Conditions\n\n| id | status | evidence | reason |\n|---|---|---|---|\n| C1 | met | `ColoringSmallKtMinorFree.DuchetMeynielHyp`, `ColoringSmallKtMinorFree.DelcourtPostleGreedyHyp`, `ColoringSmallKtMinorFree.DelcourtPostleReductionHyp`, `ColoringSmallKtMinorFree.DelcourtPostleColoringHyp`; paper-faithfulness.json of this round | Each literature result is a named `Prop`, taken as a hypothesis and never proved. The axiom sweep shows no extra axioms. Paper-faithfulness passed each one this round against its source: [delcourt-postle] Cor. 3.2 and Thm 1.6 from arXiv:2108.01633v5; Duchet–Meyniel against (2α − 1)h ≥ n; Theorem 1.3 against the paper. The proofs of Theorems 2.1, 2.2 and 1.4 now use them as hypotheses, as the condition allows (DEVIATIONS.md rows 1, 2 and 5). |\n| K1 | met | `ColoringSmallKtMinorFree.hadwigerNumber` (Defs.lean:55-56); paper-faithfulness item \"Definition (Hadwiger number, from [duchet-meyniel], not printed in the paper)\", Pass this round | The definition is sSup {t : K_t ≼ G}. For finite G this is the maximum: the set contains 0, `Minors.bddAbove_hadwiger` bounds it, and `Minors.isMinor_hadwigerNumber` shows the supremum is attained. Its only use is in `DuchetMeynielHyp`, which requires `Finite V`. The docstring says it is taken from the source and not printed in the paper. |\n| K3-1 | open | - | bridge: for a finite graph G and pairwise vertex-disjoint induced stars S_1, …, S_m with independent centers (`StarPacking`), contracting the stars one at a time, (…((G/S_1)/S_2)…)/S_m with the paper's G/A (tex l.141-144), gives a graph isomorphic to the one-step quotient `StarPacking.contract`. It serves Lemma 2.4, and through it Lemma 2.7, Theorem 2.3 and Theorem 1.4. Correspondence@2 calls this representation \"nontrivial but standard\" (StarPacking.contract and lemma_2_4 verdicts). No bridge declaration exists. |\n\n",
+  "2026-11-14-full-b12d862aea0": "## Conditions\n\n| id | status | evidence | reason |\n|---|---|---|---|\n| C1 | met | `ColoringSmallKtMinorFree.DuchetMeynielHyp`, `ColoringSmallKtMinorFree.DelcourtPostleGreedyHyp`, `ColoringSmallKtMinorFree.DelcourtPostleReductionHyp`, `ColoringSmallKtMinorFree.DelcourtPostleColoringHyp`; paper-faithfulness.json of this round | Each cited literature result is a named `Prop`, taken as a hypothesis and never proved. Paper-faithfulness passed each one against its source: Delcourt–Postle Corollary 3.2 and Theorem 1.6 were read from arXiv:2108.01633v5; Duchet–Meyniel against its standard statement (2α − 1)h ≥ n; Theorem 1.3 against tex l.98-104. I read the Lean types (Literature.lean:40-62, Section3.lean:28-30) and they agree. One limit: the Duchet–Meyniel original itself was not fetched (the lane compared against the standard statement, which matches Pedersen–Toft as cited in the docstring). |\n| K1 | met | `ColoringSmallKtMinorFree.hadwigerNumber` (Defs.lean:55-56); paper-faithfulness item \"Definition (Hadwiger number, from [duchet-meyniel], not printed in the paper)\" Pass; correspondence and non-vacuity Pass | It is defined as sSup {t : K_t is a minor of G}, the largest t with K_t a minor. On finite graphs the set is bounded by v(G) and its supremum is attained (correspondence probe coercions_and_junk.lean; non-vacuity probe: hadwigerNumber K_2 = 2). Its only infinite-graph junk value is excluded, because `DuchetMeynielHyp` requires `Finite V`. The docstring says it is taken from [duchet-meyniel] and not printed in the paper. |\n\n"
+ },
+ "run_log": "## Intake (2026-11-14)\n## Checkpoint A (2026-11-14)\n## Stage 2\n## Mechanical failures\n## Rounds\n## Open questions\n- [DELEGATED 2026-11-14, operator under hands-off (intake); reversal: none] take reading (a): keep lemma_2_5 as printed, faithful, with no witness exhibited and vacuous for small r, not a paper defect (QUESTION row on ColoringSmallKtMinorFree.lemma_2_5, round 2026-11-14-full-8cda60f521b) — the adjudicator's recommendation (a); the Lean already states the lemma as printed and VACUOUS.md row 1 records the vacuity\n## Checkpoint C (2026-11-14, delegated)\n- question:ColoringSmallKtMinorFree.lemma_2_5: [DELEGATED 2026-11-14, operator under hands-off (intake); reversal: none] take reading (a) on the QUESTION row: the Lean states Lemma 2.5 as printed — the adjudicator's recommendation (a), round 2026-11-14-full-8cda60f521b\n## Answered\n- answered question:ColoringSmallKtMinorFree.lemma_2_5 (2026-11-14, 2026-11-14-full-8cda60f521b): [DELEGATED 2026-11-14, operator under hands-off (intake); reversal: none] take reading (a) on the QUESTION row: the Lean states Lemma 2.5 as printed — the adjudicator's recommendation (a), round 2026-11-14-full-8cda60f521b\n## Delivery\n## Current stage\n"
+}

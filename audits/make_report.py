@@ -457,12 +457,14 @@ def all_stops(cfg):
     rows += record_fix_rows(cfg)
     p = os.path.join(REPO, cfg["rounds_dir"], "RUN_LOG.md")
     log = open(p, encoding="utf-8").read() if os.path.exists(p) else ""
+    refs_ = decisions.answer_refs(log)
     for b in decisions.log_entries(decisions.section(log, "Open questions")):
         if decisions.PROXY_RE.search(b) or decisions.DELEGATED_RE.search(b):
             continue
         t = " ".join(b.lstrip("- ").split())
-        rows.append(["no stop record", "", t, "", "the human" if "(answered" in t else "nobody yet",
-                     "answered (see the stop)" if "(answered" in t else "OPEN"])
+        ans_ = decisions.entry_answered(b, refs_)       # next batch B20: one notion of "answered" (decisions)
+        rows.append(["no stop record", "", t, "", "the human" if ans_ else "nobody yet",
+                     "answered (see the stop)" if ans_ else "OPEN"])
     return rows
 
 
@@ -628,7 +630,8 @@ def recorded_human_answers(cfg):
             out.append(("answer", f"{m.group(2) or 'undated'} {m.group(1)}" + (f" ({occ[0]})" if occ else ""),
                         f"\"{' '.join(decisions._unquote(ans).split())}\" (RUN_LOG.md `## Answered`"
                         + (f", round {m.group(3)}" if m.group(3) else "")
-                        + f"; recorded in audit commit {_added_in(rd, 'RUN_LOG.md', line.strip())})", ans))
+                        + f"; recorded in audit commit {_added_in(rd, 'RUN_LOG.md', line.strip())})"
+                        + decisions.adopted_mark(ans), ans))
     # C2 audit: the human's re-approval answer, verbatim, with the commit that recorded it
     reap = reapproval_answers(cfg)
     for rnd, decls, words, line in reap:
@@ -1530,7 +1533,42 @@ REFUTATION_NAME = re.compile(r"(?:as_printed|_false$|counterexample)")
 
 
 def _lean_refutation_hits(cfg, repo=None):
-    """[(short name, short target or "", "File.lean")] of every theorem lean_refutations recognises."""
+    """[(short name, short target or "", "File.lean")] of every theorem lean_refutations recognises, less the ones
+    refutation_exemptions exempts (DESIGN-SW2 1.7: every consumer -- lean_refutations, refutation_name_problems,
+    f10_problems, scope.py's preflight -- reads this list)."""
+    ex = {(n, t, f) for n, t, f, _l in refutation_exemptions(cfg, repo)}
+    return [h for h in _refutation_candidates(cfg, repo)[0] if h not in ex]
+
+
+def refutation_exemptions(cfg, repo=None):
+    """[(short name, short target, "File.lean", index label)] (DESIGN-SW2 1.7, C5; review R1): a theorem of type
+    `¬ X` caught ONLY because X is a project `def X : Prop` (no `_statement`/`_as_printed` target, no
+    `not_<X>_as_printed` / as_printed / false / counterexample name: those stay hard), whose short name an index row
+    cites, backticked, in its Lean cells as that row's formalization: the formalization of the paper's own negative
+    result ("the converse fails"). It is not read as refuting a printed statement; the correspondence lane judges that
+    row, and its prompt says the declaration has the form ¬X (prompt.negation_note)."""
+    hits, props = _refutation_candidates(cfg, repo)
+    cand = [(n, t, f) for n, t, f in hits
+            if t and t in props and not t.endswith(("_statement", "_as_printed")) and not AS_PRINTED.fullmatch(n)
+            and not REFUTATION_NAME.search(n)]
+    if not cand:
+        return []
+    p = os.path.join(repo or REPO, project.index_file(cfg) or "")
+    try:
+        rows = project.index_rows(open(p, encoding="utf-8").read()) if os.path.isfile(p) else []
+    except OSError:
+        rows = []
+    cites = {}
+    for lab, rest in rows:
+        for t in re.findall(r"`([^`]+)`", rest):
+            if IDENT.match(t.strip()):
+                cites.setdefault(t.strip().split(".")[-1], " ".join(lab.split()))
+    return [(n, t, f, cites[n]) for n, t, f in cand if n in cites]
+
+
+def _refutation_candidates(cfg, repo=None):
+    """([(short name, short target or "", "File.lean")] of every theorem the refutation heuristic recognises,
+    {project `def X : Prop` short names})."""
     out, texts = [], {}
     for f in cfg.get("lean_files") or []:
         p_ = os.path.join(repo or REPO, f)
@@ -1548,7 +1586,7 @@ def _lean_refutation_hits(cfg, repo=None):
             if (target and (target.endswith(("_statement", "_as_printed")) or target in props)) or AS_PRINTED.fullmatch(name) \
                     or REFUTATION_NAME.search(name):
                 out.append((name, target, f))
-    return out
+    return out, props
 
 
 def lean_refutations(cfg):
@@ -1593,7 +1631,10 @@ def refutation_name_problems(cfg, repo=None):
             f"{f}: `{name}` refutes a printed statement but is not named `not_<decl>_as_printed`, the one name the "
             f"F10 scheduling, the defect record and `reapprove --refuted-by` read: rename it `{new}` (<decl> the "
             f"refuted declaration; its mentions in the index and docstrings too), commit, and run Phase 0 again "
-            f"before scoping a round", "index"))
+            f"before scoping a round. If it is no refutation of a printed statement: a helper whose name says "
+            f"as_printed/false/counterexample may be renamed; the formalization of the paper's own negative result "
+            f"(its counterexample, \"the converse fails\") is cited in that result's index row, where the "
+            f"correspondence lane judges it", "index"))
     return out
 
 
@@ -1743,6 +1784,23 @@ def record_row_numbers(rounds_dir):
     return out
 
 
+def _human_words_blanked(log):
+    """RUN_LOG.md with the human's verbatim words (decisions.human_quote_span: the three fixed quote forms) replaced by
+    spaces: a row citation the human typed is their word, not the run's (DESIGN-SW2 1.4, C6). Operator lines and quoted
+    lane findings are kept as written."""
+    import decisions
+    out, sec = [], ""
+    for line in log.splitlines(keepends=True):
+        if line.startswith("## "):
+            sec = line[3:].strip()
+        sp = decisions.human_quote_span(line, sec)
+        out.append(line[:sp[0]] + " " * (sp[1] - sp[0]) + line[sp[1]:] if sp else line)
+    return "".join(out)
+
+
+_DATE_TAIL = re.compile(r"-\d{2}-\d{2}\b")
+
+
 def row_reference_problems(rounds_dir):
     """[Finding] of every "<record> row N" citation naming a row the record does not have: in RUN_LOG.md (report:
     the operator corrects the line) and in the four records (record-cite: a record correction)."""
@@ -1753,9 +1811,17 @@ def row_reference_problems(rounds_dir):
         if not os.path.exists(p_):
             continue
         bad = []
-        for m in ROW_REF.finditer(open(p_, encoding="utf-8").read()):
+        text_ = open(p_, encoding="utf-8").read()
+        if src == "RUN_LOG.md":
+            text_ = _human_words_blanked(text_)
+        for m in ROW_REF.finditer(text_):
             f = m.group(1) + ".md"
-            for n in re.findall(r"\d+", m.group(2)):
+            for i, e in enumerate(re.finditer(r"\d+", m.group(2))):
+                n = e.group(0)
+                if len(n) == 4 and _DATE_TAIL.match(text_, m.start(2) + e.end()):
+                    continue        # DESIGN-SW2B X4: a date (2026-11-15), not a row
+                if i and re.fullmatch(r"(?:19|20)\d\d", n):
+                    continue        # X4: a year after a comma ("row 4, 2026: ...")
                 if n not in have.get(f, set()) and (f, n) not in bad:
                     bad.append((f, n))
         for f, n in bad:
@@ -1764,7 +1830,7 @@ def row_reference_problems(rounds_dir):
     return out
 
 
-def _short(name):
+def _decl_short(name):
     return str(name).strip("` ").split(".")[-1]
 
 
@@ -1777,13 +1843,13 @@ def row_decls(head, row, cfg=None, refuted=None):
     out = {m.group(1).split(".")[-1] for m in AS_PRINTED.finditer(text)}
     for decl, rec in (refuted or {}).items():
         if isinstance(rec, dict) and any(re.search(rf"\b{re.escape(n)}\b", str(rec.get("by", ""))) for n in names):
-            out.add(_short(decl))
+            out.add(_decl_short(decl))
     lab = defect_result(head, row)
     if cfg is not None and lab:
         p = os.path.join(project.REPO, project.index_file(cfg) or "")
         for lab_, rest_ in project.index_rows(open(p, encoding="utf-8").read() if os.path.isfile(p) else ""):
             if " ".join(lab_.split()) == lab:
-                out |= {_short(t) for t in re.findall(r"`([^`]+)`", rest_) if IDENT.match(t)}
+                out |= {_decl_short(t) for t in re.findall(r"`([^`]+)`", rest_) if IDENT.match(t)}
     return out
 
 
@@ -1853,7 +1919,7 @@ def f10_problems(path, head, rows, cfg=None):
         vs = [f12_verdict(rd, c, lab) for c in cites]
         mine = row_decls(head, r, cfg, refuted_)
         rby = lambda b: AS_PRINTED.search(str(b.get("refuted_by", "")))
-        last = [b for b in begins_ if {_short(x) for x in b.get("decls") or []} & mine
+        last = [b for b in begins_ if {_decl_short(x) for x in b.get("decls") or []} & mine
                 or (rby(b) and re.search(rf"\b{re.escape(rby(b).group(0))}\b", " ".join(r)))]
         if last:
             vs = [(v, w or (f12_after_begin(c, last[-1]) if v == "Pass" else None)) for c, (v, w) in zip(cites, vs)]
@@ -1866,7 +1932,7 @@ def f10_problems(path, head, rows, cfg=None):
                                      or "none cited") + "); otherwise the repair is `substantial` (F12)")
     # B4 review fix 4: a refuted and re-approved result (`--refuted-by`, REAPPROVAL `refuted`) was repaired: its
     # row's repair says how (typo | add hypothesis | local | substantial), never `not repaired`
-    refuted_short = {_short(x) for x in refuted_}
+    refuted_short = {_decl_short(x) for x in refuted_}
     for r in rows:
         if j is not None and j < len(r) and defect_value(r[j]) == "not repaired" \
                 and row_decls(head, r, cfg, refuted_) & refuted_short:
@@ -2008,6 +2074,10 @@ def index_only(cfg, pending=False):
         print(f"NOTE: {len(sk_)} `|` line(s) of the index are not read as result rows (their first cell does not open "
               f"with a result word: {', '.join(project.INDEX_KINDS)}); if one is a result, give it the paper's "
               f"label: " + "; ".join(repr(x[:80]) for x in sk_))
+    for n_, t_, f_, lab_ in refutation_exemptions(cfg):     # DESIGN-SW2 1.7: a flag the correspondence lane judges
+        print(f"NOTE[index] {f_}: `{n_}` has the form of a refutation (¬ {t_}) and index row \"{lab_}\" cites it as its "
+              f"formalization: it is not read as refuting a printed statement; the correspondence lane judges that row "
+              f"(its prompt says so)")
     names = refutation_name_problems(cfg)
     print(f"REFUTATIONS NOT NAMED not_<decl>_as_printed ({len(names)})")
     for x in names:
@@ -2331,15 +2401,25 @@ LEAN_NAMES_SRC = """open Lean in
     let n := s.toName
     unless env.contains n || ms.contains n || env.isNamespace n do
       let found := env.constants.fold (init := false) fun acc c _ => acc || (c.toString.endsWith ("." ++ s))
-      unless found do IO.println s!"MISSING {{s}}"
+      unless found do
+        -- DESIGN-SW2B X1: a name whose first component is no global name may be dot notation on a variable
+        let r := n.getRoot
+        if env.contains r || ms.contains r || env.isNamespace r then IO.println s!"MISSING {{s}}" else IO.println s!"MISSING-HEAD {{s}}"
 """
+# DESIGN-SW2B C4: the selftests' Lean stand-in (_names_stub) applies the root test only when this exact line is in the
+# source, so a mutant of it is seen without Lean
+ROOT_TEST_LINE = ('if env.contains r || ms.contains r || env.isNamespace r then IO.println s!"MISSING {{s}}" '
+                  'else IO.println s!"MISSING-HEAD {{s}}"')
 
 
-def missing_lean_names(cfg, names, run=None):
+def missing_lean_names(cfg, names, run=None, heads=None, earlier=True):
     """(missing, error): the names among `names` that are no declaration, module or namespace of the built
     project and the libraries it imports (a name relative to an opened namespace counts when some declaration
     ends with it), resolved in Lean; the project's own declarations first, without Lean. `error` (the Lean run
-    failed) is never a pass: the caller reports it."""
+    failed) is never a pass: the caller reports it. DESIGN-SW2B X1: a missing name whose first component
+    (`Name.getRoot`) is no declaration, module or namespace either (`G.Adj`: dot notation on a variable, or a wrong
+    name -- Lean cannot tell) goes into the list `heads` when one is given, else into `missing` like any other.
+    `earlier`: a name some earlier commit of the project declared is history, not missing (X2 passes False)."""
     import dependencies
     ns = cfg.get("namespace") or ""
     decls = dependencies.project_decls(cfg)
@@ -2353,6 +2433,13 @@ def missing_lean_names(cfg, names, run=None):
     if rc != 0:
         return None, " ".join(out.split())[-400:]
     gone = [l_[len("MISSING "):].strip() for l_ in out.splitlines() if l_.startswith("MISSING ")]
+    hd = [l_[len("MISSING-HEAD "):].strip() for l_ in out.splitlines() if l_.startswith("MISSING-HEAD ")]
+    if heads is None:
+        gone += hd      # a caller that does not ask for them loses none (DESIGN-SW2B X1: FLOOR SW2B-M3)
+    else:
+        heads += [n for n in hd if not earlier or not _declared_earlier(cfg, n)]
+    if not earlier:
+        return gone, None
     # a project name an earlier Lean commit declared is history, cited as such (a stop quoting the refutation's
     # first name, renamed since)
     return [n for n in gone if not _declared_earlier(cfg, n)], None
@@ -2371,21 +2458,78 @@ def _declared_earlier(cfg, name):
     return False
 
 
-def cited_name_problems(cfg, docs, run=None):
+def cited_name_problems(cfg, docs, run=None, notes=None):
     """[text] for each generated document of `docs` ({name: text}) citing a Lean name that does not exist
-    (cited_lean_names, missing_lean_names), or one line if the names could not be resolved."""
+    (cited_lean_names, missing_lean_names), or one line if the names could not be resolved. DESIGN-SW2B X1: a name
+    whose first component is no global name either (`G.Adj`) cannot be decided (dot notation on a variable, or a
+    wrong name): with `notes` a list its text goes there (a NOTE judged at delivery), else it is returned with the
+    problems (--deliver makes every one a delivery note). Also after "Mathlib's": REVIEW-DESIGN-SW2B C7's optional
+    hard case is not taken (a real blind reading wrote "Mathlib's G.minDegree", correct dot notation; BUILD-SW2B)."""
     cites = {d_: cited_lean_names(t_) for d_, t_ in docs.items() if t_}
     every = sorted({n for ns_ in cites.values() for n in ns_})
     if not every:
         return []
-    missing, err = missing_lean_names(cfg, every, run=run)
+    heads = []
+    missing, err = missing_lean_names(cfg, every, run=run, heads=heads)
     if err is not None:
         return [f"the Lean names the documents cite could not be resolved (the Lean run failed: {err}); build the "
                 f"project and run the check again"]
-    return [f"{d_} cites `{n}`, which is no declaration, module or namespace of the project or the libraries it "
-            f"imports (resolved in Lean against the build): correct the text that says it -- its source record or "
-            f"the operator's line -- and generate the document again"
+    out = [f"{d_} cites `{n}`, which is no declaration, module or namespace of the project or the libraries it "
+           f"imports (resolved in Lean against the build): correct the text that says it -- its source record or "
+           f"the operator's line -- and generate the document again"
             for d_, ns_ in cites.items() for n in ns_ if n in missing]
+    hn = [head_name_note(d_, n, docs.get(d_)) for d_, ns_ in cites.items() for n in ns_ if n in heads]
+    if notes is None:
+        return out + hn
+    notes += hn
+    return out
+
+
+def _unlike_variable(n, text=None):
+    """REVIEW-SAFETY-SW2B F1 (wording only): the first component of `n` does not look like a variable -- a capitalised
+    word of 3 or more letters (`Reals`, `Turan`), or any root but a single (decorated) letter when the text says
+    "Mathlib's `n`" (a 1-letter root there stays dot notation: "Mathlib's G.minDegree", BUILD-SW2B)."""
+    r = n.split(".")[0]
+    if re.fullmatch(r"[A-Z][A-Za-z]{2,}", r):
+        return True
+    ml = re.search(r"Mathlib['’]s\s+`?" + re.escape(n) + r"(?![\w'.])", str(text or ""))
+    return ml is not None and not re.fullmatch(r"[A-Za-z][\d'′₀-₉]*", r)
+
+
+def head_name_note(doc, n, text=None):
+    """DESIGN-SW2B X1: the text of a cited name whose first component resolves to nothing (no "error:", never a
+    failure line: stops.FAIL_LINE). REVIEW-SAFETY-SW2B F1: a root that does not look like a variable (`text`, the
+    citing document, for "Mathlib's") gets the wording "likely a wrong name"; still a note, never a problem."""
+    if _unlike_variable(n, text):
+        r = n.split(".")[0]
+        return (f"{doc} cites `{n}`: its first component `{r}` is no declaration, module or namespace of the project or "
+                f"the libraries it imports, and `{r}` does not look like a variable: likely a wrong name; the check "
+                f"cannot tell for sure (a judge reads it)")
+    return (f"{doc} cites `{n}`: its first component `{n.split('.')[0]}` is no declaration, module or namespace of the "
+            f"project or the libraries it imports, so it may be Lean dot notation on a variable (`G.Adj` for "
+            f"`SimpleGraph.Adj G`) or a wrong name; the check cannot tell (a judge reads it)")
+
+
+def _names_stub(decls, namespaces, runs=None, rc=0, fail=False):
+    """The selftests' stand-in for Lean on LEAN_NAMES_SRC: env.contains / isNamespace / some declaration ending with
+    "." ++ s over `decls` and `namespaces`; the root test (MISSING-HEAD) only when the source carries ROOT_TEST_LINE
+    exactly (REVIEW-DESIGN-SW2B C4: a mutant of that Lean line changes what the stand-in answers). `runs` collects the
+    sources it is sent; `fail` raises (a Lean that cannot start)."""
+    line = ROOT_TEST_LINE.replace("{{", "{").replace("}}", "}")
+
+    def run(src):
+        if runs is not None:
+            runs.append(src)
+        if fail:
+            raise OSError("lake: not found")
+        out = []
+        for s in json.loads("[" + re.search(r"for s in \[(.*)\] do", src).group(1) + "]"):
+            if s in decls or s in namespaces or any(d.endswith("." + s) for d in decls):
+                continue
+            r = s.split(".")[0]
+            out.append(f"MISSING-HEAD {s}" if line in src and r not in decls and r not in namespaces else f"MISSING {s}")
+        return rc, "\n".join(out)
+    return run
 
 
 def libraries_phrase(cfg):
@@ -3563,7 +3707,8 @@ def summary_page(cfg, inp=None):
                 continue
             rm_ = core_fault_markers(cfg, ("record",)) if g == ANSWERS_SECTION else []
             out += ["", f"## {g}", ""] + ([" ".join(rm_ + [ANSWERS_INTRO]), ""] if g == ANSWERS_SECTION else []) \
-                + (ls or ["- none"])
+                + (ls or (["- none: no row in PAPER_DEFECTS.md (see REPORT for any issue the authors or the intake "
+                           "listed)"] if g == PAGE_GROUPS[0][0] else ["- none"]))
         return out
 
     def cost(md):
@@ -3668,6 +3813,25 @@ def dangling_lines(md):
     return out
 
 
+def _hand_rows(text, keys):
+    """({label: status}, [label]) of a HAND-WRITTEN summary's results table, read as the README reads it
+    (project.summary_result_rows: any table with a Status and a Result column, three or more columns included) and
+    paired with the record's labels as project.status_block pairs them (exact, then a spaced parenthetical cut, then
+    any trailing parenthetical). Next batch B3/B16: the strict two-column reader found none of a three-column table
+    and the delivery note said it "cannot see" every result. A label the record does not hold is kept as written."""
+    ids = [" ".join(k.ident.split()) for k in keys if k.prefix in ("result", "excluded")]
+    exact = {project.norm_label(i, cut=False): i for i in ids}
+    normd = {project.norm_label(i): i for i in ids}
+    st, seen = {}, []
+    for lbl, cells in project.summary_result_rows(text).items():
+        a = project.norm_label(lbl, cut=False)
+        i = exact.get(a) or normd.get(project.norm_label(lbl)) or exact.get(project._cut_any_paren(a)) or a
+        for c_ in cells:
+            seen.append(i)
+            st[i] = c_
+    return st, seen
+
+
 def summary_problems(cfg, text=None, inp=None, hand_edited=False):
     """[Finding(deliver)] of the delivered SUMMARY.md against a fresh enumeration (U2 §6.4 coverage, §1
     independent check): every result in the table once, with its status as the record gives it; every other item
@@ -3689,7 +3853,7 @@ def summary_problems(cfg, text=None, inp=None, hand_edited=False):
     keys = disclosure_keys(cfg, inp)
     lines = [" ".join(l.split()) for l in text.splitlines() if l.startswith("- ")]
     out = []
-    st, seen = _table_rows_of(text)
+    st, seen = _hand_rows(text, keys) if hand_edited else _table_rows_of(text)
     for k in keys:
         if k.prefix not in ("result", "excluded"):
             continue
@@ -3781,10 +3945,14 @@ def summary_problems(cfg, text=None, inp=None, hand_edited=False):
     rd = os.path.join(REPO, cfg["rounds_dir"])
     subjects = []
     try:
+        import result_status
         subjects += [("defect", decisions._col(h, c, "where")) for h, c in decisions.defect_rows(rd)
                      if decisions.is_defect_header(h)]
         for f, col in (("SKIPPED.md", "what"), ("VACUOUS.md", "statement")):
-            subjects += [(f, c[decisions._idx(h, col)]) for h, c in decisions.table_rows(decisions._read(os.path.join(rd, f)))
+            # next batch B6: the part of the cell the row is about (result_status.primary_subject), as the status reads it
+            subjects += [(f, result_status.primary_subject(c[decisions._idx(h, col)], "vacuous" if col == "statement"
+                                                           else "skipped"))
+                         for h, c in decisions.table_rows(decisions._read(os.path.join(rd, f)))
                          if decisions._idx(h, col) is not None and len(c) > decisions._idx(h, col)]
         subjects += [("stated only", f"`{d}`") for d in decisions.unproved(cfg)["decls"]]
     except Exception as e:      # noqa: BLE001 -- fail closed, the reason shown
@@ -3821,6 +3989,21 @@ def build_summary(cfg, quiet=False):
 # on disk, so a report regenerated in memory on another day hashes the same (its stamp is not hashed either).
 REFERENCE = None
 REFERENCE_STAMP = None
+
+
+# next batch G1 (approver D1): the K standard's definition and REPORT's section title
+K_DEFINITION = ("K: the Lean statement says exactly what the paper says (K1), the proof is checked by Lean's kernel "
+                "(K2), every change of representation is proved (K3), nothing is assumed (K4).")
+K_TITLE = "K certificate"
+
+
+# K-REMOVE (approver 2026-11-16, option A: "remove the code output. Just let agent judge."): the code writes no K
+# content -- no count, no K1-K4 table, no open-items list. The facts draft's section 12 is the definition and a place
+# for the formalizing agent's judgement, which the agent writes at Stage 5 (run/stage5-delivery.md step 5).
+K_SECTION_DRAFT = (K_DEFINITION + "\n\n**The formalizing agent's judgement** -- [to be written by the formalizing "
+                   "agent at Stage 5 (run/stage5-delivery.md step 5): per result, K1-K4 yes or no with the reason and "
+                   "file:line evidence (paper, Lean, records); how many results reach K; the open K gaps, each with "
+                   "the results it actually affects.]\n")
 
 
 def report_md(cfg):
@@ -3920,6 +4103,10 @@ def delivery_problems(cfg, inp=None):
     except Exception as e:      # noqa: BLE001 -- fail closed, the reason shown
         out.append(("deliver", f"the summary could not be generated: {e!r}"))
     rep_md = report_md(cfg)
+    # DESIGN-SW2B X2 (4): a record citation the check could not decide (the generated report's own NOTE) reaches the
+    # NOTES reviewer as a delivery note
+    out += [("deliver", l_[4:].strip()) for l_ in (rep_md or "").splitlines()
+            if l_.startswith("> * ") and X2_NOTE_MARK in l_]
     if rep_md is not None:
         now["REPORT.md"] = project.doc_text_hash("REPORT.md", rep_md)
     else:
@@ -3976,6 +4163,13 @@ def delivery_problems(cfg, inp=None):
     if summ_ is not None and project.CHECKED_POINTER.lower() not in summ_.lower():
         out.append(("deliver", "SUMMARY.md has no line pointing to README.md's section \"What the checking code "
                                "found\" (run/stage5-delivery.md step 5): add it on its first page"))
+    # next batch G1 (CR-5): the conditions checklist's provenance (notes, never a refusal); K-REMOVE: the K text is
+    # the agent's, checked by the delivery reviewers, never by the code
+    try:
+        import result_status as _rs_k
+        out += [("deliver", n_) for n_ in _rs_k.provenance_notes(cfg)]
+    except Exception as e:      # noqa: BLE001 -- a note, never a refusal
+        out.append(("deliver", f"the conditions checklist could not be read ({type(e).__name__}: {e})"))
     # trial #10 audit: every Lean name a delivered document cites exists (a wrong Mathlib name shipped); the main
     # agent's SUMMARY and REPORT as delivered (approver 2026-10-28)
     try:
@@ -4195,7 +4389,7 @@ def pending_adjudication(cfg, inp=None):
     empty diff scope while an adj-record item is pending goes to a full round, never to Stage 5 (integrated review
     fix 2: a `leave <decl> unproved` line logged after the final round looped between NEXT[stage5] and
     RED[adj-record])."""
-    import decisions, result_status as _rs
+    import decisions, hypotheses, result_status as _rs
     # B1 (MAINTAINING L5): a row its round's adjudicator already decided (route `decided`) is not pending: no round
     # can clear it, and its result keeps its "not established ... decision: X" status (decided_notes says so)
     out = [("adj-record", f"pending the next adjudication: {r.result}: {r.reason}")
@@ -4203,7 +4397,13 @@ def pending_adjudication(cfg, inp=None):
     pend = decisions.pending_refusal(cfg)
     if pend:
         out.append(("adj-record", pend))
-    out += [(f.code, "pending the next adjudication: " + " ".join(str(f).lstrip("! ").split()))
+    out += [(f.code, "pending the next adjudication: " + " ".join(str(f).lstrip("! ").split())
+             # review C4: an unruled missing-theory suspect delivered as it is was judged by no independent agent
+             + ((" -- ruled a missing-theory decision by an independent reviewer, disputed by the operator, not "
+                 "re-ruled: run one full round so its adjudicator rules it again, then deliver (stage5-delivery.md)")
+                if "the operator dissents (MT DISSENT" in str(f) else
+                (" -- not judged by an independent agent: run one full round so its adjudicator rules it, then deliver "
+                 "(stage5-delivery.md)") if hypotheses.MT_SUSPECT_HEAD in str(f) else ""))
             for f in adjudication_findings(cfg)]
     rc = route_changes_pending(cfg)
     if rc:
@@ -4513,7 +4713,76 @@ def record_faults(cfg, declared=None, rd=None):
     return out
 
 
-def rendering_problems(cfg, skipped, defects, deviations, index=(), vacuous=(), questions=(), clearances=()):
+# DESIGN-SW2B X2: a NOTE of rendering_problems for a cited name the check cannot decide (its marker; the report lists
+# these under a heading of their own and --deliver makes each a delivery note)
+X2_NOTE_MARK = "its first component is no global name"
+_X2_CACHE = {}      # (runner, repo, lean files, namespace, name) -> "missing" | "head" | "ok" | None (no answer)
+
+
+def lean_code_only(txt):
+    """REVIEW-SAFETY-SW2B F2: `txt` (Lean source) with its comments blanked -- `--` to the end of the line and `/- ... -/`
+    blocks (nested; doc comments `/-- -/` and `/-! -/` too) -- each comment character a space, newlines kept, so line
+    N stays line N; string literals are kept as they are ("--" inside one is no comment)."""
+    out, i, depth, n = [], 0, 0, len(txt)
+    while i < n:
+        c, two = txt[i], txt[i:i + 2]
+        if depth:
+            if two == "/-":
+                depth, i = depth + 1, i + 2
+                out.append("  ")
+            elif two == "-/":
+                depth, i = depth - 1, i + 2
+                out.append("  ")
+            else:
+                out.append("\n" if c == "\n" else " ")
+                i += 1
+        elif two == "/-":
+            depth, i = 1, i + 2
+            out.append("  ")
+        elif two == "--":
+            j = txt.find("\n", i)
+            j = n if j < 0 else j
+            out.append(" " * (j - i))
+            i = j
+        elif c == '"':
+            j = i + 1
+            while j < n and txt[j] != '"' and txt[j] != "\n":
+                j += 2 if txt[j] == "\\" else 1
+            out.append(txt[i:j + 1])
+            i = j + 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _library_shaped(nm, cfg):
+    """DESIGN-SW2B X2: a dotted name that is not the project's (its first component is not the config namespace's,
+    its last is not of the project's naming convention OURS): Lean decides it."""
+    ns = (cfg.get("namespace") or "").split(".")[0]
+    return "." in nm and nm.split(".")[0] != ns and not OURS.match(nm.rsplit(".", 1)[-1])
+
+
+def _x2_resolution(cfg, names):
+    """{name: "missing" | "head" | "ok" | None}: X1's resolver (missing_lean_names, earlier=False: a renamed project
+    declaration stays dead) on the dotted non-project names a record cites, one Lean run per process for each new
+    name (REVIEW-DESIGN-SW2B C8); None when Lean gave no answer (the caller keeps today's hard text)."""
+    key = (project.run_lean, REPO, tuple(cfg.get("lean_files") or ()), cfg.get("namespace") or "")
+    todo = [n for n in dict.fromkeys(names) if key + (n,) not in _X2_CACHE]
+    if todo:
+        try:
+            hd = []
+            missing, err = missing_lean_names(cfg, todo, heads=hd, earlier=False)
+        except Exception:       # noqa: BLE001 -- no answer: today's hard text, never a crash
+            missing, err = None, "exception"
+        for n in todo:
+            _X2_CACHE[key + (n,)] = (None if err is not None or missing is None
+                                     else "missing" if n in missing else "head" if n in hd else "ok")
+    return {n: _X2_CACHE[key + (n,)] for n in names}
+
+
+def rendering_problems(cfg, skipped, defects, deviations, index=(), vacuous=(), questions=(), clearances=(),
+                       resolve=True):
     """What a reader of the rendered report would trip over, found mechanically (AUDIT_PROTOCOL.md,
     "Documents a human reads", rules 1, 2 and 6):
       - LaTeX (any `\\command`, or `$...$`) outside a code span: it prints literally;
@@ -4526,8 +4795,13 @@ def rendering_problems(cfg, skipped, defects, deviations, index=(), vacuous=(), 
     literature hypotheses' source text; in the open QUESTION rows (ADOPTED.md, the adjudicator's)
     only a stale `File.lean:N`, as a NOTE (a stale line in a question went unreported); likewise in
     the independence clearances (ADOPTED.md, listed in the report: a stale `Lemmas.lean:41` there sat
-    beside "Stale line numbers: none", mini2 audit)."""
+    beside "Stale line numbers: none", mini2 audit).
+    DESIGN-SW2B X2 (`resolve`): a dotted non-project name cited at `File.lean:N` and declared nowhere is resolved in
+    Lean (X1's resolver) instead of being dead at once: a wrong global name (its first component resolves) is dead as
+    before; one whose first component is no global name (`G.Adj`) passes when the cited file has it within N+-2, else
+    it is a NOTE (a judge reads it at delivery); a library name that exists passes; no answer from Lean: dead."""
     out = []
+    later = []      # X2: (index in out, where, name, file, line, cell, literal at N+-2 outside comments)
     src = cfg.get("source_pdf", "")
     tex_lines = (open(src, encoding="utf-8", errors="replace").read().count("\n") + 1
                  if src.endswith(".tex") and os.path.exists(src) else None)
@@ -4552,7 +4826,7 @@ def rendering_problems(cfg, skipped, defects, deviations, index=(), vacuous=(), 
     for src_name, rows in sources:
         if src_name == "CLEARANCE":
             for p_ in rendering_problems(dict(cfg, literature_hypotheses=[], source_pdf=""), [], [], [],
-                                         vacuous=rows) if rows else []:
+                                         vacuous=rows, resolve=False) if rows else []:
                 m = re.match(r"NOTE VACUOUS\.md row Q(\d+):", p_)
                 if m and "but declared at line" in p_:
                     c = clearances[int(m.group(1))]
@@ -4561,7 +4835,7 @@ def rendering_problems(cfg, skipped, defects, deviations, index=(), vacuous=(), 
         if src_name == "QUESTION":
             # the same scan, keeping only its stale-line NOTEs
             for p_ in rendering_problems(dict(cfg, literature_hypotheses=[], source_pdf=""), [], [], [],
-                                         vacuous=rows) if rows else []:
+                                         vacuous=rows, resolve=False) if rows else []:
                 m = re.match(r"NOTE VACUOUS\.md row Q(\d+):", p_)
                 if m and "but declared at line" in p_:
                     q = questions[int(m.group(1))]
@@ -4612,6 +4886,12 @@ def rendering_problems(cfg, skipped, defects, deviations, index=(), vacuous=(), 
                                                f"{', '.join(elsewhere)}")
                                 elif short in names_cited_ok(nm):
                                     pass
+                                elif resolve and _library_shaped(nm, cfg):
+                                    # DESIGN-SW2B X2 (C2): Lean decides it, after the row loop
+                                    lines_ = lean_code_only(txt).splitlines()[max(0, n - 3):n + 2]
+                                    later.append((len(out), where, nm, f, n, cell, re.search(
+                                        rf"(?<![\w'.]){re.escape(nm)}(?![\w'])", "\n".join(lines_)) is not None))
+                                    out.append(None)
                                 elif not plausible_declaration(nm) and re.search(
                                         rf"(?<![\w'.]){re.escape(nm)}(?![\w'])", txt):
                                     # a local name (a `have` or binder inside a proof: L-inf run, stop S3,
@@ -4637,7 +4917,20 @@ def rendering_problems(cfg, skipped, defects, deviations, index=(), vacuous=(), 
                         ns = [int(m.group(1))] + [int(x) for x in re.findall(r"\d+", m.group(2))]
                         if max(ns) > tex_lines:
                             out.append(f"! {where}: {m.group(0)} is past the end of the source")
-    return out
+    if later:
+        res = _x2_resolution(cfg, [e[2] for e in later])
+        for i, where, nm, f, n, cell_, lit in later:
+            k = res.get(nm)
+            if k == "head" and not lit and _unlike_variable(nm, cell_):
+                out[i] = (f"NOTE {where}: `{nm}` is cited at {f}:{n}, which does not contain it, and {X2_NOTE_MARK}: "
+                          f"`{nm.split('.')[0]}` does not look like a variable: likely a wrong name or a wrong pointer; "
+                          f"the check cannot tell for sure (a judge reads it)")
+            elif k == "head" and not lit:
+                out[i] = (f"NOTE {where}: `{nm}` is cited at {f}:{n}, which does not contain it, and {X2_NOTE_MARK}: "
+                          f"dot notation on a variable or a wrong pointer; the check cannot tell (a judge reads it)")
+            elif k not in ("head", "ok"):
+                out[i] = f"! {where}: `{nm}` is cited at {f}:{n} but declared in no project file (renamed or deleted?)"
+    return [p_ for p_ in out if p_ is not None]
 
 
 def stale_sorry_notes(rounds_dir, head):
@@ -4832,6 +5125,39 @@ def _names_in(text):
             for m in re.finditer(rf"\b(?:{project.RESULT_KINDS_RE})\s+[\d.]*\d(?:\([^)]*\))?", text, re.I)}
 
 
+_PART = r"(?i:\(\s*([ivx]{1,4}|[a-z]|\d{1,2})\s*\))"
+
+
+def _label_norm(s):
+    """DESIGN-SW2B X3: a label for comparison: spaces collapsed, ′/’ as ', a part glued ("Lemma 2.3 (b)" == "Lemma
+    2.3(b)"). REVIEW-SAFETY-SW2B F3: case is kept (the identifier letter is case-sensitive: _label_pat)."""
+    s = re.sub(r"\s+", " ", str(s).replace("′", "'").replace("’", "'")).strip()
+    return re.sub(r"\s*" + _PART, r"(\1)", s)
+
+
+def _label_pat(lab):
+    """REVIEW-SAFETY-SW2B F3: a normalised label as a regex: its words ("Theorem", "Main") in any case, its identifier
+    ("A", "I", "II", "1.1'") exactly as written ("Theorem A" is not "the theorem a priori")."""
+    return "".join(f"(?i:{re.escape(t)})" if re.fullmatch(r"[A-Za-z]{2,}", t) and not t.isupper() else re.escape(t)
+                   for t in re.split(r"(\s+)", lab))
+
+
+def _label_in(label, what):
+    """DESIGN-SW2B X3: does the SKIPPED "what" cell `what` name the index label `label` exactly, as a whole token
+    ("Theorem A" not in "Theorem A.2", "Theorem AB", "Theorem A 2"; "Lemma 1.3" not in "Lemma 1.31" or "Lemma
+    1.3(b)")? REVIEW-SAFETY-SW2B F3: only as the cell's FIRST label, the subject result_status.primary_subject reads
+    (the first result label or backticked name; the cell's start, its `*_`-markup removed, when it has neither), so
+    the index check and the status agree ("Corollary 5.1, which follows from Theorem A" names Corollary 5.1 only; a
+    label with no identifier, "Main Theorem", counts only there too: REVIEW-DESIGN-SW2B C3); the identifier letter is
+    case-sensitive ("Theorem A" is not "the theorem a priori")."""
+    import result_status
+    t = " ".join(str(what).split())
+    first = result_status.primary_subject(t, "skipped")
+    at = 0 if first == t else max(t.find(first), 0)
+    tail = r"(?![\w']|\.\d|\(\w{1,4}\)|\s+\d|\s+[A-Za-z](?!\w)|\s+[A-Z]{2,4}(?!\w))"
+    return re.match(_label_pat(_label_norm(label)) + tail, re.sub(r"[*_`]", "", _label_norm(t[at:])).strip()) is not None
+
+
 def index_adopts(cfg):
     """{index label: round} for every ADOPTED.md ADOPT row whose item is exactly an index label (bold,
     italics, backticks and spaces ignored): the adjudicator's ruling that the INDEX is the wrong side of
@@ -4852,6 +5178,7 @@ def index_accounting(index, skipped, declared, pending, adopts=None):
     # only the row's subject -- its "what" column -- names what it skips; its reasoning may
     # mention other results (a Remark 4.4 row that cites "the Theorem 4.1 value" skips 4.4 only)
     skip_names = set().union(*(_names_in(r[1] if len(r) > 1 else "") for r in skipped)) if skipped else set()
+    whats = [r[1] for r in skipped if len(r) > 1] if skipped else []     # DESIGN-SW2B X3: the "what" cells only
     accounted, unaccounted, probs = [], [], []
     for r in index:
         name = r[0]
@@ -4864,8 +5191,11 @@ def index_accounting(index, skipped, declared, pending, adopts=None):
         explained = (base in skip_names or re.sub(r"\s+", " ", name).lower() in skip_names
                      # left unproved, its SKIPPED.md row pending the next adjudication
                      or name in pending)
-        (accounted if (formalized or explained) else unaccounted).append(name)
-        if not formalized and not explained:
+        # DESIGN-SW2B X3: also a lettered, appendix, primed or part label a "what" cell names exactly; only for
+        # "explained by a SKIPPED.md row" -- "formalized AND skipped" below keeps `explained` (no new adj-record)
+        explained_ac = explained or any(_label_in(name, w_) for w_ in whats)
+        (accounted if (formalized or explained_ac) else unaccounted).append(name)
+        if not formalized and not explained_ac:
             probs.append(f"! {name}: not formalized by the index, and no SKIPPED.md row explains it")
         if formalized and explained and not re.search(r"\(|partial|half", name + " " + r[1], re.I):
             if name in (adopts or {}):
@@ -4889,7 +5219,9 @@ def adjudication_findings(cfg, round_name=None, revotes=None):
     "decided by", a result left unproved without its SKIPPED.md row (also while it is still pending:
     the adjudication about to be committed is the next one), "formalized AND skipped", a carried item
     without its row (`round_name`: that round's ADOPTED.md as it is counts), and record_faults
-    (dead-witness, record-cite). `integrity.py --commit-adjudication` refuses while one remains."""
+    (dead-witness, record-cite). `integrity.py --commit-adjudication` refuses while one remains. `revotes` is passed
+    (a bool) only by that commit (integrity.py); with it, a missing-theory suspect the round's adjudicator prompt did not
+    list is not refused (it was never shown: the next round's prompt lists it; DESIGN-SW2 1.9)."""
     rd = os.path.join(REPO, cfg["rounds_dir"])
     declared = declared_names(cfg["lean_files"])
     heads, recs, out = {}, {}, []
@@ -4910,6 +5242,37 @@ def adjudication_findings(cfg, round_name=None, revotes=None):
     out += [p_ for p_ in row_reference_problems(rd) if is_pending(p_)]     # forgery review H1
     import hypotheses       # B5 (U2 §2): an assumed name without a valid `## Hypotheses` row (adj-record)
     out += hypotheses.findings(cfg, rd)
+    # DESIGN-MT: a RUN_LOG.md line the missing-theory check only suspects, unruled (form only: doc={} skips the walk),
+    # and a malformed MT RULED line of the adjudication about to be committed
+    out += [f for f in hypotheses.missing_theory_findings(cfg, doc={}, rd=rd, round_name=round_name) if is_pending(f)]
+    out += hypotheses.mt_ruling_problems(cfg, rd, round_name)
+    if round_name and revotes is not None:
+        out = _unlisted_mt_dropped(rd, round_name, out)
+    return out
+
+
+def _unlisted_mt_dropped(rd, round_name, found):
+    """`found` less each missing-theory suspect (hypotheses.MT_SUSPECT_HEAD) whose `MT RULED <id>` the round's adjudicator
+    prompt(s) do not list (the test hypotheses._mt_ruled uses): DESIGN-SW2 1.9 (C19). Only for the adjudication commit:
+    `integrity.commit_adjudication` is the one caller passing `revotes` (bool); every other caller (prompt.py's PENDING
+    section, pending_adjudication, Phase 0's build) passes none, so the suspect stays visible and the next round's prompt
+    lists it. No prompt file on disk: nothing is dropped."""
+    import hypotheses, lane_auth
+    rdir = os.path.join(rd, round_name)
+    try:
+        repo = str(lane_auth.audit_repo(lane_auth.Path(rdir)))
+    except (lane_auth.AuthError, OSError):
+        return found
+    texts = [hypotheses._round_prompt(repo, rdir, n) for n in ("adjudicator.txt", "adjudicator-revotes.txt")]
+    if all(t is None for t in texts):
+        return found
+    pr = "\n".join(t for t in texts if t)
+    out = []
+    for f in found:
+        m = re.search(r"\(line id ([0-9a-f]{12})", str(f)) if hypotheses.MT_SUSPECT_HEAD in str(f) else None
+        if m and f"MT RULED {m.group(1)}" not in pr:
+            continue
+        out.append(f)
     return out
 
 
@@ -4980,8 +5343,9 @@ def build(cfg, check_only=False, pending_ok=False, adjudicating=None):
     problems += adj(prose_only_defects(os.path.join(rounds_dir, "PAPER_DEFECTS.md")))
     problems += missing_theory_problems(cfg, heads["skipped"], skipped)
     problems += delegation_problems(cfg)
-    import hypotheses       # B6 (U2 §7): the missing-theory decision lines (FAIL[missing-theory], the operator's)
-    problems += hypotheses.missing_theory_findings(cfg, rd=rounds_dir)
+    import hypotheses       # B6 (U2 §7): the missing-theory decision lines (FAIL[missing-theory], the operator's;
+    # a line only suspected from its words: adj-record, the next adjudicator rules it, DESIGN-MT)
+    problems += hypotheses.missing_theory_findings(cfg, rd=rounds_dir, round_name=adjudicating)
     appr_p = os.path.join(rounds_dir, "APPROVED_FINGERPRINTS.json")
     if os.path.exists(appr_p) and project.approval_file_by(appr_p)[0] is None:
         problems.append("! APPROVED_FINGERPRINTS.json records no approver (`by`): re-record the approval with "
@@ -5066,12 +5430,19 @@ Its sources are edited instead, by the protocol steps that maintain them:
 
 Project `{cfg['name']}`, branch `{cfg['branch']}`, namespace `{cfg['namespace']}`.
 """
+    x2_notes = [p_ for p_ in record_notes if X2_NOTE_MARK in p_]      # DESIGN-SW2B X2, C6: their own heading
+    record_notes = [p_ for p_ in record_notes if X2_NOTE_MARK not in p_]
     if record_notes:
         head += ("\n> **Stale line numbers in adjudicator records** (to be refreshed by the next "
                  "adjudication; the declaration's current line is given):\n>\n"
                  + "".join(f"> * {p_[5:]}\n" for p_ in record_notes))
     else:
         head += "\n**Stale line numbers in adjudicator records:** none.\n"
+    if x2_notes:
+        head += ("\n> **Citations the check could not decide** (a name whose first component is no Lean name, cited "
+                 "at a line that does not show it; a reviewer judges each at delivery):\n>\n"
+                 + "".join(f"> * {p_[5:]}\n" for p_ in x2_notes))
+        record_notes += x2_notes
     lines_resolved = ((f"**Line numbers resolved from declaration names:** {refresh_lines.count} `File.lean:N` "
                        f"citation(s) in the adjudicator records named a declaration that has moved since the record "
                        f"was written; the report gives the line where it is declared at this commit.")
@@ -5229,6 +5600,8 @@ Project `{cfg['name']}`, branch `{cfg['branch']}`, namespace `{cfg['namespace']}
                  "| term | meaning | where |\n|---|---|---|\n" + "".join(
                      "| " + " | ".join(str(g.get(k, "")).replace("|", "\\|") for k in ("term", "meaning", "where"))
                      + " |\n" for g in glossary))
+    nsec += 1
+    body += f"\n## {nsec}. {K_TITLE}\n\n" + K_SECTION_DRAFT
     out = head + body
     if not check_only:
         if REFERENCE is not None:
@@ -5721,9 +6094,9 @@ def selftest():
         checks.append(("trial #7: 'Where the Lean names are' lists every Lean name cited above it, also one cited "
                        "only in prose",
                        "| `extra_qz` | `P/Src.lean:" in rmq.split("Where the Lean names are", 1)[-1]))
-        checks.append(("approver 2026-10-24: with reader notes the report still has its eleven sections; the notes end "
-                       "section 1, before section 2",
-                       re.findall(r"(?m)^## (\d+)\. ", rmq) == [str(i) for i in range(1, 12)]
+        checks.append(("approver 2026-10-24: with reader notes the report still has its sections (twelve since next "
+                       "batch G1: the K certificate last); the notes end section 1, before section 2",
+                       re.findall(r"(?m)^## (\d+)\. ", rmq) == [str(i) for i in range(1, 13)]
                        and -1 < rmq.find("### Notes for the reader") < rmq.find("## 2. What the formalization assumes")))
         with contextlib.redirect_stdout(io.StringIO()):
             build(dict(cfg, mode="release"))
@@ -5833,6 +6206,33 @@ def selftest():
                        and rc_ix == 0 and "PENDING[adjudication] dead-witness: PAPER_DEFECTS.md row 1" in o_ix.getvalue()
                        and "FAIL[" not in o_ix.getvalue()
                        and any(p_.code == "adj-record" and "11 cells" in p_ for p_ in _af)))
+        # DESIGN-MT MT-m1: a RUN_LOG.md line the missing-theory check only suspects is PENDING[adjudication] (exit 0)
+        # under --pending, FAIL[adj-record] without it, in dev and release alike
+        _lgp = os.path.join(tmp, "R", "RUN_LOG.md")
+        _lg0 = open(_lgp, encoding="utf-8").read() if os.path.exists(_lgp) else None
+        open(_lgp, "w", encoding="utf-8").write((_lg0 or "# log\n") + "\n## Checkpoint C (2026-11-15, delegated)\n"
+                                                "- global:G2: [DELEGATED 2026-11-15, operator under hands-off (intake); "
+                                                "reversal: re-approve] keep the definitions, as in the logged decision "
+                                                "to build the missing theory\n")
+        _m1 = {}
+        try:
+            for _md in ("dev", "release"):
+                c_m1 = dict(cfg, mode=_md, involvement="hands-off", involvement_answer="(c) hands-off")
+                with contextlib.redirect_stdout(io.StringIO()) as o_m1:
+                    _m1[_md, "p"] = (build(c_m1, True, pending_ok=True), o_m1.getvalue())
+                _m1[_md, "f"] = B(c_m1)
+        finally:
+            if _lg0 is None:
+                os.remove(_lgp)
+            else:
+                open(_lgp, "w", encoding="utf-8").write(_lg0)
+        checks.append(("DESIGN-MT MT-m1: a missing-theory suspect is held as PENDING[adjudication] adj-record (exit 0) "
+                       "under --pending and fails as FAIL[adj-record] without it, in dev and in release; never "
+                       "FAIL[missing-theory]",
+                       all(_m1[m_, "p"][0] == 0 and "PENDING[adjudication] adj-record: RUN_LOG.md l." in _m1[m_, "p"][1]
+                           and "FAIL[" not in _m1[m_, "p"][1] and _m1[m_, "f"][0] == 1
+                           and "FAIL[adj-record] RUN_LOG.md l." in _m1[m_, "f"][1]
+                           and "FAIL[missing-theory]" not in _m1[m_, "f"][1] for m_ in ("dev", "release"))))
         import stops as _sx
         _cpx = _sx.carried_problems
         try:
@@ -6191,6 +6591,13 @@ def selftest():
         x_fail_old, x_fail_new = f12g(f"{g3r(1)}/pf.json"), f12g(f"{g3r(2)}/pf.json")
         g3begin((1, False))
         x_idx, x_noidx = f12g(f"{g3r(1)}/pf.json", False, g3cfg), f12g(f"{g3r(2)}/pf.json", False, g3cfg)
+        # next batch B1: the index spells the name short (`lemma_2`), the begin in full (`N.lemma_2`): matched by
+        # the last dotted part (make_report had two `_short`s; the second shadowed the name-shortener)
+        open(os.path.join(g3, "Main.lean"), "w").write("| Paper | Lean |\n|---|---|\n| Lemma 2 | `lemma_2` |\n")
+        x_sh_pre, x_sh_post = f12g(f"{g3r(1)}/pf.json", False, g3cfg), f12g(f"{g3r(2)}/pf.json", False, g3cfg)
+        checks.append(("next batch B1: an index cell `lemma_2` and a begin on `N.lemma_2` are one declaration: an F12 "
+                       "Pass at or before the begin is PENDING, a later one passes",
+                       "not after the latest re-approval" in x_sh_pre and not x_sh_post))
         checks.append(("B4 review fix 3: the F12 item names the row's own result exactly (an item on Lemma 22 is no "
                        "repair of Lemma 2); for a re-approved result it comes from a lane run after the latest begin: "
                        "a row naming no result is PENDING; one at or before it is PENDING, a later one passes; after a failed correction (a second "
@@ -6617,9 +7024,10 @@ def selftest():
                        "RUN_RECORD.md's)",
                        RESOLVED_TITLE not in md_ and ALL_STOPS_TITLE not in md_ and SET_ASIDE_TITLE not in md_
                        and "None: no stop was cleared without you." not in md_))
-        checks.append(("approver 2026-10-24: the report has exactly the eleven sections, numbered 1 to 11 (the reader "
-                       "notes end section 1, the notation section 11)",
-                       re.findall(r"(?m)^## (\d+)\. ", md_) == [str(i) for i in range(1, 12)]
+        checks.append(("approver 2026-10-24: the report has exactly the twelve sections, numbered 1 to 12 (the reader "
+                       "notes end section 1, the notation section 11; next batch G1: 12 the K certificate)",
+                       re.findall(r"(?m)^## (\d+)\. ", md_) == [str(i) for i in range(1, 13)]
+                       and f"## 12. {K_TITLE}" in md_ and K_DEFINITION in md_
                        and "## 8. Open questions" in md_ and f"## 9. {DECIDED_TITLE}" in md_
                        and f"## 10. {ROUTES_TITLE}" in md_ and "## 11. Where the Lean names are" in md_))
         import stops as _st
@@ -6835,6 +7243,18 @@ def selftest():
                 "# Run log\n## Open questions\n- integrity failed on round x: archive? (answered 2026-10-19: STOPQZ archive them)\n"
                 "- [DELEGATED 2026-10-19, operator under hands-off (intake); reversal: none] kept y — z\n")
             as_ = all_stops(cfg)
+            # next batch B20 (CR-4): an Open questions entry answered only by an `## Answered` line naming its anchor,
+            # or by a Checkpoint B answer naming its QUESTION row, is not OPEN; an unanswered one still is
+            open(os.path.join(tmp, "R", "RUN_LOG.md"), "w").write(
+                "# Run log\n## Open questions\n- q1: which reading of Lemma 2? ANSQZ\n"
+                "- QUESTION row on Lemma 3, round 2026-01-02-abcdef1: (a) or (b)?\n- q9: still open OPENQZ\n"
+                "## Checkpoint B\n- human answer (2026-01-03; QUESTION row on Lemma 3, round 2026-01-02-abcdef1): \"(b)\"\n"
+                "## Answered\n- answered q1 (2026-01-03, 2026-01-02-abcdef1): \"the first\"\n")
+            as20 = {r_[2][:2]: r_[5] for r_ in all_stops(cfg) if r_[0] == "no stop record"}
+            checks.append(("next batch B20: an open question answered only under `## Answered` (its anchor) or at "
+                           "Checkpoint B (its QUESTION row) is answered in the stops table; another stays OPEN",
+                           as20.get("q1") == "answered (see the stop)" and as20.get("QU") == "answered (see the stop)"
+                           and as20.get("q9") == "OPEN"))
             import integrity as _ig
             _rfc = _ig.record_fix_commits
             _ig.record_fix_commits = lambda *a_: [("f" * 40, "2026-01-02-abcdef1", "2026-10-21",
@@ -7483,6 +7903,7 @@ def selftest():
                 if os.path.exists(os.path.join(tmp, "R", f_)):
                     os.remove(os.path.join(tmp, "R", f_))
         checks += _forgery_checks()
+        checks += _selftest_sw2b()
         checks += _selftest_one_page()
         # C2 audit (fault (b)): the coverage and status parsers read every index row the freeze and the sheet read
         # (scope.INDEX_ROW), the unnumbered `Definition (notation 𝒬(n), tex l.38-39)` row included, and the count says
@@ -7697,6 +8118,25 @@ def _selftest_one_page():
         out.append(("re-review E L4: the results table's rows inside an HTML comment (closed or left open) are not "
                     "read, as project.summary_result_rows drops them",
                     _table_rows_of(cm_) == ({"Lemma 1.2": "**false**"}, ["Lemma 1.2"])))
+        # next batch B3/B16: a hand-written three-column table `| Result | Status in Lean | Note |` is read as the
+        # README reads it; nested parentheses in a label pair it with the record's label
+        md3_ = md.split("\n## Results", 1)[0] + "\n" + "\n".join(
+            ["## Results", "", "| Result | Status in Lean | Note |", "|---|---|---|"]
+            + [f"| {lb_} | {st_.replace('**', '')} | checked |" for lb_, st_ in _table_rows_of(md)[0].items()]) \
+            + "\n\n## " + md.split("\n## Results", 1)[1].split("\n## ", 1)[1]
+        cov3 = [str(x) for x in summary_problems(cfg, md3_, inp, hand_edited=True)]
+        _K3 = collections.namedtuple("_K3", "prefix ident")
+        nst_, nseen_ = _hand_rows("## Results\n\n| Result | Status |\n|---|---|\n| Lemma 2 (b(G,H) bound) | faithful |\n"
+                                  "| Claim Q(78) | faithful |\n", [_K3("result", "Lemma 2"), _K3("result", "Claim Q(78)")])
+        out.append(("next batch B3/B16: the delivery's coverage note reads a hand-written three-column results table "
+                    "(no \"results table has result ... 0 time(s)\"), and labels with nested parentheses pair",
+                    not any("results table has result" in x for x in cov3)
+                    and any("results table has result" in x for x in
+                            [str(y) for y in summary_problems(cfg, md3_, inp)])
+                    and sorted(nseen_) == ["Claim Q(78)", "Lemma 2"]
+                    and project.norm_label("Lemma 2 (b(G,H) bound)") == "Lemma 2"
+                    and project._cut_any_paren("Lemma 2 (b(G,H))") == "Lemma 2"
+                    and project.norm_label("Lemma 3.2 (c)") == "Lemma 3.2 (c)"))
         tbl = _table_rows_of(md)[1]
         out.append(("one page: the results table holds every result once, equal statuses on one row; the goal line "
                     "gives the goal's status; the decisions line counts matters, no decision listed one by one",
@@ -7770,6 +8210,194 @@ def _selftest_one_page():
         REPO, project.REPO = keep_r, keep_pr
         shutil.rmtree(tmp, ignore_errors=True)
     return out
+
+
+def _selftest_sw2b():
+    """[(name, ok)] DESIGN-SW2B X1-X4 (+ REVIEW-DESIGN-SW2B C2-C4, C7): extraction heuristics in front of fact checks
+    that only remove hard stops. Lean is the stand-in _names_stub."""
+    import tempfile, shutil, dependencies
+    global REPO
+    checks = []
+    keep = (REPO, project.REPO, project.run_lean, imported_libraries, _declared_earlier, dependencies.project_decls)
+    g_ = globals()
+    decls = {"SimpleGraph.Subgraph", "SimpleGraph.chromaticNumber", "SimpleGraph.Adj", "Finset.card", "Matrix.det",
+             "Set.toFinset", "MeasureTheory.Measure.restrict", "SimpleGraph.Subgraph.Adj", "Real.sqrt"}
+    nss = {"SimpleGraph", "Finset", "Matrix", "Set", "MeasureTheory", "Paper", "Real"}
+    tmp = tempfile.mkdtemp(prefix="sw2b-")
+    try:
+        g_["imported_libraries"] = lambda cfg: ["Mathlib"]
+        g_["_declared_earlier"] = lambda cfg, n: False
+        dependencies.project_decls = lambda cfg: {"Paper.thm_1_1", "P.thm_1_1"}
+        # X1 (the Mac e2e's blind reading, SWEEP3 repro_mac): dot notation on a capitalised variable is a note
+        text = ("the chromatic number `G.chromaticNumber`, every subgraph `G.Subgraph`, locals `s.card`, `μ.restrict`, "
+                "`G.Adj`, `P.card`, `A.det`, `X.toFinset`, `E.restrict`, `Γ.card`; global `SimpleGraph.Subgraph`, "
+                "`Finset.card`; notation `T.I.`; wrong `Finset.Foo.card_le`, `Paper.lemma_gone`")
+        heads = {"G.Adj", "G.Subgraph", "G.chromaticNumber", "P.card", "A.det", "X.toFinset", "E.restrict"}
+        cfg = {"namespace": "Paper", "lean_files": ["Paper/Main.lean"]}
+        nl = []
+        pr = cited_name_problems(cfg, {"INFORMAL.json": text}, run=_names_stub(decls, nss), notes=nl)
+        cited = lambda xs: sorted(re.search(r"`([^`]+)`", x).group(1) for x in xs)
+        checks.append(("DESIGN-SW2B X1: a cited name whose first component is no global name (`G.Adj`, `P.card`) is a "
+                       "note with its own wording, never a failure line; a wrong global name (`Finset.Foo.card_le`, the "
+                       "trial #10 case) and a wrong project name stay problems",
+                       cited(pr) == ["Finset.Foo.card_le", "Paper.lemma_gone"] and set(cited(nl)) == heads
+                       and all("its first component" in n and "the check cannot tell" in n and "error:" not in n
+                               and not n.startswith("MISSING") and not __import__("stops").FAIL_LINE.search(n)
+                               for n in nl)))
+        pr0 = cited_name_problems(cfg, {"INFORMAL.json": text}, run=_names_stub(decls, nss))
+        checks.append(("DESIGN-SW2B X1 (FLOOR SW2B-M3): without a notes list every undecided name is returned with the "
+                       "problems (--deliver makes each a delivery note): the old count, the head wording",
+                       len(pr0) == 9 and sum("its first component" in p_ for p_ in pr0) == 7))
+        checks.append(("DESIGN-SW2B X1, REVIEW C4: the Lean source tests the root and prints MISSING-HEAD, by this exact "
+                       "line (a mutant of it is seen by the stand-in)",
+                       ROOT_TEST_LINE in LEAN_NAMES_SRC and "let r := n.getRoot" in LEAN_NAMES_SRC
+                       and "MISSING-HEAD x".startswith("MISSING ") is False))
+        nl7 = []
+        pr7 = cited_name_problems(cfg, {"SIGNOFF.json": "Mathlib's G.minDegree and `G.Subgraph`"},
+                                  run=_names_stub(decls, nss), notes=nl7)
+        checks.append(("DESIGN-SW2B X1 (BUILD-SW2B: REVIEW C7 not taken): \"Mathlib's G.minDegree\" (a real blind "
+                       "reading's correct dot notation) is a note too", pr7 == [] and cited(nl7) == ["G.Subgraph", "G.minDegree"]))
+        nl1 = []
+        pr1 = cited_name_problems(cfg, {"SIGNOFF.json": "by `Reals.sqrt_le`, Mathlib's `Turan.bound_le`, Mathlib's "
+                                        "`Gc.card_le`, Mathlib's `G'.deg` and `G.Adj`"}, run=_names_stub(decls, nss), notes=nl1)
+        wr = sorted(re.search(r"`([^`]+)`", x).group(1) for x in nl1 if "does not look like a variable: likely a wrong name" in x)
+        checks.append(("REVIEW-SAFETY-SW2B F1: a root that does not look like a variable (`Reals`, a word; anything but "
+                       "one letter after \"Mathlib's\") is noted \"likely a wrong name\"; `G.Adj`, \"Mathlib's G'.deg\" "
+                       "and \"Mathlib's G.minDegree\" keep the dot-notation wording; all notes, no problem",
+                       pr1 == [] and len(nl1) == 5 and wr == ["Gc.card_le", "Reals.sqrt_le", "Turan.bound_le"]
+                       and all("error:" not in x and not __import__("stops").FAIL_LINE.search(x) for x in nl1)
+                       and all("dot notation on a variable" in x for x in nl7)))
+        hd_ = []
+        checks.append(("DESIGN-SW2B X1: missing_lean_names puts MISSING-HEAD names into `heads` only when asked",
+                       missing_lean_names(cfg, ["G.Adj", "Finset.Foo.x"], run=_names_stub(decls, nss), heads=hd_)
+                       == (["Finset.Foo.x"], None) and hd_ == ["G.Adj"]
+                       and missing_lean_names(cfg, ["G.Adj"], run=_names_stub(decls, nss)) == (["G.Adj"], None)))
+        # X2: the dead-citation check before `File.lean:N`
+        REPO = project.REPO = tmp
+        os.makedirs(os.path.join(tmp, "P"))
+        open(os.path.join(tmp, "P", "Main.lean"), "w").write(
+            "theorem thm_1_1 : True := trivial\n-- x\n-- y\n-- was lemma_4_2\n"
+            "example : True := by have := G.Adj; have := SimpleGraph.Subgraph.Adj; trivial -- Real.sqrtt\n"
+            "-- uses H.Adj\n/-- by Reals.sqrt_le\n  and K.le -/\n")
+        c2 = {"lean_files": ["P/Main.lean"], "rounds_dir": "R", "namespace": "P", "source_pdf": ""}
+
+        def rp(cell, **kw):
+            _X2_CACHE.clear()
+            runs = []
+            project.run_lean = _names_stub(decls, nss, runs=runs, **kw)
+            return rendering_problems(c2, [["1", cell, "x"]], [], []), runs
+        dead = lambda ps: [p_ for p_ in ps if "declared in no project file" in p_]
+        a_, _ = rp("the step `G.Adj` at Main.lean:5 uses `SimpleGraph.Subgraph.Adj` at Main.lean:5")
+        b_, _ = rp("the step `G.Adj` at Main.lean:1")
+        c_, _ = rp("uses `Real.sqrtt` at Main.lean:5")
+        d_, _ = rp("the step `G.Adj` at Main.lean:5 uses `Real.sqrtt` at Main.lean:5", fail=True)
+        d2_, _ = rp("the step `G.Adj` at Main.lean:5", rc=1)
+        e_, er_ = rp("`P.lemma_4_2` at Main.lean:5 and `lemma_4_2` at Main.lean:4")
+        f_, fr_ = rp("`Finset.foo` at Main.lean:5")
+        checks.append(("DESIGN-SW2B X2 (a): `G.Adj` (no global first component) and `SimpleGraph.Subgraph.Adj` (a library "
+                       "name) at the line that shows them: no problem", a_ == []))
+        checks.append(("DESIGN-SW2B X2 (b): `G.Adj` cited at a line that does not show it: a NOTE (no dead-citation "
+                       "phrase, so no record-cite), not a problem",
+                       len(b_) == 1 and b_[0].startswith("NOTE SKIPPED.md row 1: `G.Adj` is cited at Main.lean:1")
+                       and X2_NOTE_MARK in b_[0] and not any(x in b_[0] for x in DEAD_CITATION)))
+        g2_, _ = rp("`H.Adj` at Main.lean:6, `Reals.sqrt_le` at Main.lean:7, `K.le` at Main.lean:8")
+        checks.append(("REVIEW-SAFETY-SW2B F2: a no-global-root name only in a comment at the line (`--`, a `/-- -/` doc "
+                       "comment) does not pass silently: a NOTE each (variable wording for `H.Adj`, `K.le`; \"likely a "
+                       "wrong name\" for `Reals.sqrt_le`), never a problem",
+                       len(g2_) == 3 and all(p_.startswith("NOTE SKIPPED.md row 1: `") and X2_NOTE_MARK in p_ for p_ in g2_)
+                       and sum("likely a wrong name" in p_ for p_ in g2_) == 1 and "`Reals` does not look like" in g2_[1]
+                       and not any(x in p_ for p_ in g2_ for x in DEAD_CITATION)))
+        lc_ = lean_code_only('a -- G.x\n/- b /- G.y -/ G.z -/ c\n/-- G.w -/ d\ns := "-- k" G.v\n')
+        checks.append(("REVIEW-SAFETY-SW2B F2: lean_code_only blanks `--` and nested `/- -/` comments, keeps line numbers "
+                       "and string literals", lc_.count("\n") == 4 and not any(x in lc_ for x in ("G.x", "G.y", "G.z", "G.w"))
+                       and '"-- k" G.v' in lc_ and "c\n" in lc_ and " d\n" in lc_))
+        checks.append(("DESIGN-SW2B X2 (c), REVIEW C2: a library name Lean does not know stays dead even when a comment "
+                       "at the line shows it", len(c_) == 1 and dead(c_) == c_ and "`Real.sqrtt`" in c_[0]))
+        checks.append(("DESIGN-SW2B X2 (d) (FLOOR SW2B-M7): Lean raising, or failing, keeps today's dead citation for "
+                       "every name", len(d_) == 2 and dead(d_) == d_ and len(d2_) == 1 and dead(d2_) == d2_))
+        checks.append(("DESIGN-SW2B X2 (e) (FLOOR SW2B-M6): a project-shaped name (`P.lemma_4_2`, `lemma_4_2` beside a "
+                       "comment \"was lemma_4_2\") stays dead and asks Lean nothing",
+                       len(e_) == 2 and dead(e_) == e_ and er_ == []))
+        checks.append(("DESIGN-SW2B X2 (f): `Finset.foo` passes through the nine namespaces, Lean not asked",
+                       f_ == [] and fr_ == []))
+        hd8 = []
+        checks.append(("DESIGN-SW2B X2 (FLOOR SW2B-M8): earlier=False keeps a name an earlier commit declared",
+                       (g_.__setitem__("_declared_earlier", lambda cfg_, n: True),
+                        missing_lean_names(c2, ["Real.gone", "G.x"], run=_names_stub(decls, nss), heads=hd8,
+                                           earlier=False))[1] == (["Real.gone"], None) and hd8 == ["G.x"]
+                       and missing_lean_names(c2, ["Real.gone"], run=_names_stub(decls, nss)) == ([], None)))
+        g_["_declared_earlier"] = lambda cfg_, n: True
+        c8_, _ = rp("uses `Real.sqrtt` at Main.lean:5")
+        g_["_declared_earlier"] = lambda cfg_, n: False
+        checks.append(("DESIGN-SW2B X2 (FLOOR SW2B-M8): a cited name some earlier commit declared (renamed since) is "
+                       "still dead in a record citation", len(c8_) == 1 and dead(c8_) == c8_))
+        # X3: index accounting
+        idx = [["Theorem A", "not formalized"], ["Lemma 2.3 (b)", "not formalized"], ["Theorem 1.1'", "not formalized"],
+               ["Main Theorem", "not formalized"], ["Lemma 4", "not formalized"], ["Theorem 3.1 (i)", "not formalized"],
+               ["Lemma A.2", "not formalized"]]
+        sk = [["1", "Theorem A: needs the theory of X", "r"], ["2", "Lemma 2.3(b)", "r"], ["3", "Theorem 1.1'", "r"],
+              ["4", "Main Theorem", "r"], ["5", "Lemma 4", "r"], ["6", "Theorem 3.1(i)", "r"],
+              ["7", "Lemma A.2 (appendix)", "r"]]
+        checks.append(("DESIGN-SW2B X3: lettered, appendix, primed and part labels a SKIPPED \"what\" cell names are "
+                       "explained", index_accounting(idx, sk, set(), set())[1:] == ([], [])))
+        bound = [("Theorem A", "Theorem A: needs the theory of X", 1), ("Lemma 2.3 (b)", "Lemma 2.3(b)", 1),
+                 ("Theorem 1.1'", "Theorem 1.1'", 1), ("Main Theorem", "Main Theorem", 1),
+                 ("Theorem 3.1 (i)", "Theorem 3.1(i)", 1), ("Lemma A.2", "Lemma A.2 (appendix)", 1),
+                 ("Theorem A", "Theorem A.2", 0), ("Theorem 1.1", "Theorem 1.1'", 0), ("Lemma 1.3", "Lemma 1.31", 0),
+                 ("Lemma 1.3", "Lemma 1.3.1", 0), ("Theorem A", "Theorem AB", 0), ("Lemma 2.3 (b)", "Lemma 2.3 (bc)", 0),
+                 ("Theorem 1.1'", "Theorem 1.1''", 0), ("Theorem A", "Theorem A 2", 0), ("Lemma 1.3", "Lemma 1.3(b)", 0),
+                 ("Lemma 1.3", "Lemma 1.3 (b)", 0), ("Main Theorem", "Main Theorems", 0),
+                 ("Main Theorem", "Main Theorem 2", 0), ("Theorem", "Theorem 3", 0),
+                 ("Main Theorem", "Lemma 5.2, a step of the main theorem", 0),
+                 ("Theorem", "Lemma 5.2: the theorem is false here", 0), ("Theorem", "Lemma 5.2 needs the theorem", 0),
+                 ("Main Theorem", "**Main Theorem**: the bound", 1), ("Theorem A", "**Theorem A**", 1),
+                 ("Proposition A.5", "Proposition A.5.", 1), ("Lemma 4", "Lemma 4 (c)", 0),
+                 ("Theorem 1.1", "Theorem 1.1′", 0),
+                 # REVIEW-SAFETY-SW2B F3: only the cell's first label (result_status.primary_subject); the identifier
+                 # letter is case-sensitive
+                 ("Theorem A", "Corollary 5.1, which follows from Theorem A", 0),
+                 ("Theorem A", "Lemma 4.1 (Theorem A of [Kim])", 0), ("Theorem A", "uses the theorem a priori bounds", 0),
+                 ("Theorem A", "the theorem a priori", 0), ("Theorem A", "theorem a priori bounds", 0),
+                 ("Theorem I", "theorem i overview", 0), ("Main Theorem", "main theorem of [12], used in Lemma 3", 0),
+                 ("Theorem I", "Part I: theorem i overview", 0), ("Theorem", "Theorem AB of the appendix", 0),
+                 ("Theorem A", "Proof of Theorem A", 1), ("Theorem A", "theorem A: needs X", 1),
+                 ("Main Theorem", "main theorem: the bound", 1), ("Lemma A.2", "`P.a`, Lemma A.2", 0)]
+        badb = [(l_, w_) for l_, w_, want in bound if _label_in(l_, w_) != bool(want)]
+        checks.append((f"DESIGN-SW2B X3, REVIEW C3: the {len(bound)} boundary cases of the exact-label match (a label with "
+                       f"no identifier only at the start of the cell)" + (f" [wrong: {badb}]" if badb else ""),
+                       len(bound) == 40 and badb == []))
+        checks.append(("DESIGN-SW2B X3 (FLOOR SW2B-M12): a formalized `Theorem A` with a SKIPPED \"Theorem A\" row gets "
+                       "no new \"formalized AND skipped\" record fault; a numbered one still does",
+                       index_accounting([["Theorem A", "`P.a`"]], [["1", "Theorem A", "r"]], {"P.a"}, set())[2] == []
+                       and len(index_accounting([["Lemma 4", "`P.a`"]], [["1", "Lemma 4", "r"]], {"P.a"}, set())[2]) == 1))
+        checks.append(("DESIGN-SW2B X3 (SW2B-M14): a label only in a row's reason column explains nothing",
+                       index_accounting([["Theorem A", "not formalized"]], [["1", "Lemma 9.9", "Theorem A"]], set(),
+                                        set())[1] == ["Theorem A"]))
+        # X4: a date is not a row number
+        rd4 = os.path.join(tmp, "R4")
+        os.makedirs(rd4)
+
+        def rows4(log, vac=""):
+            open(os.path.join(rd4, "RUN_LOG.md"), "w").write("# Run log\n## Decisions\n" + log + "\n")
+            open(os.path.join(rd4, "VACUOUS.md"), "w").write(
+                "| # | statement | why |\n|---|---|---|\n| 4 | P.a | x |\n" + vac)
+            return [str(p_) for p_ in row_reference_problems(rd4)]
+        checks.append(("DESIGN-SW2B X4: \"VACUOUS row 4, 2026-11-15\" and \"row 4, 2026: keep\" cite row 4 only, in "
+                       "RUN_LOG.md and in a record",
+                       rows4("- decided VACUOUS row 4, 2026-11-15: keep") == []
+                       and rows4("- decided VACUOUS row 4, 2026: keep") == []
+                       and rows4("- x", "| 5 | P.b | as VACUOUS row 4, 2026-11-15 |\n") == []))
+        r45, r911, r1234 = rows4("- VACUOUS rows 4, 5"), rows4("- SKIPPED rows 9-11"), rows4("- VACUOUS row 1234")
+        checks.append(("DESIGN-SW2B X4 (FLOOR SW2B-M17, M15, M16): every other number is still checked: \"rows 4, 5\" "
+                       "(5 missing), \"rows 9-11\" (9), \"row 1234\" (the first element)",
+                       len(r45) == 1 and "VACUOUS.md row 5," in r45[0] and len(r911) == 1 and "SKIPPED.md row 9," in r911[0]
+                       and len(r1234) == 1 and "VACUOUS.md row 1234," in r1234[0]))
+    finally:
+        REPO, project.REPO, project.run_lean, g_["imported_libraries"], g_["_declared_earlier"], \
+            dependencies.project_decls = keep
+        _X2_CACHE.clear()
+        shutil.rmtree(tmp, ignore_errors=True)
+    return checks
 
 
 def _forgery_checks():
@@ -7850,6 +8478,42 @@ def _forgery_checks():
                        ok_ref and {(x.code, str(x).split(" cites ")[1].split(",")[0]) for x in refs}
                        == {("report", "VACUOUS.md row 3"), ("report", "PAPER_DEFECTS.md row 1"),
                            ("record-cite", "DEVIATIONS.md row 4")}))
+        # DESIGN-SW2 C6: a row the human cites in their verbatim words is not the run's citation; the operator's is
+        open(lp, "w").write("# Run log\n## Checkpoint B\n- human answer (2026-01-02): \"drop VACUOUS row 9\"\n"
+                            "## Answered\n- answered C1 (2026-01-03, R): drop VACUOUS row 8 too\n"
+                            "## Stops\n- stop S1 (2026-01-04, the human's answer, verbatim: \"see SKIPPED row 7\")\n")
+        in_log = lambda: [str(x).split(" cites ")[1].split(",")[0] for x in row_reference_problems(rd)
+                          if str(x).startswith("! RUN_LOG.md")]
+        ok_h = in_log() == []
+        open(lp, "a").write("## Rounds\n- kept it (VACUOUS.md row 9)\n")
+        refs_o = in_log()
+        checks.append(("DESIGN-SW2 C6: a missing row cited inside the human's verbatim words (the three quote forms) "
+                       "is no problem; the same citation on an operator line is",
+                       ok_h and refs_o == ["VACUOUS.md row 9"]))
+        open(lp, "w").write("# Run log\n- kept it (VACUOUS.md rows 2 and 3; PAPER_DEFECTS.md row 1)\n")
+        # DESIGN-SW2 C5 (review R1): only a ¬X hit caught by `X : Prop` alone, cited by its own index row, is exempt
+        import tempfile as _tf5
+        d5 = _tf5.mkdtemp()
+        try:
+            def c5(lean, index):
+                open(os.path.join(d5, "A.lean"), "w").write(lean)
+                open(os.path.join(d5, "Main.lean"), "w").write("/-!\n| Paper | Lean |\n|---|---|\n" + index + "-/\n")
+                c_ = {"lean_files": ["A.lean", "Main.lean"], "index_file": "Main.lean"}
+                return ([n for n, *_ in refutation_exemptions(c_, d5)], [str(x) for x in refutation_name_problems(c_, d5)])
+            conv = "def ConverseHolds : Prop := ∀ n : Nat, n = n\ntheorem example_2_3 : ¬ ConverseHolds := sorry\n"
+            e1, p1 = c5(conv, "| Example 2.3 | `N.example_2_3` |\n")
+            e2, p2 = c5(conv, "| Example 2.3 | `N.other` |\n")
+            e3, p3 = c5("def thm_4_1_statement : Prop := True\ntheorem foo : ¬ thm_4_1_statement := sorry\n",
+                        "| Theorem 4.1 | `N.foo` |\n")
+            e4, p4 = c5("def P : Prop := True\ntheorem thm_4_1_false : ¬ P := sorry\n", "| Theorem 4.1 | `N.thm_4_1_false` |\n")
+        finally:
+            shutil.rmtree(d5, ignore_errors=True)
+        checks.append(("DESIGN-SW2 C5: a ¬X declaration (X a project Prop) cited by its own index row is no misnamed "
+                       "refutation (exempt, for the correspondence lane); uncited it still is (with the new hint); a "
+                       "`_statement` target or a refutation-like name stays hard even when cited",
+                       e1 == ["example_2_3"] and p1 == [] and e2 == [] and len(p2) == 1
+                       and "the correspondence lane judges it" in p2[0] and e3 == [] and len(p3) == 1
+                       and e4 == [] and len(p4) == 1))
         # H3(a): a proved refutation of a printed statement needs its `false` row
         open(os.path.join(tmp, "P", "Src.lean"), "w").write(
             "/-- printed (b) -/\ndef lemma_7_4_b_statement : Prop := ∀ n : ℕ, n = n + 0\n"

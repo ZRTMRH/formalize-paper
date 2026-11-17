@@ -156,9 +156,15 @@ def same_name(key, name, ns):
 # that `H` is in `R`'s assumption list (the walk); whether the paper really invokes the result without
 # proving it, and whether `H` says no more than the quoted invocation, is the paper-faithfulness lane's
 # judgement (F13), recorded in the hypothesis's `## Hypotheses` row like any other hypothesis. A line
-# that fails a check is cleared by a later canonical line (a logged line is never reworded in place, E2E-FIX2 L2; a
-# reworded one is still read, so an older run is not refused)
-# naming the same result or hypothesis (the latest line per hypothesis, or per result for `build`, counts).
+# not in the canonical form is cleared by a later canonical line naming one of its backticked results or hypotheses
+# (a logged line is never reworded in place, E2E-FIX2 L2; a reworded one is still read, so an older run is not
+# refused; the latest line per hypothesis, or per result for `build`, counts). Otherwise the check only SUSPECTS it
+# from its words (DESIGN-MT): whether it records a missing-theory decision at all is a meaning question, so it is
+# no FAIL but an adj-record finding (PENDING[adjudication]) the next adjudicator rules once in ADOPTED.md's notes,
+#   - MT RULED <line id> | not a missing-theory decision: <why>
+#   - MT RULED <line id> | a missing-theory decision for `<Lean name>`: <why>
+# bound to the line's text (mt_line_id). Ruled "not", it is cleared; ruled a decision for `N`, it is the
+# operator's FAIL[missing-theory] until a canonical line for `N` is logged after it (which makes the F13 item).
 MT_CODE = "missing-theory"
 MT_TRIGGER = re.compile(r"missing[- ](?:library[- ])?theory", re.I)
 _LEAN_ID = r"[A-Za-z_][\w'.₀-₉]*"
@@ -178,6 +184,185 @@ MT_FORM = ("[DELEGATED <date>, operator under <level> (intake); reversal: <cost>
            "\"<the paper's passage invoking the result without proof, in plain text: formulas in Unicode>\"  (or: "
            "missing theory: build <what> for `<R>` "
            "— searched: …; estimate: …)")
+# the adjudicator's ruling on a line the missing-theory check only suspects (DESIGN-MT; as QUOTE RULED)
+MT_RULED_RE = re.compile(r"^\s*(?:[-*]\s*)?MT RULED\s+([0-9a-f]{12})\s*\|\s*"
+                         r"(not a missing-theory decision\s*:\s*\S.*"
+                         r"|a missing-theory decision for\s+`(" + _LEAN_ID + r")`\s*:\s*\S.*)$", re.M)
+MT_RULED_LOOSE_RE = re.compile(r"^\s*(?:[-*]\s*)?MT RULED\b.*$", re.M)
+MT_SUSPECT_HEAD = "may record a missing-theory decision outside the canonical form"
+
+
+def mt_line_id(line):
+    """12 hex of sha256: the binding of an MT RULED ruling. Of a decision line that OPENS with its [DELEGATED] tag
+    (decisions.LEAVE_PREFIX_RE: `- [DELEGATED …`, `- <anchor>: [DELEGATED …`, `- answered <anchor> (…): [DELEGATED
+    …`), its anchor (none for a plain line) and its text from the tag on, so a Checkpoint C line and its
+    word-for-word `## Answered` copy share one ruling (review C2); of any other line (a human line that quotes a tag
+    mid-text included, safety review F4), the whole line. Whitespace collapsed; any other change needs its own ruling."""
+    import decisions, hashlib
+    s = " ".join(str(line).split())
+    p = decisions.LEAVE_PREFIX_RE.match(s)
+    if p:
+        a = decisions.DELEGATED_PRE_RE.match(s)
+        s = (a.group(1) if a else "") + "\n" + s[p.end():]
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
+
+
+_MT_RULINGS = {}
+MT_DISSENT_RE = re.compile(r"^\s*[-*]\s+MT DISSENT\s+([0-9a-f]{12})\s*:\s*\S.*$", re.M)
+
+
+def _mt_ruled(text, rname, commit=None, prompt=None):
+    """{line id: (round, "not" | "decision", name or None, commit)} of one ADOPTED.md text (a decision beats a "not"
+    in one file); with `prompt` (the adjudicator prompt's text) only the ids it lists (safety review F1)."""
+    out = {}
+    for m in MT_RULED_RE.finditer(text or ""):
+        if prompt is not None and f"MT RULED {m.group(1)}" not in prompt:
+            continue        # an id this adjudicator was never shown is no ruling of its
+        kind = "decision" if m.group(3) else "not"
+        if kind == "not" and out.get(m.group(1), (None, None))[1] == "decision":
+            continue
+        out[m.group(1)] = (rname, kind, m.group(3), commit)
+    return out
+
+
+def _round_prompt(repo, rdir, name):
+    """The text of a round's adjudicator prompt prompts/<name> (written once by `prompt.py 4 --write`): as
+    committed when tracked, else on disk; None when there is none."""
+    import lane_auth
+    pp = os.path.join(rdir, "prompts", name)
+    try:
+        rel = os.path.relpath(pp, repo)
+        if lane_auth.git(repo, "ls-files", "--", rel):
+            return lane_auth.git(repo, "show", f"HEAD:{rel}")
+    except lane_auth.AuthError:
+        pass
+    try:
+        return open(pp, encoding="utf-8").read()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _revote_lanes_in(repo, commit, rrel):
+    """Does `commit`'s tree hold re-vote lane files of the round at `rrel` (<round>/revote/*.json)? A re-vote
+    adjudication with none adjudicated no re-vote (review N1: `--commit-adjudication --revotes` alone is no ruling)."""
+    import lane_auth
+    try:
+        names = lane_auth.git(repo, "ls-tree", "-r", "--name-only", commit, "--", f"{rrel}/revote/")
+    except lane_auth.AuthError:
+        return False
+    return any(n.endswith(".json") and "/.lane-" not in n for n in names.splitlines())
+
+
+def mt_ruling_history(cfg, rd=None, round_name=None):
+    """{line id: [(round, "not" | "decision", name or None, commit or None), …]} in round order (set-aside rounds
+    aside). A round's ruling is read from its ADOPTED.md AS OF its first `adjudicate R` commit (then its first
+    `adjudicate R revotes` commit, which may re-rule only when that commit holds the round's re-vote lane files,
+    review N1), never from a later re-commit (safety review F1), and counts
+    only for an id its adjudicator prompt (prompts/adjudicator.txt, adjudicator-revotes.txt) lists. `round_name`'s
+    ADOPTED.md counts as it is on disk (the adjudication about to be committed), against its prompt on disk. An MT
+    RULED line anywhere else is never read. Any git error: {} (unruled, i.e. pending, never a hard fault). Memoized
+    per process on HEAD and the files' state."""
+    import lane_auth
+    rd = os.path.abspath(rd or rounds_dir(cfg))
+    try:
+        dirs = [p for p in glob.glob(os.path.join(rd, "*")) if project.is_round(p) and not project.is_abandoned(p)]
+        repo = str(lane_auth.audit_repo(lane_auth.Path(rd)))
+        head = lane_auth.git(repo, "rev-parse", "HEAD")
+    except (lane_auth.AuthError, OSError):
+        return {}
+    fs = [os.path.join(p, f) for p in sorted(dirs) for f in ("ADOPTED.md", "prompts/adjudicator.txt",
+                                                             "prompts/adjudicator-revotes.txt")]
+    key = (rd, round_name, head, tuple((f, os.stat(f).st_mtime_ns, os.stat(f).st_size) for f in fs if os.path.isfile(f)))
+    if key in _MT_RULINGS:
+        return _MT_RULINGS[key]
+    out = {}
+    try:
+        for p in project.order_rounds(dirs, project.REPO):
+            ap, rname = os.path.join(p, "ADOPTED.md"), os.path.basename(p)
+            got = []
+            if rname == round_name:
+                if os.path.isfile(ap):
+                    text = open(ap, encoding="utf-8").read()
+                    pr = "\n".join(x for x in (_round_prompt(repo, p, "adjudicator.txt"),
+                                               _round_prompt(repo, p, "adjudicator-revotes.txt")) if x)
+                    got.append(_mt_ruled(text, rname, None, pr))
+            else:
+                rel = os.path.relpath(ap, repo)
+                log = lane_auth.git(repo, "log", "--reverse", "--format=%H %s", "--", rel)
+                for subj, pname in ((f"adjudicate {rname}", "adjudicator.txt"),
+                                    (f"adjudicate {rname} revotes", "adjudicator-revotes.txt")):
+                    c = next((l_.split(" ", 1)[0] for l_ in log.splitlines() if l_.split(" ", 1)[-1] == subj), None)
+                    if c and subj.endswith(" revotes") and not _revote_lanes_in(repo, c, os.path.relpath(p, repo)):
+                        c = None    # review N1: a re-vote adjudication rules only with the re-vote lanes it adjudicated
+                    if c:
+                        got.append(_mt_ruled(lane_auth.git(repo, "show", f"{c}:{rel}"), rname, c,
+                                             _round_prompt(repo, p, pname) or ""))
+            for g in got:
+                for i_, r_ in g.items():
+                    h_ = out.setdefault(i_, [])
+                    if h_ and h_[-1][0] == rname:
+                        h_[-1] = r_         # the re-vote adjudication re-rules within its round
+                    else:
+                        h_.append(r_)
+    except (lane_auth.AuthError, OSError, UnicodeDecodeError):
+        return {}
+    _MT_RULINGS[key] = out
+    return out
+
+
+def mt_rulings(cfg, rd=None, round_name=None):
+    """{line id: (round, "not" | "decision", name or None)}: the latest ruling of each id (mt_ruling_history)."""
+    return {i_: h_[-1][:3] for i_, h_ in mt_ruling_history(cfg, rd, round_name).items() if h_}
+
+
+def _mt_dissents(cfg, log, rd, hist):
+    """{line id: why} of the operator's `- MT DISSENT <id>: <why>` lines that stand AFTER the id's only "decision"
+    ruling (absent from RUN_LOG.md as of that ruling's commit; review C-F2). A second "decision" ruling of the same
+    id, or a ruling of the round being committed, admits no dissent."""
+    import lane_auth
+    out = {}
+    for m in MT_DISSENT_RE.finditer(log or ""):
+        h_ = hist.get(m.group(1)) or []
+        if not h_ or h_[-1][1] != "decision" or sum(1 for x in h_ if x[1] == "decision") != 1 or not h_[-1][3]:
+            continue
+        try:
+            repo = str(lane_auth.audit_repo(lane_auth.Path(rd)))
+            then = lane_auth.git(repo, "show", f"{h_[-1][3]}:{os.path.relpath(os.path.join(rd, 'RUN_LOG.md'), repo)}")
+        except lane_auth.AuthError:
+            then = ""
+        if m.group(0).strip() not in {l_.strip() for l_ in then.splitlines()}:
+            out[m.group(1)] = m.group(0).split(":", 1)[1].strip()
+    return out
+
+
+def mt_ruling_problems(cfg, rd=None, round_name=None):
+    """[Finding adj-record] of `round_name`'s ADOPTED.md only (never retroactive; None: []): an MT RULED line not
+    in either form, and a "decision for `N`" whose `N` the project does not declare (the operator's canonical
+    line must name a real declaration, so the follow-up stays curable)."""
+    if not round_name:
+        return []
+    ap = os.path.join(rd or rounds_dir(cfg), round_name, "ADOPTED.md")
+    try:
+        text = open(ap, encoding="utf-8").read()
+    except (OSError, UnicodeDecodeError):
+        return []
+    out = []
+    good = {m.start() for m in MT_RULED_RE.finditer(text)}
+    for m in MT_RULED_LOOSE_RE.finditer(text):
+        if m.start() not in good:
+            out.append(f"{round_name}/ADOPTED.md: {m.group(0).strip()!r} is not an MT RULED ruling: write `- MT RULED "
+                       f"<line id> | not a missing-theory decision: <why>` or `- MT RULED <line id> | a missing-theory "
+                       f"decision for `<Lean name>`: <why>` (the id as the PENDING line gives it)")
+    named = [m.group(3) for m in MT_RULED_RE.finditer(text) if m.group(3)]
+    if named:
+        import make_report
+        declared = make_report.declared_names(cfg.get("lean_files") or [])
+        ns = cfg.get("namespace", "")
+        for n in named:
+            if not ({n, f"{ns}.{n}" if ns else n} & declared):
+                out.append(f"{round_name}/ADOPTED.md: MT RULED names `{n}`, which this project does not declare: name "
+                           f"the Lean result (or hypothesis) the line decides missing theory for, as declared")
+    return [project.Finding("! " + t, "adj-record") for t in out]
 
 
 def _mt_attempt(rest):
@@ -251,35 +436,135 @@ def _root_of(doc, r, ns):
     return None
 
 
-def missing_theory(cfg, log=None, doc=None, rd=None):
-    """{"assume": {H: entry}, "build": {R: entry}, "skip": {R: entry}, "problems": [text], "goal": [text]} from
+def _mt_form_attempt(line):
+    """Does the line try the canonical form: `missing theory:` right after its opening [DELEGATED] tag, or the
+    human form's head `- missing theory (human <date>):`?"""
+    import decisions
+    p = decisions.LEAVE_PREFIX_RE.match(line)
+    if p:
+        t = decisions.DELEGATED_TAG_RE.match(line, p.end())
+        return bool(t and re.match(r"\s*missing[- ]theory\s*:", line[t.end():], re.I))
+    return bool(MT_HUMAN_RE.match(line))
+
+
+# DESIGN-SW2 1.5 (C7, CH1's loose test, review R8's anchored backtick form): the body after a canonical-form head reads
+# as a decision (assume / build / do not formalize / skip, or "`X` for `R`" opening it). Only such a line keeps the hard
+# template FAIL (review C-F1: a sloppy real decision must not lose its searched/estimate obligations); any other body
+# under the head ("none needed for `R`") is only suspected from its words: the DESIGN-MT route (MT RULED).
+MT_DECISION_LIKE = re.compile(r"\s*(?:assum\w*|build\w*|do\s+not\s+formali[sz]e|skip\w*)\b|\s*`[^`]+`\s+for\s+`", re.I)
+
+
+def _mt_head_end(line):
+    """(end of the canonical-form head of `line`, whether it is the lower-case `missing theory:`), or (None, None)."""
+    import decisions
+    p = decisions.LEAVE_PREFIX_RE.match(line)
+    if p:
+        t = decisions.DELEGATED_TAG_RE.match(line, p.end())
+        h = re.match(r"\s*missing[- ]theory\s*:", line[t.end():], re.I) if t else None
+        return (t.end() + h.end(), "missing theory:" in h.group(0)) if h else (None, None)
+    h = MT_HUMAN_RE.match(line)
+    return (h.end(), True) if h else (None, None)
+
+
+def _mt_decision_like(line):
+    """Does the text after the canonical-form head (either case) read as a decision (MT_DECISION_LIKE)?"""
+    e, _low = _mt_head_end(line)
+    return e is not None and bool(MT_DECISION_LIKE.match(line, e))
+
+
+def _mt_decision_problem(cfg, lines, i, r, doc, mt_names, ns):
+    """Why the line lines[i], ruled a missing-theory decision for `N` (r), is not cured, or None. Cured by a
+    canonical line logged after it naming N (U2 §7); with the walk (safety review F3): when N is a hypothesis the
+    Lean assumes, only an `assume` line for N (it makes the F13 item); a `build` line for the result N only while
+    no unclassified hypothesis of N is left in the Lean."""
+    nm = _short(r[2])
+    later = [m2 for _k2, m2, _l2, _b2 in lines[i + 1:]
+             if m2 is not None and nm in {_short(m2.group("result")), _short(m2.group("hyp"))}]
+    want = f"Log the canonical line for `{r[2]}` after it"
+    if not later:
+        return want
+    if not doc:
+        return None
+    asm = assumed(doc)
+    if any(same_name(r[2], n, ns) or same_name(n, r[2], ns) for n in asm):
+        if not any(m2.group("assume") and nm == _short(m2.group("hyp")) for m2 in later):
+            return (f"`{r[2]}` is a hypothesis the Lean assumes (the walk): only a canonical `assume` line for it cures "
+                    f"this ({want})")
+        return None
+    root = _root_of(doc, r[2], ns)
+    if root and any(m2.group("build") for m2 in later) and not any(m2.group("assume") for m2 in later):
+        left = sorted(n for n, uses in asm.items() if any(u == root for u, _e in uses)
+                      and classify(cfg, n, mt_names).startswith("unclassified"))
+        if left:
+            return (f"`build … for `{r[2]}`` while {', '.join(f'`{h}`' for h in left)} is still an unclassified "
+                    f"hypothesis of it in the Lean (the walk): prove it and remove the binder, or log the `assume` "
+                    f"line ({want})")
+    return None
+
+
+def missing_theory(cfg, log=None, doc=None, rd=None, round_name=None):
+    """{"assume": {H: entry}, "build": {R: entry}, "skip": {R: entry}, "problems": [text], "goal": [text],
+    "form": [(line id, line, line number)], "ruled": {line id: ruling}} from
     RUN_LOG.md (on disk, or `log`). An entry is {"result", "hyp" or "what", "searched", "estimate", "quote",
     "by", "line", "kind", "bound"}: the latest canonical line per hypothesis (per result for `build` and `do
     not formalize`; either supersedes an earlier `assume` line for the same result, and an `assume` or `build`
-    line an earlier `do not formalize`). `problems` (FAIL[missing-theory] in the report check): a line that
-    tries the form and misses it, unless a later canonical line names its result or hypothesis; a delegated
+    line an earlier `do not formalize`). `form` (DESIGN-MT): a line the check suspects that is not in the
+    canonical form, that no later canonical line naming its result or hypothesis cures, and that no adjudicator
+    ruled (mt_rulings, `round_name` as there): the next adjudicator's to rule, never a problem. `problems`
+    (FAIL[missing-theory] in the report check): such a line ruled a missing-theory decision for `N` with no
+    canonical line for `N` after it; a delegated
     line under `involved` or a human one under `hands-off`; a human line with no committed human answer
     naming the result on its date (make_report.missing_theory_answers); `do not formalize` decided by the
     operator; and, of each latest line, a configured library not named as searched, a quote missing or too
     short, `H` not in `R`'s assumption list, `H` the walk flags as restating a result the project states or as
     a result's own conclusion, a `build` line while the hypothesis it replaces is still a binder of `R` (when
     the walk is there: without it Phase 0 is RED[dependencies] anyway). `goal` (FAIL[unproved-goal], stop 1):
-    `H` that is a goal result's conclusion or restates a goal result -- assuming it proves nothing."""
+    `H` that is a goal result's conclusion -- assuming it proves nothing (one that restates a goal result is a
+    `problems` entry: use that result; DESIGN-SW2 1.8)."""
     log = _mt_log(cfg, log, rd)
     lvl = project.involvement(cfg)
     ns = cfg.get("namespace", "")
     lines = missing_theory_lines(log)
-    out = {"assume": {}, "build": {}, "skip": {}, "problems": [], "goal": []}
+    out = {"assume": {}, "build": {}, "skip": {}, "problems": [], "goal": [], "form": [], "ruled": {}, "dissent": {}}
     same_r = lambda x, y: _short(x) == _short(y)
+    hist, dissents, decided, nums = None, {}, [], {}
+    for n_, l_ in enumerate(log.splitlines(), 1):
+        nums.setdefault(l_.strip(), []).append(n_)
     for i, (kind, m, line, by) in enumerate(lines):
+        n_ = nums[line].pop(0) if nums.get(line) else 0
         if m is None:
             names = _names_in_line(line)
             later = any(m2 is not None and (names & {_short(m2.group("result")), _short(m2.group("hyp"))} - {""})
                         for _k2, m2, _l2, _b2 in lines[i + 1:])
-            if not later:
+            if later:
+                continue
+            if names and _mt_form_attempt(line) and _mt_decision_like(line):
+                # review C-F1: a line that tries the canonical form (`missing theory: …`), reads as a decision and names
+                # its result keeps the template check hard; a corrected line naming it, logged after it, cures it
+                low = _mt_head_end(line)[1]
                 out["problems"].append(
                     f"RUN_LOG.md: a missing-theory decision not in the canonical form (U2 §7): {line[:110]!r}. Log a "
-                    f"canonical line naming the same result after it (a logged decision is never reworded): {MT_FORM}")
+                    f"canonical line naming the same result after it (a logged decision is never reworded"
+                    + ("" if low else "; the head is `missing theory:` in lower case") + f"): {MT_FORM}")
+                continue
+            # DESIGN-MT: only suspected from its words: the adjudicator rules whether it decides missing theory
+            lid = mt_line_id(line)
+            if hist is None:
+                hist = mt_ruling_history(cfg, rd, round_name)
+                dissents = _mt_dissents(cfg, log, rd or rounds_dir(cfg), hist) if hist else {}
+            r = hist[lid][-1][:3] if hist.get(lid) else None
+            if r is None:
+                out["form"].append((lid, line, n_))
+                continue
+            out["ruled"][lid] = r
+            if r[1] != "decision":
+                continue
+            if lid in dissents:
+                # review C-F2: the operator dissents from the one "decision" ruling: the next adjudicator re-rules
+                out["dissent"][lid] = (r[0], r[2], dissents[lid])
+                out["form"].append((lid, line, n_))
+                continue
+            decided.append((i, lid, line, r))
             continue
         e = {"result": m.group("result"), "searched": m.group("searched"), "estimate": m.group("estimate"),
              "quote": (m.group("quote") or "").strip(), "by": by, "line": line, "kind": kind,
@@ -303,6 +588,19 @@ def missing_theory(cfg, log=None, doc=None, rd=None):
             out[key][e["result"]] = e
     if doc is None:
         doc, _ = walk(cfg, rd)
+    for i, lid, line, r in decided:
+        p_ = _mt_decision_problem(cfg, lines, i, r, doc, set(out["assume"]), ns)
+        if p_:
+            who = (" Under `involved` (and `statements-only` before the Checkpoint B answer) the human chooses: ask "
+                   "the three-option question (stage2-statements.md step 6) and record `- missing theory (human "
+                   "<date>): …`." if lvl != "hands-off" else "")
+            dis = (" If you judge the ruling wrong, never log a false line: log `- MT DISSENT "
+                   f"{lid}: <why>` after it; the line then waits for the next adjudicator's ruling (PENDING), which "
+                   f"is final when it is again a decision." if sum(1 for x in (hist or {}).get(lid, []) if x[1] == "decision") == 1
+                   else " A second decision ruling is final.")
+            out["problems"].append(
+                f"RUN_LOG.md: the adjudicator of round {r[0]} ruled this line a missing-theory decision for `{r[2]}` "
+                f"(MT RULED {lid}): {line!r}. {p_} (a logged line is never reworded): {MT_FORM}.{who}{dis}")
     libs = project.libraries(cfg)
     answers = None
     for e in list(out["assume"].values()) + list(out["build"].values()) + list(out["skip"].values()):
@@ -367,10 +665,10 @@ def missing_theory(cfg, log=None, doc=None, rd=None):
             # review fixes 1 and 4: a hypothesis the walk flags (in any result taking it) is no missing theory
             conc, rest = _mt_flags(doc, e["hyp"], ns)
             g_conc = sorted(r for r in conc if r in goals)
-            g_rest = sorted({x for _r, x in rest if x in goals})
-            if g_conc or g_rest:
-                what = (f"the conclusion of the goal result {', '.join(f'`{g}`' for g in g_conc)}" if g_conc else
-                        f"the statement of the goal result {', '.join(f'`{g}`' for g in g_rest)} (it implies the goal)")
+            # DESIGN-SW2 1.8 (C8): a hypothesis that only RESTATES a goal result is no stop 1 (the goal may well be
+            # proved): it falls into the `rest` branch below, the operator's own curable FAIL ("use that result")
+            if g_conc:
+                what = f"the conclusion of the goal result {', '.join(f'`{g}`' for g in g_conc)}"
                 out["goal"].append(
                     f"RUN_LOG.md: missing theory `{e['hyp']}` is {what} (the walk, DEPENDENCIES.json): assuming it "
                     f"proves nothing, so this is no missing theory. A goal result unprovable as stated is stop 1 (RUN.md, "
@@ -462,12 +760,31 @@ def f13_items(cfg, rd=None):
     return {F13_ITEM.format(h): h for h in sorted(names)}
 
 
-def missing_theory_findings(cfg, log=None, doc=None, rd=None):
-    """[Finding missing-theory] of missing_theory (the report check; the operator's to clear), and [Finding
-    unproved-goal] of its goal problems (a goal result assumed away: stop 1, the human's)."""
-    mt = missing_theory(cfg, log, doc, rd)
+def mt_suspect_text(lid, line, n, dissent=None):
+    """The adj-record finding of a suspected line (DESIGN-MT): the line in full, its id and anchor, both ruling forms;
+    with `dissent` (round, name, why), the ruling the operator dissents from."""
+    import decisions
+    a = decisions.DELEGATED_PRE_RE.match(line)
+    d = (f" The adjudicator of round {dissent[0]} ruled it a missing-theory decision for `{dissent[1]}`; the operator "
+         f"dissents (MT DISSENT {lid}): {dissent[2]}. Rule it again: a second decision ruling is final."
+         if dissent else "")
+    return (f"RUN_LOG.md l.{n} (line id {lid}" + (f", anchor {a.group(1)}" if a else "") + f") {MT_SUSPECT_HEAD}.{d} "
+            f"The check reads only its words; whether it is one "
+            f"is the adjudicator's judgement: \"{line}\". Rule it once in ADOPTED.md's notes: `- MT RULED {lid} | not a "
+            f"missing-theory decision: <why>` or `- MT RULED {lid} | a missing-theory decision for `<Lean name of the "
+            f"result or hypothesis>`: <why>` (the operator then logs its canonical line). The id binds the exact text "
+            f"(of a [DELEGATED] line: its anchor and the text from the tag on): a reworded line needs its own ruling.")
+
+
+def missing_theory_findings(cfg, log=None, doc=None, rd=None, round_name=None):
+    """[Finding missing-theory] of missing_theory (the report check; the operator's to clear), [Finding
+    unproved-goal] of its goal problems (a goal result assumed away: stop 1, the human's), and [Finding adj-record]
+    of its suspected lines no adjudicator ruled yet (DESIGN-MT: PENDING[adjudication], the next adjudicator's)."""
+    mt = missing_theory(cfg, log, doc, rd, round_name)
     return ([project.Finding("! " + t, MT_CODE) for t in mt["problems"]]
-            + [project.Finding("! " + t, "unproved-goal") for t in mt["goal"]])
+            + [project.Finding("! " + t, "unproved-goal") for t in mt["goal"]]
+            + [project.Finding("! " + mt_suspect_text(*x, dissent=mt["dissent"].get(x[0])), "adj-record")
+               for x in mt["form"]])
 
 
 def missing_theory_names(cfg, log=None):
@@ -634,9 +951,28 @@ def flag_items(cfg, rd=None):
             if flag_question(doc, uses) and not any(same_name(m, n, ns) for m in mtn)}
 
 
+# next batch B17 (CR-1, stop S1 commit-refused): a plain literature hypothesis of the walk had no item, so no sealed
+# paper-faithfulness verdict named it, `cite_problem` found no verdict to cite and the adjudication commit was refused
+# with no valid row possible. Every assumed name without a valid latest `## Hypotheses` row gets this item (scheduling,
+# not a new check); the item text contains the name, so `cite_problem`'s `_mentions` sees a verdict on it.
+HYP_ITEM = "F15: the hypothesis {}"
+
+
+def hyp_items(cfg, rd=None, skip=()):
+    """{HYP_ITEM: hypothesis} for every assumed name with no valid latest `## Hypotheses` row (`latest`), the names
+    in `skip` (those with an F13 or FLAG_ITEM item of their own) aside."""
+    rd = rd or rounds_dir(cfg)
+    doc, _ = walk(cfg, rd)
+    if doc is None:
+        return {}
+    lat = latest(cfg, rd)
+    return {HYP_ITEM.format(n): n for n in sorted(assumed(doc)) if n not in skip and (n not in lat or lat[n][3])}
+
+
 def scheduled_items(cfg, rd=None):
-    """The paper-faithfulness items scope.py schedules in every round for hypotheses: F13 and FLAG_ITEM."""
-    return {**f13_items(cfg, rd), **flag_items(cfg, rd)}
+    """The paper-faithfulness items scope.py schedules in every round for hypotheses: F13, FLAG_ITEM and HYP_ITEM."""
+    own = {**f13_items(cfg, rd), **flag_items(cfg, rd)}
+    return {**own, **hyp_items(cfg, rd, set(own.values()))}
 
 
 def cite_problem(rd, row_round, col, name, flagged=(), ns="", now_fps=None, mt=False):
@@ -688,18 +1024,22 @@ def cite_problem(rd, row_round, col, name, flagged=(), ns="", now_fps=None, mt=F
         if not named:
             why.append(f"`{c}` does not name `{name.rsplit('.', 1)[-1]}`: it is not the verdict behind this row")
             continue
+        # DESIGN-SW2 1.12 (C32): only a non-Pass on H's OWN item (the entry's `item` names H, a template field) blocks
+        # `yes` / `source unavailable`; a Fail on another item that merely mentions H ("unlike `hP`") is the
+        # adjudicator's to weigh when it writes the row (AUDIT_PROTOCOL step H), never a forced `no`
+        own = [e for e in named if _mentions(str(e.get("item", "")), name)]
         if w == "source unavailable":
             # F14: valid only once paper-faithfulness CONFIRMED that H matches the paper's quoted invocation
-            if any(e.get("verdict") != "Pass" for e in named) or not any(e.get("verdict") == "Pass" for e in named):
+            if any(e.get("verdict") != "Pass" for e in own) or not any(e.get("verdict") == "Pass" for e in named):
                 why.append(f"`{c}` does not confirm it (F14: `source unavailable` needs a Pass naming the hypothesis "
-                           f"-- H matches the paper's quoted invocation -- and no Fail or Ambiguous naming it)")
+                           f"-- H matches the paper's quoted invocation -- and no Fail or Ambiguous on its own item)")
                 continue
         if w == "yes":
             # review fix 2: `yes` is the paper-faithfulness lane's finding, so the cited verdict must confirm it
-            if any(e.get("verdict") != "Pass" for e in named) or not any(e.get("verdict") == "Pass" for e in named):
+            if any(e.get("verdict") != "Pass" for e in own) or not any(e.get("verdict") == "Pass" for e in named):
                 why.append(f"`{c}` does not confirm it (`matches source: yes` needs a Pass naming the hypothesis and "
-                           f"no Fail or Ambiguous naming it; its verdicts naming it: "
-                           f"{', '.join(sorted({str(e.get('verdict')) for e in named}))})")
+                           f"no Fail or Ambiguous on its own item; its verdicts on that item: "
+                           f"{', '.join(sorted({str(e.get('verdict')) for e in own})) or 'none'})")
                 continue
         if mt and w in ("yes", "source unavailable"):
             # the F13 item check (prompt.LANE_ITEM_PATHS): the lane judged H as missing theory, on its scheduled item
@@ -913,7 +1253,8 @@ def report(cfg, rd=None):
             missing.append(dict(e, name=h, state="unlisted" if doc else "no walk", trivialization="", flags=[]))
     built = [dict(e, left=_build_left(doc, e, ns)) for e in sorted(mt["build"].values(), key=lambda e: e["result"])]
     return {"rows": rows_, "notes": notes, "why": why or "", "counts": counts, "missing": missing,
-            "built": built, "skipped": sorted(mt["skip"].values(), key=lambda e: e["result"])}
+            "built": built, "skipped": sorted(mt["skip"].values(), key=lambda e: e["result"]), "suspects": mt["form"],
+            "dissented": mt["dissent"]}
 
 
 def trust_rows(cfg, rd=None, r=None):
@@ -994,6 +1335,22 @@ def missing_theory_rows(cfg, r):
               "result in the Lean (report check)")
         out.append(("Missing theory", f"{lab(e['result'])}: the missing theory ({make_report.codeify_latex(e['what'])}) "
                     f"was built in this project; {who(e)}", st))
+    import decisions
+    place = lambda l_, n_: (lambda a: a.group(1) if a else f"RUN_LOG.md l.{n_}")(decisions.DELEGATED_PRE_RE.match(l_))
+    dis = r.get("dissented") or {}
+    never = [x for x in r.get("suspects") or [] if x[0] not in dis]
+    if never:
+        # DESIGN-MT fix round (safety review F2): said to the author in plain words, the lines by their anchor
+        where = list(dict.fromkeys(place(l_, n_) for _i, l_, n_ in never))
+        out.append(("Missing theory", f"run-log decision lines that mention missing theory ({', '.join(where)}): "
+                    f"whether they decide a library gap is not yet judged by an independent agent",
+                    "PENDING: not judged by an independent agent (the next full review round rules it)"))
+    for i_, (rr, nm, _why) in sorted(dis.items()):
+        # review N2: an independent ruling the operator disputed is never called "not judged"
+        where = list(dict.fromkeys(place(l_, n_) for j_, l_, n_ in r.get("suspects") or [] if j_ == i_))
+        out.append(("Missing theory", f"a run-log decision line ({', '.join(where)}) was ruled a missing-theory decision "
+                    f"for `{_short(nm)}` by an independent reviewer (round {rr}); disputed by the operator; not re-ruled",
+                    "DISPUTED: not acted on (no canonical line, no paper-faithfulness item) until a second review round re-rules it"))
     for e in r.get("skipped", []):
         out.append(("Missing theory", f"{lab(e['result'])}: not formalized, for theory no configured library has; "
                     f"{who(e)}", "not formalized (section 4)" if e["kind"] == "human" else
@@ -1121,7 +1478,9 @@ def selftest():
             "the item of another binder: no valid `yes`",
             "has no Pass on the item" in (cp([{"item": "Theorem 1", "verdict": "Pass", "checked": "thm:hI printed"}]) or "")
             and "does not confirm it" in (cp([dict(good[0], verdict="Fail")]) or "")
-            and "does not confirm it" in (cp(good + [{"item": "Theorem 1", "verdict": "Ambiguous", "checked": "thm:hI?"}]) or "")
+            and "does not confirm it" in (cp(good + [dict(good[0], verdict="Ambiguous")]) or "")
+            # DESIGN-SW2 C32: an Ambiguous on ANOTHER item that only mentions the binder is the adjudicator's to weigh
+            and cp(good + [{"item": "Theorem 1", "verdict": "Ambiguous", "checked": "thm:hI?"}]) is None
             and "has no Pass on the item" in (cp([dict(good[0], item=FLAG_ITEM.format("thm:hJ"), checked="thm:hI")]) or ""))
         say("B5: `no` needs no flag item; IS THE CONCLUSION and a restating missing-theory hypothesis stay `no` only, "
             "a Pass on the item notwithstanding",
@@ -1209,6 +1568,8 @@ def selftest():
         project.REPO, project._scope_time = saved, saved_st
         shutil.rmtree(tmp, ignore_errors=True)
     _mt_selftest(say)
+    _mt_ruled_selftest(say)
+    _c32_selftest(say)
     print("selftest:", "ok" if all(res) else "FAILED")
     return 0 if all(res) else 1
 
@@ -1253,21 +1614,22 @@ def _mt_selftest(say):
             "N.LS` [missing-theory hypothesis]" in st
             and "Missing theory: `N.LS` is assumed for `N.thm`; the paper invokes it: “by the theorem" in st)
         w(f"- {T} take the graphon approximation theorem `N.LS` as a named hypothesis (missing theory)")
-        p1 = probs()
+        p1, f1 = probs(), missing_theory(cfg)["form"]
         w(f"- {T} assume `N.LS` for `N.thm`: Mathlib has no graphons, so a hypothesis")
-        p1b = probs()
-        say("B6: a bare [DELEGATED] missing-theory decision (no canonical form; also one in its own words: a "
-            "hypothesis because Mathlib lacks something) is FAIL[missing-theory], and its hypothesis is not "
-            "classified missing theory",
-            len(p1) == 1 and "not in the canonical form" in p1[0] and len(p1b) == 1
+        p1b, f1b = probs(), missing_theory(cfg)["form"]
+        say("B6 (DESIGN-MT): a bare [DELEGATED] missing-theory decision (no canonical form; also one in its own words: "
+            "a hypothesis because Mathlib lacks something) is no FAIL but a suspect for the adjudicator (adj-record), "
+            "and its hypothesis is not classified missing theory",
+            p1 == [] and len(f1) == 1 and p1b == [] and len(f1b) == 1
             and classify(cfg, "N.LS").startswith("unclassified")
-            and all(f.code == "missing-theory" for f in missing_theory_findings(cfg)))
+            and [f.code for f in missing_theory_findings(cfg)] == ["adj-record"])
         w(f"- {T} take the graphon approximation theorem `N.LS` as a named hypothesis (missing theory)", good)
-        p2 = probs()
+        p2, f2 = probs(), missing_theory(cfg)["form"]
         w(good, f"- {T} take the graphon approximation theorem `N.LS` as a named hypothesis (missing theory)")
-        p2b = probs()
+        p2b, f2b = probs(), missing_theory(cfg)["form"]
         say("B6: a later canonical line naming the same hypothesis clears a bare one (rewording it in place does "
-            "too); a bare line AFTER the canonical one still fails", p2 == [] and len(p2b) == 1)
+            "too); a bare line AFTER the canonical one is still a suspect (DESIGN-MT: for the adjudicator)",
+            p2 == [] and f2 == [] and p2b == [] and len(f2b) == 1)
         w(f"- {T} missing theory: assume `N.LS` for `N.thm` — {S}; {E}")
         p3 = probs()
         w(f"- {T} missing theory: assume `N.LS` for `N.thm` — {S}; {E}; paper: \"see [7]\"")
@@ -1413,13 +1775,15 @@ def _mt_selftest(say):
             p11c = missing_theory(cfg)
         finally:
             dependencies.goal_roots = keep_gr
-        say("B6 review fix 4: a missing-theory hypothesis that IS a goal result's conclusion, or restates a goal "
-            "result (it implies the goal), is FAIL[unproved-goal] (stop 1, the human's), not a page-1 mismatch; "
-            "a non-goal result's own conclusion is FAIL[missing-theory] (prove it or leave it unproved)",
+        say("B6 review fix 4: a missing-theory hypothesis that IS a goal result's conclusion is FAIL[unproved-goal] "
+            "(stop 1, the human's), not a page-1 mismatch; a non-goal result's own conclusion is FAIL[missing-theory] "
+            "(prove it or leave it unproved); DESIGN-SW2 C8: one that only restates a goal result is the operator's "
+            "curable FAIL[missing-theory] (use that result), no stop 1",
             len(p11["problems"]) == 1 and "conclusion of `thm`" in p11["problems"][0] and p11["goal"] == []
             and p11b["problems"] == [] and len(p11b["goal"]) == 1 and "stop 1" in p11b["goal"][0]
             and [f.code for f in f11b] == ["unproved-goal"] and project.is_stop_cause("unproved-goal")
-            and p11c["problems"] == [] and len(p11c["goal"]) == 1 and "implies the goal" in p11c["goal"][0])
+            and p11c["goal"] == [] and len(p11c["problems"]) == 1 and "restates `lem`" in p11c["problems"][0]
+            and "Prove it" in p11c["problems"][0])
         dep2 = dict(dep, assumes=dict(dep["assumes"], main=[dict(dep["assumes"]["thm"][0], binder="h")]),
                     walked=["thm", "lem", "main"])
         json.dump(dep2, open(os.path.join(rd, "DEPENDENCIES.json"), "w"))
@@ -1454,6 +1818,417 @@ def _mt_selftest(say):
             and project.release_class(MT_CODE) == "F" and project.CLOSER.get(MT_CODE) == "make_report.py --check")
     finally:
         project.REPO = saved
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _c32_selftest(say):
+    """DESIGN-SW2 C32: only a non-Pass on H's own item blocks `yes` / `source unavailable`."""
+    import shutil, tempfile
+    d = tempfile.mkdtemp()
+    try:
+        r = os.path.join(d, "2026-01-01-full-abcdef12345"); os.makedirs(r)
+        col = {"matches source": "yes", "stands for": "x", "consistency evidence": "y", "trivialization": "not trivial",
+               "plain english": "z", "supporting verdict": "paper-faithfulness.json"}
+
+        def run(ents, w="yes"):
+            json.dump({"verdicts": ents}, open(os.path.join(r, "paper-faithfulness.json"), "w"))
+            return cite_problem(d, r, dict(col, **{"matches source": w}), "N.hP", ns="N")
+        ok_p = {"item": "F15: the hypothesis N.hP", "verdict": "Pass", "checked": "matches"}
+        men = {"item": "Theorem 3", "verdict": "Fail", "checked": "the bound, unlike `hP`, is too weak"}
+        mine = {"item": "hP", "verdict": "Fail", "checked": "no"}
+        amb = {"item": "N.hP", "verdict": "Ambiguous", "checked": "unclear"}
+        say("SW2-C32: a Fail on another item that only mentions H no longer forces `no` (yes / source unavailable "
+            "accepted on H's own Pass); a Fail or Ambiguous on H's own item still blocks; no Pass naming H still blocks",
+            run([ok_p, men]) is None and run([ok_p, men], "source unavailable") is None
+            and run([ok_p, mine]) is not None and run([ok_p, amb], "source unavailable") is not None
+            and run([men]) is not None)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _mt_ruled_selftest(say):
+    """DESIGN-MT: a line the missing-theory check only suspects goes to the adjudicator (MT-u1..u10, the fix round's
+    S-F1, S-F3, S-F4, C-F1, C-F2)."""
+    import shutil, subprocess, tempfile
+    import make_report
+    tmp = tempfile.mkdtemp()
+    saved = project.REPO, make_report.REPO
+    try:
+        project.REPO = make_report.REPO = tmp
+        rd = os.path.join(tmp, "R")
+        os.makedirs(rd)
+        open(os.path.join(tmp, "N.lean"), "w").write("namespace N\ntheorem thm : True := trivial\n"
+                                                     "def LS : Prop := True\nend N\n")
+        dep = {"walked": ["thm"], "binders": {}, "goal": {}, "restates": {},
+               "assumes": {"thm": [{"name": "N.LS", "binder": "hLS", "kind": "prop", "type_pp": "N.LS",
+                                    "embedded": False}]}}
+        setdep = lambda d_: json.dump(d_, open(os.path.join(rd, "DEPENDENCIES.json"), "w"))
+        setdep(dep)
+        cfg = {"rounds_dir": "R", "namespace": "N", "involvement": "hands-off", "lean_files": ["N.lean"],
+               "libraries": ["Mathlib"]}
+        git = lambda *a: subprocess.run(["git", "-C", tmp, *a], capture_output=True, text=True)
+        git("init", "-q")
+        commit = lambda msg="log": (git("add", "-A"), git("-c", "user.name=t", "-c", "user.email=t@t", "commit",
+                                                          "-qm", msg))
+        k = [0]
+
+        def rnd(*ls, prompt_ids=None, do_commit=True):
+            """A new round whose adjudicator prompt lists `prompt_ids` (default: every id its rulings name) and whose
+            ADOPTED.md holds `ls`, committed as `adjudicate R` (its first)."""
+            k[0] += 1
+            r_ = f"2026-02-{k[0]:02d}-{k[0]:07x}"
+            os.makedirs(os.path.join(rd, r_, "prompts"))
+            json.dump({"_meta": {"kind": "full"}}, open(os.path.join(rd, r_, "TARGET.json"), "w"))
+            ids = prompt_ids if prompt_ids is not None else re.findall(r"MT RULED ([0-9a-f]{12})", "\n".join(ls))
+            open(os.path.join(rd, r_, "prompts", "adjudicator.txt"), "w").write(
+                "PENDING ADJUDICATION FAULTS\n" + "".join(f"  - … `- MT RULED {i_} | not …`\n" for i_ in ids))
+            open(os.path.join(rd, r_, "ADOPTED.md"), "w").write("# A\n\n## Notes\n" + "".join(l_ + "\n" for l_ in ls))
+            if do_commit:
+                commit(f"adjudicate {r_}")
+            return r_
+        T = "[DELEGATED 2026-11-15, operator under hands-off (intake); reversal: re-approve]"
+        L72 = (f"- global:G2: {T} keep the minor and star-contraction definitions built for this run, with G/A read as a "
+               "quotient graph (global difference G2) — conservative rule, as in the logged Stage 2 decision to build "
+               "the missing theory, and the adjudicator of round 2026-11-14-full-f97ada758fe found the quotient to be "
+               "the direct reading of tex l.141-144")
+        A72 = L72.replace("- global:G2: ", "- answered global:G2 (2026-11-15, 2026-11-15-full-a5774234119): ")
+        S = "searched: Mathlib (grep -rn graphon Mathlib/)"
+        E = "estimate: about 3000 lines"
+        Q = 'paper: "by the theorem of Lovász and Szegedy [7], every graphon is a limit"'
+        TP = T.replace('re-approve', 're-prove')
+        canon = f"- {TP} missing theory: assume `N.LS` for `N.thm` — {S}; {E}; {Q}"
+        logp = os.path.join(rd, "RUN_LOG.md")
+        w = lambda *ls: open(logp, "w").write("# log\n## Checkpoint C (2026-11-15, delegated)\n" + "\n".join(ls) + "\n")
+        MT = lambda c_=cfg, **kw: missing_theory(c_, **kw)
+        w("", L72)
+        commit("setup")
+        mt, fs, lid = MT(), missing_theory_findings(cfg), mt_line_id(L72)
+        tr1 = [t for t in trust_rows(cfg) if t[0] == "Missing theory"]
+        say("safety F2: page 1 (REPORT and SUMMARY) says in plain words that a decision line mentioning missing "
+            "theory is not judged by an independent agent, naming it by its anchor",
+            len(tr1) == 1 and "(global:G2)" in tr1[0][1] and "not judged by an independent agent" in tr1[0][2])
+        say("MT-u1: the live run's l.72 (no backticked name, no ruling) is a suspect for the adjudicator, no problem: "
+            "an adj-record finding with its id, anchor, line number, the full line and both ruling forms",
+            mt["problems"] == [] and [(i_, n_) for i_, _l, n_ in mt["form"]] == [(lid, 4)]
+            and [f.code for f in fs] == ["adj-record"] and f"line id {lid}, anchor global:G2" in fs[0] and "l.4 " in fs[0]
+            and L72 in fs[0] and f"MT RULED {lid} | not a missing-theory decision" in fs[0]
+            and f"MT RULED {lid} | a missing-theory decision for" in fs[0])
+        hum = f"- missing theory (human 2026-11-15): assume hP for thm, Mathlib lacks graphons; {T} keep the definitions"
+        say("review C2 / safety F4: a Checkpoint C line and its word-for-word `## Answered` copy share one id; the same "
+            "text on another anchor, a one-character change, or a human line quoting the tag mid-text does not",
+            mt_line_id(A72) == lid and mt_line_id(L72.replace("global:G2", "global:G3")) != lid
+            and mt_line_id(L72 + ".") != lid and mt_line_id(L72.replace(" keep", "  keep")) == lid
+            and mt_line_id(hum) != mt_line_id(f"- {T} keep the definitions"))
+        r1 = rnd(f"- MT RULED {lid} | not a missing-theory decision: it keeps the G2 reading")
+        mt2 = MT()
+        w("", L72, A72)
+        commit()
+        mt2b = MT()
+        say("MT-u2: a committed adjudication's `MT RULED <id> | not a missing-theory decision: …` clears it, and its "
+            "`## Answered` copy too (C2)", mt2["form"] == [] and mt2["problems"] == [] and lid in mt2["ruled"]
+            and mt2b["form"] == [] and mt2b["problems"] == [])
+        w("", L72 + " (sic)")
+        mt3 = MT()
+        rnd("- MT RULED 0123456789ab | not a missing-theory decision: another line")
+        mt3b = MT()
+        say("MT-u3: a ruling binds its exact line: the line changed, or a ruling for another id, is pending again",
+            len(mt3["form"]) == 1 and mt3["problems"] == [] and len(mt3b["form"]) == 1)
+        # MT-u4: a "decision" ruling, at every level
+        res4 = {}
+        for lvl_ in ("involved", "statements-only", "hands-off"):
+            c_ = dict(cfg, involvement=lvl_)
+            bare = f"- {T} take the graphon theorem as a named hypothesis (missing theory, {lvl_})"
+            bid = mt_line_id(bare)
+            w("", canon, bare)
+            rr = rnd(f"- MT RULED {bid} | a missing-theory decision for `N.LS`: it takes LS as a hypothesis")
+            before = [p_ for p_ in MT(c_)["problems"] if f"MT RULED {bid}" in p_]
+            w("", bare, canon)
+            commit()
+            after = [p_ for p_ in MT(c_)["problems"] if "MT RULED" in p_]
+            res4[lvl_] = (before, after, rr)
+        b_ = res4["hands-off"][0] or [""]
+        say("MT-u4: a ruling `a missing-theory decision for `N``: the operator's hard problem naming N and the round, "
+            "cleared by a canonical line for N logged AFTER it, not by one before it; under involved and "
+            "statements-only the text gives the human route; under hands-off it does not",
+            all(len(res4[l_][0]) == 1 and res4[l_][1] == [] for l_ in res4)
+            and "for `N.LS`" in b_[0] and res4["hands-off"][2] in b_[0] and "the human chooses" not in b_[0]
+            and all("the human chooses" in res4[l_][0][0] for l_ in ("involved", "statements-only")))
+        # MT-u5 and safety F1: rulings that do not count
+        L5 = f"- {T} keep the definitions, as in the decision to build the missing theory (u5)"
+        i5 = mt_line_id(L5)
+        w("", L5, f"- MT RULED {i5} | not a missing-theory decision: written by the operator into RUN_LOG.md")
+        commit()
+        u5a = len(MT()["form"]) == 1
+        rp = rnd(f"- MT RULED {i5} | not a missing-theory decision: uncommitted", do_commit=False)
+        u5b = len(MT()["form"]) == 1
+        u5c = len(MT(round_name=rp)["form"]) == 0
+        git("add", "-A")
+        u5d = len(MT()["form"]) == 1          # staged, not committed: still none
+        git("reset", "-q")
+        json.dump({"why": "set aside"}, open(os.path.join(rd, rp, project.ABANDONED), "w"))
+        commit(f"adjudicate {rp}")
+        u5f = len(MT()["form"]) == 1          # set aside (it stays set aside)
+        # safety F1: the operator re-commits an OLD round's ADOPTED.md with its own ruling, through the tool
+        import integrity
+        open(os.path.join(rd, r1, "ADOPTED.md"), "a").write(f"- MT RULED {i5} | not a missing-theory decision: mine\n")
+        try:
+            integrity.commit_adjudication(tmp, rd, "R", r1, cfg=cfg)
+        except ValueError:
+            commit(f"adjudicate {r1}")
+        u5g = len(MT()["form"]) == 1 and git("log", "-1", "--format=%s").stdout.strip() == f"adjudicate {r1}"
+        rnd(f"- MT RULED {i5} | not a missing-theory decision: not in this adjudicator's prompt", prompt_ids=[])
+        u5h = len(MT()["form"]) == 1
+        # the old round's prompt DID list the id, but its first adjudication did not rule it: a re-commit still rules nothing
+        r6 = rnd("- a note", prompt_ids=[i5])
+        open(os.path.join(rd, r6, "ADOPTED.md"), "a").write(f"- MT RULED {i5} | not a missing-theory decision: added later\n")
+        commit(f"adjudicate {r6}")
+        u5h = u5h and len(MT()["form"]) == 1
+        # review N1: a `revotes` commit with no re-vote lane files rules nothing; with them (an honest re-vote) it does
+        Ln1 = f"- {T} keep the definitions, as in the decision to build the missing theory (n1)"
+        in1 = mt_line_id(Ln1)
+        w("", Ln1)
+        commit()
+        rv = rnd("- a note", prompt_ids=[])
+        open(os.path.join(rd, rv, "ADOPTED.md"), "a").write(f"- MT RULED {in1} | not a missing-theory decision: mine\n")
+        open(os.path.join(rd, rv, "prompts", "adjudicator-revotes.txt"), "w").write(f"- MT RULED {in1} | not …\n")
+        commit(f"adjudicate {rv} revotes")
+        n1a = [x[0] for x in MT()["form"]] == [in1]
+        rv2 = rnd("- a note", prompt_ids=[])
+        open(os.path.join(rd, rv2, "ADOPTED.md"), "a").write(f"- MT RULED {in1} | not a missing-theory decision: re-voted\n")
+        open(os.path.join(rd, rv2, "prompts", "adjudicator-revotes.txt"), "w").write(f"- MT RULED {in1} | not …\n")
+        os.makedirs(os.path.join(rd, rv2, "revote"))
+        json.dump({"lane": "correspondence", "verdicts": []}, open(os.path.join(rd, rv2, "revote", "correspondence--x.json"), "w"))
+        commit(f"adjudicate {rv2} revotes")
+        n1b = MT()["form"] == []
+        say("review N1: an `adjudicate R revotes` commit holding no re-vote lane files of R rules nothing (the operator's "
+            "`--commit-adjudication --revotes` on an old round); an honest re-vote adjudication's ruling counts",
+            n1a and n1b)
+        rnd(f"- MT RULED {i5} | not a missing-theory decision: listed")
+        u5i = len(MT()["form"]) == 0
+        # DESIGN-SW2 C19: a suspect logged after the round's adjudicator prompt was written is not refused at that
+        # round's adjudication commit (it was never shown); it stays pending and the next prompt lists it
+        L19 = f"- {T} keep the definitions, the missing theory being built later (c19)"
+        i19 = mt_line_id(L19)
+        w("", L19)
+        commit()
+        r19 = rnd("- MT RULED zzz | bogus", prompt_ids=[], do_commit=False)
+        has19 = lambda fs_: any(f"line id {i19}" in str(f_) for f_ in fs_)
+        f19c = make_report.adjudication_findings(cfg, r19, revotes=False)
+        f19p = make_report.adjudication_findings(cfg, r19)
+        pend19 = [t for _c, t in make_report.pending_adjudication(cfg)]
+        commit(f"adjudicate {r19}")
+        r19b = rnd("- a note", prompt_ids=[i19], do_commit=False)
+        f19b = make_report.adjudication_findings(cfg, r19b, revotes=False)
+        open(os.path.join(rd, r19b, "ADOPTED.md"), "a").write(f"- MT RULED {i19} | not a missing-theory decision: x\n")
+        f19r = make_report.adjudication_findings(cfg, r19b, revotes=False)
+        commit(f"adjudicate {r19b}")
+        isrc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "integrity.py"), encoding="utf-8").read()
+        say("SW2-C19: an MT suspect the round's adjudicator prompt did not list is not refused at its adjudication "
+            "commit (other findings are); unfiltered elsewhere (the prompt, pending_adjudication); the next round's "
+            "prompt lists it, its commit refuses it until ruled, and a ruling clears it; integrity.py still passes "
+            "`revotes=bool(revotes)` (the signal this filter keys on)",
+            not has19(f19c) and any("is not an MT RULED ruling" in str(f_) for f_ in f19c) and has19(f19p)
+            and any(f"line id {i19}" in t for t in pend19) and has19(f19b) and not has19(f19r)
+            and "adjudication_findings(cfg, round_name, revotes=bool(revotes))" in isrc)
+        say("MT-u5 / safety F1: a ruling counts only from a round's ADOPTED.md as of its FIRST `adjudicate R` commit, "
+            "for an id its adjudicator prompt lists (or the round being committed, as on disk): one in RUN_LOG.md, "
+            "uncommitted, staged, set aside, re-committed into an old round, or for an id the prompt did not list does not",
+            all((u5a, u5b, u5c, u5d, u5f, u5g, u5h, u5i)))
+        # MT-u6: cure 1 unchanged; review C-F1: a canonical-form attempt naming its result stays hard
+        w("", f"- {T} take `N.LS` as a named hypothesis (missing theory)", canon)
+        mt6 = MT()
+        att = f"- {TP} missing theory: assume `N.LS` for `N.thm` — {S}; {Q}"
+        w("", att)
+        mt6b = MT()
+        w("", att, canon)
+        mt6c = MT()
+        w("", f"- {TP} missing theory: keep the definitions as they are")
+        mt6d = MT()
+        say("MT-u6 / review C-F1: cure 1 is unchanged; a line that tries the canonical form (`missing theory:`) and "
+            "names its result keeps the old hard FAIL (here: no `estimate:`), cured by a corrected canonical line "
+            "after it; such a line naming no Lean name is a suspect",
+            mt6["form"] == [] and mt6["problems"] == [] and "N.LS" in mt6["assume"]
+            and mt6b["form"] == [] and len(mt6b["problems"]) == 1 and "not in the canonical form" in mt6b["problems"][0]
+            and mt6c["problems"] == [] and len(mt6d["form"]) == 1 and mt6d["problems"] == [])
+        # DESIGN-SW2 C7: under the canonical head, a body that does not read as a decision is a suspect (MT RULED); a
+        # sloppy real decision (no searched:/estimate:) and a capital-M head with a decision body keep the hard FAIL
+        w("", f"- {TP} missing theory: none needed for `N.thm`, the hypothesis is proved directly")
+        c7a = MT()
+        w("", f"- {TP} missing theory: assumed `N.LS` for `N.thm`")
+        c7b = MT()
+        w("", f"- {TP} Missing theory: assume `N.LS` for `N.thm` — {S}; {Q}")
+        c7c = MT()
+        w("", f"- {TP} missing theory: `N.LS` for `N.thm` — {S}")
+        c7d = MT()
+        say("SW2-C7: a canonical head over a non-decision body is a suspect for the adjudicator (no dead-end FAIL); "
+            "'assumed `H` for `R`' and a capital-M head with a decision body stay hard (the latter says lower case)",
+            len(c7a["form"]) == 1 and c7a["problems"] == []
+            and len(c7b["problems"]) == 1 and c7b["form"] == []
+            and len(c7c["problems"]) == 1 and "in lower case" in c7c["problems"][0] and c7c["form"] == []
+            and len(c7d["problems"]) == 1 and "in lower case" not in c7d["problems"][0])
+        # MT-u7: conflicts
+        L7 = f"- {T} keep it, the missing theory being built (u7)"
+        i7 = mt_line_id(L7)
+        w("", L7)
+        commit()
+        rnd(f"- MT RULED {i7} | not a missing-theory decision: x", f"- MT RULED {i7} | a missing-theory decision for "
+            f"`N.LS`: y", f"- MT RULED {i7} | not a missing-theory decision: z")
+        u7a = mt_rulings(cfg).get(i7, (None, None))[1] == "decision"
+        rnd(f"- MT RULED {i7} | not a missing-theory decision: re-ruled")
+        u7b = mt_rulings(cfg).get(i7, (None, None))[1:] == ("not", None) and MT()["problems"] == []
+        say("MT-u7: a 'decision' and a 'not' ruling in one file: decision; a later round's 'not' overrides an earlier "
+            "round's 'decision'", u7a and u7b)
+        # review C-F2: the operator's dissent from a decision ruling
+        L8 = f"- {T} keep the minors as defined — see the missing-theory decisions of Stage 2 (c-f2)"
+        i8 = mt_line_id(L8)
+        w("", L8)
+        commit()
+        DIS = f"- MT DISSENT {i8}: the line keeps a reading; it decides no library gap"
+        w("", DIS, L8)
+        commit()
+        rnd(f"- MT RULED {i8} | a missing-theory decision for `N.LS`: z")
+        f8a = MT()
+        w("", DIS, L8, DIS.replace("it decides", "it decides, as before,"))
+        commit()
+        f8b = MT()
+        fs8 = [f for f in missing_theory_findings(cfg) if i8 in f]
+        tr8 = [t for t in trust_rows(cfg) if t[0] == "Missing theory"]
+        pa8 = [t for _c, t in make_report.pending_adjudication(cfg) if i8 in t]
+        rnd(f"- MT RULED {i8} | not a missing-theory decision: re-ruled after the dissent")
+        f8c = MT()
+        rnd(f"- MT RULED {i8} | a missing-theory decision for `N.LS`: z")
+        f8d = MT()
+        w("", DIS, L8, DIS.replace("it decides", "it decides, as before,"), DIS.replace("it decides", "it decides, again,"))
+        commit()
+        f8e = MT()
+        say("review C-F2: `- MT DISSENT <id>: <why>` logged AFTER a decision ruling turns that one hard problem into a "
+            "PENDING suspect quoting the ruling and the dissent (one logged before the ruling does nothing); a later "
+            "'not' clears it; a second 'decision' ruling is final (hard) whatever the dissent",
+            any(f"MT RULED {i8}" in p_ for p_ in f8a["problems"]) and f8b["problems"] == []
+            and [x[0] for x in f8b["form"]] == [i8] and len(fs8) == 1 and fs8[0].code == "adj-record"
+            and "the operator dissents" in fs8[0] and f8c["problems"] == [] and f8c["form"] == []
+            and any(f"MT RULED {i8}" in p_ for p_ in f8d["problems"]) and f8d["form"] == []
+            and any("A second decision ruling is final" in p_ for p_ in f8e["problems"] if f"MT RULED {i8}" in p_)
+            and f8e["form"] == [])
+        say("review N2: page 1 and the delivery note call a dissented line what it is -- ruled a missing-theory "
+            "decision by an independent reviewer, disputed by the operator, not re-ruled -- never 'not judged'",
+            len(tr8) == 1 and "ruled a missing-theory decision for `LS` by an independent reviewer" in tr8[0][1]
+            and "disputed by the operator; not re-ruled" in tr8[0][1] and "not judged" not in tr8[0][1] + tr8[0][2]
+            and len(pa8) == 1 and "disputed by the operator, not re-ruled" in pa8[0]
+            and "not judged by an independent agent" not in pa8[0])
+        L8b = f"- {T} keep it as it is, the missing theory aside (c-f2 alone)"
+        w("", L8b, f"- MT DISSENT {mt_line_id(L8b)}: no ruling yet")
+        commit()
+        say("review C-F2: a dissent with no decision ruling clears and changes nothing (the line stays a suspect)",
+            [x[0] for x in MT()["form"]] == [mt_line_id(L8b)] and MT()["problems"] == [])
+        # safety F3: the cure of a decision ruling must fit the Lean
+        L9 = f"- {T} take the graphon theorem as given (missing theory) (f3)"
+        i9 = mt_line_id(L9)
+        bh = f"- {TP} missing theory: build the graphon theory for `N.LS` — {S}; {E}"
+        bt = f"- {TP} missing theory: build the graphon theory for `N.thm` — {S}; {E}"
+        w("", L9, bh)
+        commit()
+        rnd(f"- MT RULED {i9} | a missing-theory decision for `N.LS`: it assumes LS")
+        f9a = [p_ for p_ in MT()["problems"] if f"MT RULED {i9}" in p_]
+        w("", L9, bt)
+        L9b = L9.replace("(f3)", "(f3b)")
+        i9b = mt_line_id(L9b)
+        w("", L9b, bt)
+        commit()
+        rnd(f"- MT RULED {i9b} | a missing-theory decision for `N.thm`: it assumes LS for thm")
+        f9b = [p_ for p_ in MT()["problems"] if f"MT RULED {i9b}" in p_]
+        setdep(dict(dep, assumes={"thm": []}))
+        f9c = [p_ for p_ in MT()["problems"] if f"MT RULED {i9b}" in p_]
+        w("", L9, canon)
+        setdep(dep)
+        f9d = [p_ for p_ in MT()["problems"] if f"MT RULED {i9}" in p_]
+        say("safety F3: a decision ruling for `N` is not cured by a `build` line when N is a hypothesis the Lean "
+            "assumes, nor by `build … for <result>` while an unclassified hypothesis of it is left; with the binder "
+            "gone the build line cures it, and the `assume` line cures the first",
+            len(f9a) == 1 and "only a canonical `assume` line" in f9a[0] and len(f9b) == 1
+            and "still an unclassified hypothesis" in f9b[0] and f9c == [] and f9d == [])
+        # review N4: a decision ruling naming a declared definition (neither assumed nor a walk root) is cured by the
+        # true `build` line for it (the definitions built), with no other missing-theory problem
+        L4 = f"- {T} keep the definition of graphons built here (missing theory) (n4)"
+        i4 = mt_line_id(L4)
+        w("", L4)
+        commit()
+        rnd(f"- MT RULED {i4} | a missing-theory decision for `N.LS`: the definition LS was built")
+        setdep(dict(dep, assumes={"thm": []}))
+        n4a = [p_ for p_ in MT()["problems"] if f"MT RULED {i4}" in p_]
+        w("", L4, f"- {TP} missing theory: build the definition of graphons for `N.LS` — {S}; {E}")
+        n4b = MT()["problems"]
+        setdep(dep)
+        say("review N4: a decision ruling for a declared name that is neither assumed nor a walk root is cured by the "
+            "true `build` line for it, with no other problem (no dead end)", len(n4a) == 1 and n4b == [])
+        # MT-u8: D3 phrases go to the adjudicator, never a problem
+        d3 = [f"- {T} keep hP, which isn't missing theory but an ordinary hypothesis",
+              f"- {T} keep hP rather than missing theory",
+              f"- {T} keep hP, unrelated to missing theory",
+              f"- {T} keep hP: Mathlib has no version of it, so the hypothesis `hP` stays",
+              f"- check:Lemma_2.5: {T} keep it — as in the decision to build the missing theory",
+              "- missing theory (human 2026-11-15) keep it as the human said"]
+        w("", *d3)
+        mt8 = MT()
+        say("MT-u8: D3 phrases (weak negations, 'Mathlib has no … hypothesis', a delegated Checkpoint C line, a loose "
+            "human line) each give a suspect for the adjudicator, never a problem",
+            mt8["problems"] == [] and len(mt8["form"]) == len(d3))
+        # MT-u10: ruling problems of the round being committed only
+        r10 = rnd("- MT RULED 0e0a | not a missing-theory decision: short id",
+                  f"- MT RULED {i7} | a missing-theory decision for `N.Nope`: undeclared",
+                  f"- MT RULED {i7} | a missing-theory decision for `LS`: declared (short)", do_commit=False)
+        rp10 = mt_ruling_problems(cfg, rd, r10)
+        say("MT-u10: a malformed MT RULED line and a decision ruling naming an undeclared name are adj-record "
+            "findings of the round being committed only (None: none)",
+            len(rp10) == 2 and all(f.code == "adj-record" for f in rp10) and any("N.Nope" in f for f in rp10)
+            and any("is not an MT RULED ruling" in f for f in rp10) and mt_ruling_problems(cfg, rd, None) == []
+            and mt_ruling_problems(cfg, rd, r1) == [])
+        shutil.rmtree(os.path.join(rd, r10))
+        # MT-m2, MT-p1, MT-i1: make_report wiring (adjudication_findings, the commit's list, the prompt)
+        setdep(dict(dep, assumes={"thm": []}))
+        Lm = f"- {T} keep the definitions, as in the decision to build the missing theory (m2)"
+        lm_id = mt_line_id(Lm)
+        w("", Lm)
+        commit()
+        rm = rnd("- a note", do_commit=False)
+        af = make_report.adjudication_findings(cfg)
+        af_r = make_report.adjudication_findings(cfg, rm)
+        pa = make_report.pending_adjudication(cfg)
+        import prompt
+        proto = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "AUDIT_PROTOCOL.md"), encoding="utf-8").read()
+        pcfg = dict(cfg, name="t", branch="b", base_commit="HEAD", source_pdf="s", source_id="i", source_cite="c",
+                    build_cmds=[], calibration={})
+        bodies = [prompt.render_adjudicator(proto, tmp, rm, pcfg, revotes=rv)[0] or "" for rv in (False, True)]
+        # the round's real prompt is the rendered one (it lists the id)
+        open(os.path.join(rd, rm, "prompts", "adjudicator.txt"), "w").write(bodies[0])
+
+        def commit_adj(rv=False):
+            try:
+                return integrity.commit_adjudication(tmp, rd, "R", rm, revotes=rv, cfg=cfg)[0] and ""
+            except ValueError as e_:
+                return str(e_)
+        i1a, i1r = commit_adj(), commit_adj(True)
+        open(os.path.join(rd, rm, "ADOPTED.md"), "w").write(f"# A\n\n- a note\n- MT RULED {lm_id} | not a "
+                                                            "missing-theory decision: keeps a reading\n")
+        af_r2 = make_report.adjudication_findings(cfg, rm)
+        i1b = commit_adj()
+        last = git("log", "-1", "--format=%s").stdout.strip()
+        say("MT-m2: adjudication_findings lists the suspect (so the adjudication commit refuses and the prompt lists "
+            "it), and stops listing it once the round being committed rules it; --deliver's note says it was not "
+            "judged by an independent agent (C4)",
+            any(MT_SUSPECT_HEAD in f and f.code == "adj-record" for f in af)
+            and any(MT_SUSPECT_HEAD in f for f in af_r) and not any(MT_SUSPECT_HEAD in f for f in af_r2)
+            and any(c == "adj-record" and "not judged by an independent agent" in t for c, t in pa))
+        say("MT-p1: the adjudicator prompt (with and without re-votes) lists the suspect in full with its MT RULED id, "
+            "and step H says how to rule it",
+            all(f"MT RULED {lm_id}" in " ".join(b.split()) and Lm in " ".join(b.split())
+                and "Judge what the line decides, never the check's words" in " ".join(b.split()) for b in bodies))
+        say("MT-i1: the adjudication commit refuses while the suspect is unruled (also `adjudicate R revotes`), "
+            "listing it as Phase 0 shows it, and commits once the round's ADOPTED.md rules it; the ruling then counts",
+            f"MT RULED {lm_id}" in i1a and "PENDING[adjudication] adj-record" in i1a and f"MT RULED {lm_id}" in i1r
+            and i1b == "" and last == f"adjudicate {rm}" and MT()["form"] == [])
+    finally:
+        project.REPO, make_report.REPO = saved
         shutil.rmtree(tmp, ignore_errors=True)
 
 

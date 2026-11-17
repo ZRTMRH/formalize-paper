@@ -310,6 +310,24 @@ def _project_configs(rds):
 
 
 _PROJECT_ITEMS = {}
+# DESIGN-SW2 1.1 (C2): while record_problems re-judges a COMMITTED round, the Lean commit that round audited
+# (project.round_commit of its name, resolvable in the project's Lean repo). The names a settle check reads are then the
+# names declared then OR now (a union: a name set only grows, and every Lean-dependent settle fault is "X not in the
+# set"), so a later rename never makes an old adjudication unsettled; a fault present at both commits still is
+# (ROUND3 M1). None at every other caller (the adjudication commit, lanecheck --round, the prompt): today's check.
+_NAMES_AT = None
+
+
+def _lean_texts_at(repo, cfg, rev):
+    """{file: text} of the config's index file and lean_files at commit `rev` of `repo` (`git show`); a file that
+    cannot be shown is skipped."""
+    out = {}
+    ix = project.index_file(cfg)
+    for f in ([ix] if isinstance(ix, str) else []) + [f for f in cfg.get("lean_files") or [] if isinstance(f, str)]:
+        r = subprocess.run(["git", "-C", repo, "show", f"{rev}:{f}"], capture_output=True, text=True)
+        if r.returncode == 0:
+            out[f] = r.stdout
+    return out
 
 
 def project_items(rds):
@@ -326,7 +344,7 @@ def project_items(rds):
     srcs = sorted({os.path.join(repo, f) for repo, cfg in cfgs
                    for f in [project.index_file(cfg)] + list(cfg.get("lean_files") or []) if isinstance(f, str)})
     paths = srcs + fps
-    key = tuple((p, os.stat(p).st_mtime_ns, os.stat(p).st_size) for p in paths if os.path.exists(p))
+    key = tuple((p, os.stat(p).st_mtime_ns, os.stat(p).st_size) for p in paths if os.path.exists(p)) + (_NAMES_AT,)
     if key in _PROJECT_ITEMS:
         return _PROJECT_ITEMS[key]
     out = set()
@@ -342,6 +360,12 @@ def project_items(rds):
                 out.update(label for label, _ in scope.index_rows(text))
             if f in lfs:
                 out.update(q for q in scope.parse_decls(text) if q != "_unnamed")
+        if _NAMES_AT:
+            for f, text in _lean_texts_at(repo, cfg, _NAMES_AT).items():
+                if f == ix:
+                    out.update(label for label, _ in scope.index_rows(text))
+                if f in lfs:
+                    out.update(q for q in scope.parse_decls(text) if q != "_unnamed")
     for fp in fps:
         try:
             d = json.load(open(fp, encoding="utf-8")).get("fingerprints")
@@ -432,19 +456,20 @@ def lane_entries(doc):
     return [e for e in doc["verdicts"] if isinstance(e, dict)]
 
 
-def judged_items(doc):
+def judged_items(doc, kinds=VERDICTS):
     """{item (clean_cell): verdict} a verdict document judged: an entry counts only when its verdict is
     exactly Pass, Fail or Ambiguous and its item has exactly one entry in the document (R3e M1: an entry
-    with no verdict, an empty or unknown one, or two entries for one item never judged the item)."""
+    with no verdict, an empty or unknown one, or two entries for one item never judged the item).
+    `kinds`: the verdicts read (DESIGN-ND: ("NotDoneYet",) reads the items a lane left NotDoneYet)."""
     ents = lane_entries(doc) or []
     n = collections.Counter(clean_cell(e.get("item", "")) for e in ents)
     return {clean_cell(e.get("item", "")): e.get("verdict") for e in ents
-            if e.get("verdict") in VERDICTS and n[clean_cell(e.get("item", ""))] == 1}
+            if e.get("verdict") in kinds and n[clean_cell(e.get("item", ""))] == 1}
 
 
-def _sealed_items(c):
-    """The items re-vote lane file `c`'s SEALED verdict judged (judged_items): the file's bytes must be
-    the ones its seal's digest covers; None when they are not (not sealed, or changed after it)."""
+def _sealed_items(c, kinds=VERDICTS):
+    """The items re-vote lane file `c`'s SEALED verdict judged (judged_items, `kinds` passed on): the file's
+    bytes must be the ones its seal's digest covers; None when they are not (not sealed, or changed after it)."""
     import lane_auth
     s_ = lane_auth.sealed_doc(c)
     try:
@@ -455,7 +480,7 @@ def _sealed_items(c):
     except (OSError, ValueError):
         return None
     # R3g: a verdict that breaks the schema is a lane fault and judged nothing
-    return {} if schema_faults(data.decode("utf-8", "replace")) else judged_items(doc)
+    return {} if schema_faults(data.decode("utf-8", "replace")) else judged_items(doc, kinds)
 
 
 def _part(c):
@@ -754,7 +779,7 @@ def settle_problems(rd, flags=None, revotes=None):
     ruled = {(m.group(1), clean_cell(m.group(2))): m.group(3) for m in QUOTE_RULED_RE.finditer(text)}
     tex_lines = _paper_lines(os.path.dirname(os.path.abspath(rd))) if ruled else None
     out = []
-    by_lane = {}
+    by_lane, ind_notes = {}, {}
     for f in flags:
         if f.startswith(NOTE) and flag_lane(f) and flag_code(f) == "quote-unmatched":
             # JUDGEMENT-SCAN 1: the adjudicator's ruling settles the flag; "not in the paper" is the item's re-vote
@@ -783,13 +808,20 @@ def settle_problems(rd, flags=None, revotes=None):
             continue
         if f.startswith(NOTE) and flag_lane(f):
             by_lane.setdefault(flag_lane(f), set()).add(flag_code(f))
+            if flag_code(f) == "independence":
+                ind_notes.setdefault(flag_lane(f), []).append(f)
     for lane, codes in sorted(by_lane.items()):
         stem = lane[:-len(".json")]
         name = os.path.basename(stem).split("--")[0].split("@")[0]
         if stem.startswith("revote/"):
             items = {it for _, it, d in rows if d.startswith("REVOTE NEEDED")
                      and re.sub(r"[^A-Za-z0-9_.-]+", "_", it)[:80] == stem.split("--", 1)[1]}
-            # never cleared: a re-vote that read the record anchors on the reasons it re-judges (ROUND3 H3)
+            # never cleared: a re-vote that read the record anchors on the reasons it re-judges (ROUND3 H3) -- except
+            # (DESIGN-SW2 1.11, C15, review R2) a lane whose only NOTE is a mere mention of record files other than
+            # ADOPTED.md (e.g. "VACUOUS.md row 7" quoted from a docstring), naming no other round: the adjudicator may
+            # clear it. A mention of ADOPTED.md (the adjudicator's own reasons) or of another round keeps LEFT OPEN.
+            if codes == {"independence"} and lane in cleared and _mention_clearable(ind_notes.get(lane, [])):
+                continue
             if lane not in left:
                 out.append(f"{lane}: a re-vote lane with its own fault ({', '.join(sorted(codes))}) leaves its row open "
                            f"for the human: write \"LEFT OPEN {lane}: <reason>\" (never a second re-vote)")
@@ -828,6 +860,24 @@ def settle_problems(rd, flags=None, revotes=None):
     return out
 
 
+_MENTION_RE = re.compile(r"mentions record files lanes may not read \(([^)]*)\)")
+
+
+def _mention_clearable(notes):
+    """Do the NOTE[independence] lines `notes` of a re-vote lane only mention record files (check_lane's fixed text),
+    none of them ADOPTED.md, naming no other round, with the list not cut at its 4 shown names? (DESIGN-SW2 1.11, R2)"""
+    if not notes:
+        return False
+    for n in notes:
+        m = _MENTION_RE.search(n)
+        if not m or "other rounds (" in n:
+            return False
+        names = [x.strip() for x in m.group(1).split(",")]
+        if len(names) >= 4 or any(x.lower() == "adopted.md" for x in names):
+            return False
+    return True
+
+
 def record_problems(rounds_dir):
     """["<round>: <problem>"] for every adjudicated round as committed (ADOPTED.md committed and
     unchanged; not set aside): its lane NOTEs, lane faults and re-vote decisions settled
@@ -850,8 +900,29 @@ def record_problems(rounds_dir):
                 continue      # an adjudication in progress: its commit command checks it
         except lane_auth.AuthError:
             continue
-        out += [f"{os.path.basename(rd)}: {p_}" for p_ in settle_problems(rd)]
+        out += [f"{os.path.basename(rd)}: {p_}" for p_ in _settle_at_round_commit(rd, rounds_dir)]
     return out
+
+
+def _settle_at_round_commit(rd, rounds_dir):
+    """settle_problems(rd) judged against the names declared at the Lean commit the round audited OR now (DESIGN-SW2
+    1.1, `_NAMES_AT`); today's check where that commit is not in the project's Lean repo."""
+    global _NAMES_AT
+    c = project.round_commit(os.path.basename(rd))
+    hit = None
+    for repo, _cfg in _project_configs(rounds_dir):
+        r = subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "--quiet", f"{c}^{{commit}}"],
+                           capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            hit = r.stdout.strip()
+            break
+    if not hit:
+        return settle_problems(rd)
+    _NAMES_AT = hit
+    try:
+        return settle_problems(rd)
+    finally:
+        _NAMES_AT = None
 
 
 # U2 §7b (B7): a non-vacuity Pass of a step of the paper's proof by contradiction carries the paper's
@@ -954,6 +1025,14 @@ def _project_paper(rds):
             for q in scope.parse_decls(text):
                 if q != "_unnamed":
                     names |= scope.short_names(q)
+        if _NAMES_AT:
+            lfs = [f for f in cfg.get("lean_files") or [] if isinstance(f, str)]
+            for f, text in _lean_texts_at(repo, cfg, _NAMES_AT).items():
+                if f in lfs:
+                    names = names if names is not None else set()
+                    for q in scope.parse_decls(text):
+                        if q != "_unnamed":
+                            names |= scope.short_names(q)
     return tex, names
 
 
@@ -1640,6 +1719,13 @@ def selftest():
                 "\n- CLEARED non-vacuity.json: advice text only, it names ADOPTED.md as a place to record\n"
                 "- LEFT OPEN revote/correspondence--N.a.json: the re-vote's own probe is missing\n")
         say("A1/A2: a clearance, a whole-lane re-vote, an item re-vote and LEFT OPEN settle them", settle(good) == [])
+        # next batch G1 (review finding 2): a `## Conditions` table (open rows, a `C?-1` for a condition missing from
+        # CONDITIONS.md) is no decision table: the settle check reads nothing in it and refuses nothing
+        cond_ = ("\n## Conditions\n\n| id | status | evidence | reason |\n|---|---|---|---|\n| C1 | open | - | not met |\n"
+                 "| C?-1 | open | - | not in CONDITIONS.md: \"keep it relative\"; RUN_LOG ## Checkpoint B |\n"
+                 "| K3-1 | open | - | bridge: the quotient is the paper's identification |\n")
+        say("next batch G1: a `## Conditions` table with open and C?-<n> rows adds no decision row and no settle "
+            "problem", settle(good + cond_) == [] and decision_rows(wrd, good + cond_) == decision_rows(wrd, good))
         say("A1 condition 3: a path into another round is never settled by a clearance",
             any("paper-faithfulness.json" in p for p in settle(good.replace(
                 "| paper-faithfulness | (whole lane) | - | **REVOTE NEEDED** | it read another round's record |\n", "")
@@ -2266,4 +2352,9 @@ def _selftest_escalation(d):
 
 if __name__ == "__main__":
     import project
+    try:        # DESIGN-RAM: start the memory guard (lean_slot.py; never fails, never waits, prints nothing)
+        import lean_slot
+        lean_slot.start_guard()
+    except Exception:       # noqa: BLE001
+        pass
     sys.exit(project.run_main(main))

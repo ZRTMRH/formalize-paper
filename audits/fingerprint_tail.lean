@@ -37,6 +37,24 @@ def auditFpKey (n : Name) : String :=
   | _, _ => toString n
 
 -- END HELPERS (signoff.py reuses everything above this line)
+-- Proof erasure (approver, 2026-11-16): in a definition's VALUE, every subterm that is a proof -- its type
+-- is a proposition (Meta.isProof: inferType, then isProp; Lean's proof irrelevance) -- becomes one fixed
+-- marker. Decided on the elaborated Expr, never on source syntax: data built by a tactic (`by exact 5`, the
+-- first component of `⟨x, by …⟩`, a Decidable instance) is not a proof and is hashed as before. Types are
+-- never erased; `opaque` values are not erased. If Lean cannot type a subterm, it is kept (fails toward
+-- DRIFT, never hides a change). Filling a `sorry` in a proof field of an approved instance no longer
+-- drifts (De Medts e2e, stop S1: Lean names the aux proofs `<decl>._proof_<k>` it reuses across a module).
+open Lean Meta in
+def auditFpEraseProofs (e : Expr) : MetaM Expr :=
+  Meta.transform e (pre := fun s => do
+    if (← try Meta.isProof s catch _ => pure false) then
+      return .done (.lit (.strVal "auditFpProof"))
+    return .continue)
+
+-- the whole command types the subterms of every project definition's value: no heartbeat limit, and a
+-- recursion limit above any project term (`Meta.transform` counts depth; a deeper term threw past `try`)
+set_option maxHeartbeats 0 in
+set_option maxRecDepth 1000000 in
 open Lean in
 run_cmd do
   let env ← getEnv
@@ -44,24 +62,29 @@ run_cmd do
   let root : Name := `__MODULE_ROOT__
   let isOurs (n : Name) : Bool :=
     let u := (privateToUserName? n).getD n
-    if u.isInternal || (`auditFpStripMData).isPrefixOf u || (`auditFpKey).isPrefixOf u then false
+    -- the three helpers above are excluded only as declarations of THIS file (REVIEW-SAFETY-FP F1): a project
+    -- module's `auditFpEraseProofs.evil` or `auditFpKey.evil` is fingerprinted like any other
+    if u.isInternal || ((env.getModuleIdxFor? n).isNone && ((`auditFpStripMData).isPrefixOf u
+        || (`auditFpKey).isPrefixOf u || (`auditFpEraseProofs).isPrefixOf u)) then false
     else if ns.isPrefixOf u then true
     else match env.getModuleIdxFor? n with
       | some i => root != Name.anonymous && root.isPrefixOf env.header.moduleNames[i.toNat]!
-      | none => true   -- defined in this file (append mode); the two helpers above are excluded
+      | none => true   -- defined in this file (append mode); the three helpers above are excluded
   let mut count : Nat := 0
   for (n, ci) in env.constants.toList do
     if isOurs n then
-      let (kind, es) : String × Array Expr := match ci with
-        | .thmInfo v => ("theorem", #[v.type])
-        | .defnInfo v => ("def", #[v.type, v.value])
-        | .opaqueInfo v => ("opaque", #[v.type, v.value])
+      -- a def's value is proof-erased BEFORE universes are renamed and mdata stripped; `deps` below are read
+      -- from the same erased Exprs as the hash (a proof field citing a new lemma adds no dependency)
+      let (kind, es) : String × Array Expr ← match ci with
+        | .thmInfo v => pure ("theorem", #[v.type])
+        | .defnInfo v => do pure ("def", #[v.type, ← Elab.Command.liftTermElabM (auditFpEraseProofs v.value)])
+        | .opaqueInfo v => pure ("opaque", #[v.type, v.value])
         | .inductInfo v =>
-            ("inductive", #[v.type] ++ v.ctors.toArray.filterMap (fun c => (env.find? c).map (·.type)))
-        | .ctorInfo v => ("ctor", #[v.type])
-        | .recInfo v => ("rec", #[v.type])
-        | .axiomInfo v => ("axiom", #[v.type])
-        | .quotInfo v => ("quot", #[v.type])
+            pure ("inductive", #[v.type] ++ v.ctors.toArray.filterMap (fun c => (env.find? c).map (·.type)))
+        | .ctorInfo v => pure ("ctor", #[v.type])
+        | .recInfo v => pure ("rec", #[v.type])
+        | .axiomInfo v => pure ("axiom", #[v.type])
+        | .quotInfo v => pure ("quot", #[v.type])
       let lps := ci.levelParams
       let canon := (List.range lps.length).map (fun i => Level.param (Name.mkSimple s!"u{i}"))
       let es := es.map (fun e => auditFpStripMData (e.instantiateLevelParams lps canon))

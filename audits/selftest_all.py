@@ -5,7 +5,11 @@ Each script's --selftest builds fixtures with a known answer, including cases th
 Run this after changing any script, and once on a new machine before trusting a round. The ones
 that call Lean (fingerprint, axiom_sweep, signoff --lean) need a built project and take about a minute.
 
-  python3 audits/selftest_all.py [--project NAME] [--fast] [--dev]   (--fast skips the Lean-backed ones)
+  python3 audits/selftest_all.py [--project NAME] [--fast] [--dev] [--only a,b]   (--fast skips the Lean-backed ones)
+
+`--only a,b` runs only those scripts (registry names, e.g. `project,tests/delivery`), so a run cut by a harness's
+background limit can finish the rest in groups (next batch B10, stage1-setup.md step 4); the union of `ok` lines on
+one commit is the check.
 
 In release mode (the project's `mode`, else the installation's; project.RELEASE) a failure confined
 to a non-blocking job (project.SCRIPT_RELEASE: the fresh-reader gate and prompt, the doc lint) is
@@ -30,7 +34,13 @@ def main():
     ap.add_argument("--project")
     ap.add_argument("--fast", action="store_true")
     ap.add_argument("--dev", action="store_true", help="every failure fails, whatever the run mode")
+    ap.add_argument("--only", help="comma-separated registry names to run (the others are not run)")
     a = ap.parse_args()
+    only = {x.strip() for x in a.only.split(",") if x.strip()} if a.only else None
+    if only is not None and not only <= set(project.SCRIPTS):
+        print(f"FAIL[tool-call] selftest_all: --only names no script: {', '.join(sorted(only - set(project.SCRIPTS)))} "
+              f"(registry names: {', '.join(n for n in project.SCRIPTS if project.SCRIPTS[n][0])})")
+        return 2
     bad, skipped, disc = [], [], []
     # The scripts in NEEDS_PROJECT test against a real project. Without --project, use the one the
     # checked-out branch selects. A fresh install has no project until the first intake: those
@@ -51,6 +61,8 @@ def main():
             cfg = None
     run_cfg = {"mode": "dev"} if a.dev else (cfg if cfg is not None else {"mode": project.installed_mode()})
     for s in PURE + ([] if a.fast else LEAN):
+        if only is not None and s.split()[0][:-len(".py")] not in only:
+            continue
         s, *extra = s.split()
         cmd = [sys.executable, os.path.join(HERE, s), "--selftest", *extra]
         if s in NEEDS_PROJECT:
@@ -83,10 +95,13 @@ def main():
         print(project.disclosed_line(p))
     if disc:
         note += f" ({len(disc)} disclosed, release mode: record them with stops.py disclose)"
+    if only is not None:
+        note += f" (only: {', '.join(sorted(only))})"
     print("ALL SELFTESTS:", ("ok" + note) if not bad else f"FAILED ({', '.join(bad)})")
     return 1 if bad else 0
 
 
 if __name__ == "__main__":
     import project
+    os.environ["FORMALIZE_PAPER_NO_GUARD"] = "1"     # DESIGN-RAM: no test starts a memory guard
     sys.exit(project.run_main(main))

@@ -19,8 +19,19 @@ Read this after the pin (Stage 1 step 5). It ends with the approval commit (`app
      and you never re-pin for it). Land the proof as a pure addition, at every level and without a
      question: a theorem `<decl>_unconditional` stating `<decl>`'s conclusion without that
      hypothesis, proved by applying `<decl>` to the proof of the hypothesis, its docstring saying
-     so, listed in `<decl>`'s index cell beside it. The next round audits it like any new
-     declaration (correspondence included).
+     so. It is **not** listed in the index (every name in an index cell is on the sign-off sheet, so
+     a name added to an approved row makes the freeze check report DRIFT); the status and the report
+     find it by its name. The next round audits it like any new declaration (correspondence
+     included).
+   - **Keep `open`, `variable`, `set_option`, `attribute`, `notation` and `universe` lines and module
+     docs (`/-! … -/`) before the first declaration of a file or inside a `section`.** The freeze reads
+     such a line after a definition as part of that definition: it shows in its sheet text and can give
+     a false DRIFT (KNOWN_LIMITATIONS).
+   - **A notion the paper never defines and takes from a citation** follows the cited source exactly
+     (the source as given in `SOURCES.md` or the bibliography). Its docstring says "taken from
+     <source>, not printed in the paper"; the sign-off sheet flags its row CHECK; add a
+     `CONDITIONS.md` item of kind `source-def` (an open K question).
+     Its id is `C<n>`, the next free number (every kind takes `C<n>`; only the adjudicators' bridges are `K3-<n>`).
    - **Test every definition before the statement round,** against the paper's own examples and
      against degenerate cases: empty matrix or set, zero rows or columns, the smallest lengths and
      sizes, `k = 0`, `sInf ∅`, truncated `ℕ` subtraction. Keep each test as an `example`. Most
@@ -88,8 +99,9 @@ Read this after the pin (Stage 1 step 5). It ends with the approval commit (`app
    and so the round's name, unchanged: `scope.py` then refuses the taken name and prints the
    empty Lean commit that gives a new one (`stops-and-set-asides.md`, item 4).
 3. **Review.** Write the prompts: `python3 audits/prompt.py --lanes --round <R> --batch 60 --write`
-   and `python3 audits/prompt.py --prompt informalizer --round <R> --write`. In ONE message, spawn
-   every lane (type `auditor`) and the informalizer (general-purpose), each with exactly its printed
+   and `python3 audits/prompt.py --prompt informalizer --round <R> --write`. Spawn the lanes
+   (type `auditor`) in waves (`spawn-and-seal.md`), each wave in ONE message, and the informalizer
+   (general-purpose) with the first wave, each with exactly its printed
    line (for a lane: everything after "with:", its lane token included; `spawn-and-seal.md`).
    **As each lane returns,
    seal it** from that child's own result (`python3 audits/lane_auth.py seal --verdict <verdict>
@@ -150,9 +162,19 @@ Read this after the pin (Stage 1 step 5). It ends with the approval commit (`app
    inconsistent convention that is no real misunderstanding (say, ℕ from 0 or from 1): take the
    intended reading, record it as a reading choice ("Route changes" in `AUTHOR_NOTES.md`, and a
    `[DELEGATED …]` -- under `involved` a `[PROXY …]` -- line under "Open questions"), and go on;
-   (c) anything else: go on with the last round's sheet as it stands; each result the finding
-   concerns reads "not established: open faithfulness finding" on the summary's first page, and the
-   report says why.
+   (c) anything else: the open finding is a **Checkpoint B question** (approver D2): under `involved`
+   and `statements-only` put it to the human at B with the QUESTION rows (the human decides; if they
+   want the change, approve the last round's sheet as it stands and carry the change out as a
+   re-approval, `reapproval.md`, with its own two statement rounds); under
+   `hands-off` decide "keep the last round's statement, disclosed" as a `[DELEGATED …]` line (no
+   statement round can re-read a change past the cap, so the recommended change is not made) and add
+   it to `CONDITIONS.md` as kind `finding` (an open K item offering the recommended change in the K
+   stage). Each result the finding concerns reads "not established: open faithfulness finding" on the
+   summary's first page, and the report says why.
+   Its id is `C<n>`, the next free number (every kind takes `C<n>`; only the adjudicators' bridges are `K3-<n>`).
+   Before the cap, every correspondence and paper-faithfulness Fail or Ambiguous of a statements round
+   is resolved before Checkpoint B: implemented (a new round), rejected through a re-vote, or a
+   QUESTION answered.
 6. **Missing theory.** Never decide a library gap yourself -- not by skipping, not by **narrowing**
    (stating the result for fewer objects than the paper does: graphs only where the paper says
    graphs or graphons), not by weakening, not by a named hypothesis, not as a "reading choice".
@@ -192,8 +214,24 @@ Read this after the pin (Stage 1 step 5). It ends with the approval commit (`app
    `<result>` — searched: …; estimate: …` (`FAIL[missing-theory]` checks the line and its answer).
    `H` never restates a result the project states or a library proves: prove that instead.
 7. **Prepare the sheet.** Run `python3 audits/signoff.py check --round <R>`. It must report 0
-   problems (among them: every qualified Lean name the sheet's text cites exists, resolved in Lean);
-   if not, rerun the sign-off writer (a mechanical failure), never edit its JSON. Then
+   problems (among them: every qualified Lean name the sheet's text cites exists, resolved in Lean).
+   A `NOTE[signoff-check]` line (a dotted name whose first component is no global name, such as
+   `G.Adj`) is no problem: the check cannot tell dot notation from a wrong name, and the name comes
+   back at delivery as a note for the NOTES reviewer; under `involved` and `statements-only` quote
+   each such line in the Checkpoint B (or approval) message. A problem in SIGNOFF.json (the writer's
+   text): add an `AUTHOR_NOTES.md` line naming the wrong name, then rerun the sign-off writer; never
+   edit its JSON. A problem in INFORMAL.json: the blind reading is saved once and copied verbatim,
+   so a writer rerun cannot cure it. In `release`, while the stop its failing check opened (`S<n>`)
+   is open, set the round aside on that stop (`python3 audits/stops.py set-aside <R> --stop S<n>
+   --reason "blind reading cites <name>"`); in `dev` the stop is the human's, so the set-aside waits
+   until the human has closed it (`close --human`), then takes the same `--stop S<n>`. Then (in
+   `release` the stop still open) go back to step 2 for a new round of R's kind (`--statements` for a
+   statement round, `--full` for a full round: R's `TARGET.json` `_meta.kind`) and a new blind
+   reading (an unchanged Lean HEAD needs the empty commit of `stops-and-set-asides.md`, item 4). In
+   `release`, close the stop once the new round's own step 7 check passes, with `python3
+   audits/stops.py close --stop S<n> --cured "redone in <R2>"`: its check is re-run on the new round
+   (a close before then spends one of the stop's cure attempts). This is bounded by the stop's
+   cure budget (`project.CURE_BUDGET`, RUN.md "Self-cures") and by the statement-round cap above. Then
    run `python3 audits/signoff.py render --round <R>`, which writes `SIGNOFF.md` (the paper's
    statements as their LaTeX source; its PDF is made later by agents). Literal LaTeX in a free-text
    field is cured by an `AUTHOR_NOTES.md` line telling the writer to put the formula in Unicode
@@ -267,6 +305,14 @@ Read this after the pin (Stage 1 step 5). It ends with the approval commit (`app
    - QUESTION rows under (c): approve the sheet; for each QUESTION row the approver did not answer,
      you may make a provisional choice so the work can continue. Log it as a [PROXY] decision in
      `RUN_LOG.md`, keep it under "Open questions", and put it to the human at Checkpoint C.
+
+   **Conditions in the answer** (`involved` and `statements-only`; next batch D1): every condition
+   the human states in the Checkpoint B answer (a requirement, a scope limit, a known issue) goes into
+   `<rounds dir>/CONDITIONS.md` as a row `| C<n> | condition / scope / known-issue | <results or all>
+   | <their words, verbatim> | RUN_LOG.md ## Checkpoint B <date> |`, committed by name (`conditions:
+   Checkpoint B`). Every adjudicator rules the list each round (no lane reads it).
+   For a reading question on a goal result, try to refute the stronger reading before the approval
+   (a goal whose stronger reading turns out false after approval is stop 1).
 
    **Under `hands-off`, do not ask.** The sheet is still prepared, checked (`signoff.py check`) and
    written (step 7), since it is delivered, but skip step 7's fresh-reader check, its gate and its

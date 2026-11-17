@@ -269,7 +269,8 @@ def rule4_text():
     lines += [f"   Of these you write by hand only {ow}.",
               "   Never edit the audit scripts, `AUDIT_PROTOCOL.md`, this file, `audits/run/`, `audits/agents/` or",
               "   `~/.claude/agents/auditor.md`. Your own files are `RUN_LOG.md`, `AUTHOR_NOTES.md` (route changes",
-              "   under \"Route changes\": the adjudicator writes `DEVIATIONS.md` from them) and `OUTCOMES.md`."]
+              "   under \"Route changes\": the adjudicator writes `DEVIATIONS.md` from them), `OUTCOMES.md` and",
+              "   `CONDITIONS.md` (the human's conditions and the open K items; no lane reads it)."]
     return "\n".join(lines)
 
 
@@ -957,6 +958,12 @@ def check(audits, cfg, round_name, agent_file=AGENT_FILE, rounds_dir=None, round
             elif need and not subject.startswith(need) and not abandoned_file and commit_h in waived:
                 out.append(("note", f"[acknowledged] {rel} was committed by \"{subject[:50]}\" (not its owner); the "
                                     f"human waived it ({waived[commit_h]}); the report's summary page lists it"))
+            elif need and not subject.startswith(need) and not abandoned_file \
+                    and fnmatch.fnmatch(os.path.basename(rel), "KNOWN_FAULTS-*.md"):
+                # next batch B26 (CR-10): a fresh reader's notice is not a judgement record and readers.py checks its
+                # content; one committed under another subject is a NOTE, never a tamper stop
+                out.append(("note", f"[notice-subject] {rel}: committed by \"{subject[:50]}\" ({commit_h[:11]}), not a "
+                                    f"reader commit (`reader <key> <n> (response)`); readers.py checks its content"))
             elif need and not subject.startswith(need) and not abandoned_file:
                 out.append(("FAIL", f"[ownership] {rel} was committed by \"{subject[:50]}\" ({commit_h[:11]}); only a "
                                     f"\"{need[0].strip()} …\" commit may change it"))
@@ -989,6 +996,11 @@ def check(audits, cfg, round_name, agent_file=AGENT_FILE, rounds_dir=None, round
     # re-check 3 (2026-10-25): a tooling file the first pin did not have (a tool patch only modifies files; its one new
     # file is its regression test), and a module on the import path that shadows the standard library
     out += tool_patch.manifest_problems(audits, rounds_dir)
+    try:        # fix round 1 (attack 12): a listing that cannot run is a note, never a crash of --check
+        out += [("note", f"[unpinned-py] {p_}" + ("" if p_.startswith("(") else " (not in the pinned apparatus)"))
+                for p_ in unpinned_py(audits, rounds_dir)]
+    except Exception as e:      # noqa: BLE001
+        out.append(("note", f"[unpinned-py] (the stray-script listing could not run: {type(e).__name__}: {e})"))
     if len(pin_subjects) > 1:
         out.append(("note", f"[repinned] the apparatus was re-pinned {len(pin_subjects) - 1} time(s) during this run"))
     # 5. uncommitted writes: author files anywhere at the top; protected records only inside
@@ -1030,6 +1042,57 @@ def check(audits, cfg, round_name, agent_file=AGENT_FILE, rounds_dir=None, round
                 out.append(("note", f"[uncommitted-file] uncommitted file in audits/: {path}"))
     # SWEEP-FIX D2: a history FAIL a fresh reviewer judged bookkeeping is acknowledged, exactly that line (release)
     return acknowledge_lines(audits, rounds_dir, out)
+
+
+# next batch D3 (approver 2026-11-11): a `*.py` under audits/ that the first pin did not have and no applied tool patch
+# brought (a helper script or a shadow module in the rounds directory or projects/) is listed, never judged and never
+# a stop. Lane probes, the citation and status-check work and tool-patch attempt trees are left out.
+UNPINNED_SKIP = ("*.probes/*", "citations/*", "*/citations/*", "status-check/*", "*/status-check/*",
+                 "tool-patches/*", "*/tool-patches/*")
+
+
+def unpinned_py(audits, rounds_dir):
+    """[path relative to audits/] of every `*.py` file in audits/ (tracked or not) that is in no pinned tree (the first
+    pin's or a later re-pin's) and not a file of an applied tool patch's apply commit; [] when there is no pin."""
+    base = (project.first_pin(rounds_dir) or {}).get("audits_commit")
+    if not base:
+        return []
+    # every committed version of the pin (a re-pin or a tool patch moves the pinned tree; gate 3a: a re-pin's new
+    # tooling files are pinned, not stray)
+    bases = [str(base)]
+    top, rel = project.rounds_rel(rounds_dir, PIN)
+    if top is not None:
+        for h in subprocess.run(["git", "-C", top, "log", "--full-history", "--format=%H", "--", rel],
+                                capture_output=True, text=True).stdout.split():
+            try:
+                b_ = json.loads(project.committed_blob(top, h, rel) or "{}").get("audits_commit")
+            except (ValueError, AttributeError):
+                b_ = None
+            if b_ and str(b_) not in bases:
+                bases.append(str(b_))
+    known, failed = set(), []
+    for b_ in bases:
+        rc, tree = git(audits, "ls-tree", "-r", "--name-only", b_)
+        if rc == 0:
+            known |= set(tree.splitlines())
+        else:
+            failed.append(b_[:11])
+    if not known:
+        return [f"(could not list the pinned tree {', '.join(failed)}: nothing listed)"] if failed else []
+    for tp in applied_tool_patches(audits, rounds_dir).values():
+        for h in tp.get("commits") or []:
+            known |= set(git(audits, "show", "--name-only", "--format=", h)[1].split())
+    out = []
+    for root, dirs, files in os.walk(audits):
+        dirs[:] = sorted(d for d in dirs if d not in (".git", "__pycache__"))
+        for f in sorted(files):
+            if not f.endswith(".py"):
+                continue
+            rel = os.path.relpath(os.path.join(root, f), audits).replace(os.sep, "/")
+            if rel in known or any(fnmatch.fnmatch(rel, g) for g in UNPINNED_SKIP):
+                continue
+            out.append(rel)
+    return out
 
 
 def release_repin_problems(audits, rounds_dir, rounds_rel):
@@ -2625,9 +2688,40 @@ def selftest():
         g("reset", "-q", "--hard", "HEAD~1")
         open(os.path.join(rd, "KNOWN_FAULTS-decisions.md"), "w").write("- unfixable: x\n")
         commit("implement R1")
-        say("a KNOWN_FAULTS notice committed outside a `reader` commit fails",
-            any("KNOWN_FAULTS-decisions.md" in m for m in fails(C())))
+        # next batch B26 (CR-10): a NOTE, not a tamper FAIL; another owned file under a wrong subject still fails
+        say("a KNOWN_FAULTS notice committed outside a `reader` commit is a NOTE[notice-subject], never a FAIL",
+            not any("KNOWN_FAULTS-decisions.md" in m for m in fails(C()))
+            and any(k == "note" and "[notice-subject] " in t and "KNOWN_FAULTS-decisions.md" in t for k, t in C()))
         g("reset", "-q", "--hard", "HEAD~1")
+        open(os.path.join(rd, "readers", "decisions-2.md"), "w").write("sha256: y\n")
+        commit("implement R1")
+        say("control (B26): a reader report committed outside a `reader` commit still fails",
+            any("decisions-2.md" in m for m in fails(C())))
+        g("reset", "-q", "--hard", "HEAD~1")
+        # next batch D3: a stray `*.py` in the rounds directory is one NOTE[unpinned-py] (never a FAIL); a lane probe's
+        # `.py` and a file of the pinned tree are not listed
+        open(os.path.join(rd, "helper.py"), "w").write("print(1)\n")
+        os.makedirs(os.path.join(rd, "R1", "correspondence.probes"), exist_ok=True)
+        open(os.path.join(rd, "R1", "correspondence.probes", "probe.py"), "w").write("print(2)\n")
+        up_ = [t for k, t in C() if "[unpinned-py]" in t]
+        say("next batch D3: a stray .py in the rounds directory is one NOTE[unpinned-py]; a probe's .py and the pinned "
+            "phase0.py are not listed; no FAIL names it",
+            up_ == ["[unpinned-py] P/helper.py (not in the pinned apparatus)"]
+            and all(k == "note" for k, t in C() if "[unpinned-py]" in t)
+            and not any("helper.py" in m for m in fails(C())) and unpinned_py(d, rd) == ["P/helper.py"])
+        os.remove(os.path.join(rd, "helper.py"))
+        shutil.rmtree(os.path.join(rd, "R1", "correspondence.probes"))
+        # gate 3a: a file a later re-pin pinned is not stray (every pin's tree counts)
+        _pin0 = open(os.path.join(rd, PIN)).read()
+        open(os.path.join(d, "later_tool.py"), "w").write("print(3)\n")
+        commit("tool added")
+        _h = subprocess.run(["git", "-C", d, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        _before = unpinned_py(d, rd)
+        open(os.path.join(rd, PIN), "w").write(json.dumps(dict(json.loads(_pin0), audits_commit=_h)))
+        commit("pin (repin: test)")
+        say("gate 3a: a .py a re-pin's tree holds is not listed (before that re-pin it was)",
+            "later_tool.py" in _before and unpinned_py(d, rd) == [])
+        g("reset", "-q", "--hard", "HEAD~2")
 
         # each tooling class
         for f in ("phase0.py", "tail.lean", "AUDIT_PROTOCOL.md", "RUN.md", "run/stage4-rounds.md", "agents/auditor.md"):
@@ -3411,6 +3505,7 @@ def _ack_scenarios(d, out):
                     "file is never acknowledgeable, whatever the subject quoted; a bookkeeping record is, even when the "
                     "commit subject names a core file",
                     not ackable("[tool-patch] TP1: the patch touches phase0.py (proof-validity core)")
+                    and not ackable("[tooling] tooling changed since the pin: make_report.py")   # B15 (sw-6): a real cure
                     and not ackable("[ownership] APPROVED_FINGERPRINTS.json was committed by \"x\" (abc)")
                     and not ackable("[ownership] R1/FINGERPRINTS.json was committed by \"x\" (abc)")
                     and not ackable("[ownership] PAPER_DEFECTS.md was committed by \"x\" (abc)")

@@ -3396,8 +3396,8 @@ def selftest():
                "        checks = [('x', True)]\n        for name, ok in checks:")
         # REVIEW-FLOOR MEDIUM-1 / LOW-6: the reviewer's attacks, every MG pattern kept. P4: the gate refuses nothing
         # when `involved` and skips a failing freeze; P1: --deliver drops the gate's refusals in release only
-        P4 = ("stops.py", "    block, notes = [], []\n    for cmd in standard_blocking(cfg):\n",
-              '    block, notes = [], []\n    if cfg.get("involvement") == "involved":\n        return block, notes\n'
+        P4 = ("stops.py", "    block, notes, p0_out = [], [], []\n    for cmd in standard_blocking(cfg):\n",
+              '    block, notes, p0_out = [], [], []\n    if cfg.get("involvement") == "involved":\n        return block, notes\n'
               '    for cmd in standard_blocking(cfg):\n        if "fingerprint.py" in cmd:\n            continue\n')
         P1 = ("project.py", '    block += [("deliver", g) for g in gb]\n',
               '    block += [("deliver", g) for g in gb]\n    if mode(cfg) == "release":\n'
@@ -3577,6 +3577,19 @@ def selftest():
         softr = refused(apply, cfg, tp_)
         say("R3: a reviewer prompt that is not what the apparatus in force renders (softened by hand, hash and token "
             "consistent) does not count", "not what the apparatus in force renders" in softr)
+        # B15 (SWD3-1, SWD3-2): a link is re-checked with the renderer pinned at its issue: X, committed after TP12's
+        # token, carries RND's renderer change; the prompt as X renders it is X's, and only h_open's renderer is this one
+        if anchored(RND[:2]):
+            pf_ = os.path.join(d, "prompt.py")
+            x_text = open(pf_).read().replace(RND[1], RND[2], 1)
+            open(pf_, "w").write(x_text)
+            G("add", "--", pf_); G("commit", "-qm", "renderer X")
+            X_ = G("rev-parse", "HEAD")
+            at_x = rendered_at_issue(cfg, tp_, 1, 1, rd, X_, d) or ""
+            say("SWEEP-FIX D3 (T3): a review prompt is rendered by the renderer pinned at its issue (X), not by the one "
+                "running; a renderer differing from this one is not taken for it",
+                "RENDERER NOTE (TP-r1)" in at_x and _renders_as(d, h_open) and not _renders_as(d, X_))
+            G("reset", "-q", "--hard", "HEAD~1")
         RUNNER = stand_in()
         # ---- forced round (affects-review-inputs yes, or a PASS->FAIL in the blast radius): scope.py runs it,
         # --deliver refuses until it has run

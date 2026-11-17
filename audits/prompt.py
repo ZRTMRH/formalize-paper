@@ -790,7 +790,19 @@ def render_adjudicator(text, repo, round_name, cfg, revotes=False):
         return body, []
     body, notes = resolve(body, repo, 4, round_name, cfg)
     return (None if body is None else body + "\n\n" + pending_section(cfg, round_name)
-            + owner_redo_section(cfg, round_name)), notes
+            + owner_redo_section(cfg, round_name) + conditions_section(cfg)), notes
+
+
+def conditions_section(cfg):
+    """Next batch G1 (D1, CR-5): the checklist items (CONDITIONS.md) with no `## Conditions` status row yet, for step
+    D' -- listed like the pending faults, never a refusal (the commit does not check `## Conditions` rows)."""
+    import result_status
+    try:
+        miss = result_status.conditions_without_row(cfg)
+    except Exception as e:      # noqa: BLE001 -- shown, never hidden
+        return f"\n\nCONDITIONS WITHOUT A STATUS ROW: (could not be computed now: {e}; read CONDITIONS.md yourself)"
+    return ("\n\nCONDITIONS WITHOUT A STATUS ROW (step D'; `CONDITIONS.md` items no adjudicator has ruled yet): "
+            + (", ".join(miss) if miss else "none"))
 
 
 def owner_redo_section(cfg, round_name):
@@ -1043,6 +1055,31 @@ def f10_note(cfg, f10, items):
             "given:\n" + "\n".join(lines))
 
 
+def negation_note(cfg, items):
+    """The correspondence lane's list of its scope items whose declaration has the form ¬X and is exempted from the
+    refutation check because its index row cites it (make_report.refutation_exemptions; DESIGN-SW2 1.7, review R1):
+    the code's flag, given to the lane that judges the row."""
+    import make_report
+    try:
+        ex = make_report.refutation_exemptions(cfg)
+    except Exception:       # noqa: BLE001 -- an unreadable Lean file: the index check reports it
+        return ""
+    lines = []
+    for it in items:
+        for n, t, f, lab in ex:
+            if str(it).split(".")[-1] == n:
+                lines.append(f"  - item \"{it}\": its type has the form of a refutation, ¬ {t} ({f}); index row "
+                             f"\"{lab}\" cites it as its formalization, so the checking code did not read it as refuting "
+                             f"a printed statement (NOTE[index]). Judge whether the paper's statement of that row is "
+                             f"this negation (the paper's own negative result, e.g. \"the converse fails\") or the "
+                             f"opposite claim; name `{n}` in the entry")
+                break
+    if not lines:
+        return ""
+    return ("\n\nNEGATIONS TO JUDGE (index rows citing a ¬X declaration) -- items of your scope above, judged as every "
+            "item, with this question:\n" + "\n".join(lines))
+
+
 def f13_note(cfg, f13, items):
     """The paper-faithfulness lane's F13 list for the scheduled missing-theory items among `items` (scope.py:
     TARGET.json `_meta.f13` {F13 item: hypothesis}): which hypothesis each item is about (listed with its result
@@ -1050,9 +1087,14 @@ def f13_note(cfg, f13, items):
     B5: `_meta.f13` also holds the FLAG_ITEM of each binder the walk flags as restating; those get their question."""
     import hypotheses
     flag = hypotheses.FLAG_ITEM.format("")
+    hyp = hypotheses.HYP_ITEM.format("")
     lines = [f"  - item \"{it}\": the missing-theory hypothesis `{(f13 or {})[it]}` (see WHAT THE RESULTS ASSUME for "
              f"its result and the quoted passage); judge it as \"MISSING THEORY (F13)\" says, naming it in the entry"
-             for it in items if it in (f13 or {}) and not it.startswith(flag)]
+             for it in items if it in (f13 or {}) and not it.startswith((flag, hyp))]
+    # next batch B17: a hypothesis with no valid `## Hypotheses` row yet gets its own item
+    hlines = [f"  - item \"{it}\": the hypothesis `{f13[it]}` (see WHAT THE RESULTS ASSUME for its result and the "
+              f"quoted passage): does it say what the cited source (or the paper's quoted invocation) says? Name "
+              f"`{f13[it]}` in the entry" for it in items if it in (f13 or {}) and it.startswith(hyp)]
     fl = [it for it in items if it in (f13 or {}) and it.startswith(flag)]
     if fl:
         doc, _ = hypotheses.walk(cfg)
@@ -1068,6 +1110,9 @@ def f13_note(cfg, f13, items):
     if flines:
         out += ("\n\nFLAGGED HYPOTHESES TO JUDGE (B5) -- items of your scope above, one verdict each, named exactly as "
                 "given:\n" + "\n".join(flines))
+    if hlines:
+        out += ("\n\nHYPOTHESES TO JUDGE (F15) -- items of your scope above, one verdict each, named exactly as "
+                "given:\n" + "\n".join(hlines))
     return out
 
 
@@ -1200,6 +1245,7 @@ def render_lanes(text, cfg, round_name=None, revote=None, batch=None, revote_lan
                         f"have the rest. Examine only these.)")
                         + (f10_note(cfg, round_f10(cfg, round_name), part) if lane == "paper-faithfulness" else "")
                         + (f13_note(cfg, round_f13(cfg, round_name), part) if lane == "paper-faithfulness" else "")
+                        + (negation_note(cfg, part) if lane == "correspondence" else "")
                         + (f12_note(cfg, items) if lane == "paper-faithfulness" and k == 1 else ""))
                     vfk = os.path.join(project.REPO, cfg["rounds_dir"], round_name,
                                        f"{lane}@{k}.json")
@@ -1213,6 +1259,7 @@ def render_lanes(text, cfg, round_name=None, revote=None, batch=None, revote_lan
                                    else "")
                                 + (f13_note(cfg, round_f13(cfg, round_name), items) if lane == "paper-faithfulness"
                                    else "")
+                                + (negation_note(cfg, items) if lane == "correspondence" else "")
                                 + (f12_note(cfg, items) if lane == "paper-faithfulness" and revote is None else ""))
             vf = os.path.join(project.REPO, cfg["rounds_dir"], round_name, f"{lane}.json")
             if revote is not None:
@@ -1363,6 +1410,10 @@ LANE_ITEM_PATHS = {
     "FLAG_ITEM": ("hypotheses.py", "the FLAG_ITEM check (prompt.LANE_ITEM_PATHS)", "scope.py schedules it for every "
                   "binder the walk flags as restating in every round (TARGET.json, paper-faithfulness, `_meta.f13`); "
                   "prompt.py lists it with its question under FLAGGED HYPOTHESES TO JUDGE; --revote takes it"),
+    # next batch B17 (CR-1): every assumed name with no valid latest `## Hypotheses` row
+    "HYP_ITEM": ("hypotheses.py", "def hyp_items(", "scope.py schedules it for every assumed name with no valid latest "
+                 "`## Hypotheses` row, in every round (TARGET.json, paper-faithfulness, `_meta.f13`); prompt.py lists "
+                 "it under HYPOTHESES TO JUDGE; --revote takes it"),
     "B7 contradiction step": ("lanecheck.py", "CONTRA_FORM = ", "the declaration is in the non-vacuity scope and "
                               "lane D's prompt gives the CONTRADICTION STEP form"),
     # integrated review fix 10: B9's per-result verdicts (route `unverified` when missing or out of date)
@@ -1570,6 +1621,56 @@ def lane_item_paths(text):
                     and [i for i, _q in got4] == [fli] and "`hp` of `P.lemma_2_4`" in got4[0][1]
                     and "`P.thm_3_4`" in got4[0][1] and "A FLAGGED HYPOTHESIS (B5)" in got4[0][1] and cite4 is None
                     and "A FLAGGED HYPOTHESIS (B5). The walk flags" in pf4))
+        # next batch B17 (CR-1): a plain literature hypothesis with no `## Hypotheses` row gets its item "F15: the
+        # hypothesis <H>" (listed under HYPOTHESES TO JUDGE); a Pass on the rendered item supports a `yes` row, and
+        # once a valid row stands the item is no longer scheduled
+        json.dump({"walked": ["P.lemma_2_4"], "goal": {}, "binders": {}, "restates": {},
+                   "assumes": {"P.lemma_2_4": [{"name": "P.HLit", "binder": "hl", "kind": "literature",
+                                                "type_pp": "P.HLit"}]}},
+                  open(os.path.join(rdir, "DEPENDENCIES.json"), "w"))
+        rn5 = "2026-01-05-abcdef12345"
+        doc5, _, _ = scope.make_target(cfg, rn5, "diff", d, None)
+        os.makedirs(os.path.join(rdir, rn5))
+        json.dump(doc5, open(os.path.join(rdir, rn5, "TARGET.json"), "w"))
+        pf5 = {l: b for l, b, _ in render_lanes(text, cfg, rn5)}.get("paper-faithfulness") or ""
+        hi5 = hypotheses.HYP_ITEM.format("P.HLit")
+        got5 = re.findall(r'item "(F15: the hypothesis [^"]+)"', pf5.split("HYPOTHESES TO JUDGE (F15)", 1)[-1])
+        json.dump({"lane": "paper-faithfulness", "verdicts": [{"item": hi5, "verdict": "Pass", "checked": "as [3]"}]},
+                  open(os.path.join(rdir, rn5, "paper-faithfulness.json"), "w"))
+        open(os.path.join(rdir, rn5, "ADOPTED.md"), "w").write(
+            "## Hypotheses\n\n" + hypotheses.TEMPLATE + "\n|---|---|---|---|---|---|---|\n"
+            "| `P.HLit` | Theorem 2 of [3] | yes | m = 1 | not trivial | every such m divides one | "
+            "paper-faithfulness.json |\n")
+        after5 = hypotheses.hyp_items(cfg, rdir)
+        out.append(("next batch B17 (CR-1): a literature hypothesis with no `## Hypotheses` row gets its item \"F15: the "
+                    "hypothesis <H>\" in the paper-faithfulness scope, listed under HYPOTHESES TO JUDGE; a Pass on it "
+                    "makes a `yes` row valid, and then the item is no longer scheduled",
+                    hi5 in doc5["paper-faithfulness"] and (doc5["_meta"].get("f13") or {}).get(hi5) == "P.HLit"
+                    and got5 == [hi5] and f'"{hi5}": the missing-theory' not in pf5
+                    and hi5 not in after5 and after5 == {}))
+        # DESIGN-SW2 C5 (review R1): a ¬X declaration the index cites as its row's formalization is exempt from the
+        # refutation check, and the correspondence lane that judges the row is told it has the form ¬X
+        open(os.path.join(d, "P", "Basic.lean"), "w").write(
+            "namespace P\n\ndef ConverseHolds : Prop := ∀ m : Nat, m ∣ 1\n\n"
+            "theorem example_2_3 : ¬ ConverseHolds := by\n  intro h\n  exact absurd (h 2) (by decide)\n\nend P\n")
+        open(os.path.join(d, "P", "Main.lean"), "w").write(
+            "/-!\n| Paper | Lean |\n|---|---|\n| Example 2.3 | `P.example_2_3` (the converse fails) |\n-/\n")
+        rn6 = "2026-01-06-full-abcdef12345"
+        doc6, _, _ = scope.make_target(cfg, rn6, "full", d, None)
+        os.makedirs(os.path.join(rdir, rn6))
+        json.dump(doc6, open(os.path.join(rdir, rn6, "TARGET.json"), "w"))
+        keep_mr, make_report.REPO = make_report.REPO, d
+        try:
+            lanes6 = {l: b or "" for l, b, _ in render_lanes(text, cfg, rn6)}
+        finally:
+            make_report.REPO = keep_mr
+        co6 = lanes6.get("correspondence", "")
+        out.append(("DESIGN-SW2 C5: a ¬X declaration cited by its own index row is listed for the correspondence lane "
+                    "under NEGATIONS TO JUDGE (the code's NOTE reaches the lane that judges the row); no other lane has it",
+                    "NEGATIONS TO JUDGE" in co6 and "`example_2_3`" in co6.split("NEGATIONS TO JUDGE", 1)[-1]
+                    and "Example 2.3" in co6.split("NEGATIONS TO JUDGE", 1)[-1]
+                    and not any("NEGATIONS TO JUDGE" in b for l, b in lanes6.items() if l != "correspondence")
+                    and not make_report.refutation_name_problems(cfg, d)))
     finally:
         shutil.rmtree(d, ignore_errors=True)
     return out
@@ -1965,15 +2066,18 @@ def selftest(text, repo):
     checks.append(("B7: lane D tries `first | decide | simp | omega | aesop | exact?` under short heartbeats on each "
                    "goal (with and without hypotheses) and reports a closure Ambiguous; a contradiction step needs the "
                    "paper's quote and the negating lemma in the fixed form (docstring alone: Ambiguous) and a "
-                   "VACUOUS row; the adjudicator recommends the weaker reading, never both; the sheet marks CHECK; the "
+                   "VACUOUS row; the adjudicator recommends the stronger reading (D1), ALSO PROVE the other; the sheet marks CHECK; the "
                    "escalation writes one line to its answer file",
                    "`first | decide | simp | omega | aesop | exact?`" in _d7 and "maxHeartbeats 20000" in _d7
                    and "hypotheses dropped" in _d7 and "Never Pass a statement on such a closure" in _d7
+                   and "is no closure" in _d7 and "uses neither the audited declaration" in _d7
                    and "CONTRADICTION STEP: negated by `<the negating lemma>`; paper (tex l.N):" in _d7
                    and "without the quote and the lemma the item is Ambiguous" in _d7
                    and "records the section as vacuous by design" in _d7
-                   and "passed as a CONTRADICTION STEP" in _a7 and "the weaker one" in _a7
-                   and "Never recommend formalizing both" in _a7
+                   and "passed as a CONTRADICTION STEP" in _a7
+                   # next batch D1: the stronger reading when one implies the other; ALSO PROVE when both look provable
+                   and "Recommend (i) the stronger when one implies the other" in _a7
+                   and "`ALSO PROVE (x)`" in _a7 and "(x) looks false: <witness>" in _a7
                    and "closed by a one-line tactic" in _s7
                    and "<ANSWER-FILE>" in _e7 and "edit nothing else" in _e7))
     # Codex e2e (minipaper3, TP2): lane D read Pass on a stated-only conjecture as "exhibit a witness of the
@@ -2031,6 +2135,19 @@ def selftest(text, repo):
         _ps0 = pending_section({}, "R")
     finally:
         _mrq.adjudication_findings = _afq
+    import result_status as _rsq
+    _cwr = _rsq.conditions_without_row
+    try:
+        _rsq.conditions_without_row = lambda c_, rd=None: ["C3", "K3-2"]
+        _cs = conditions_section({})
+        _rsq.conditions_without_row = lambda c_, rd=None: []
+        _cs0 = conditions_section({})
+    finally:
+        _rsq.conditions_without_row = _cwr
+    checks.append(("next batch G1: the adjudicator prompt lists the CONDITIONS.md items with no status row (step D'), "
+                   "and 'none' when every item has one",
+                   "CONDITIONS WITHOUT A STATUS ROW" in _cs and _cs.rstrip().endswith("C3, K3-2")
+                   and _cs0.rstrip().endswith(": none")))
     checks.append(("sweep D1-D3: the adjudicator prompt lists the pending adjudicator-owned record faults as Phase 0 "
                    "prints them, tells it they are its own to clear (never a STOP), and that its commit refuses them; "
                    "the read-only Phase 0 rule says a PENDING line is no reason to stop",
@@ -2639,4 +2756,9 @@ def main():
 
 if __name__ == "__main__":
     import project
+    try:        # DESIGN-RAM: start the memory guard (lean_slot.py; never fails, never waits, prints nothing)
+        import lean_slot
+        lean_slot.start_guard()
+    except Exception:       # noqa: BLE001
+        pass
     sys.exit(project.run_main(main))

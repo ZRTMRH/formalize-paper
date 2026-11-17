@@ -1,0 +1,880 @@
+{
+ "_about": "AUDIT-P6 (e2e run on arXiv:2609.08713 at tool commit b91644b, project lin-small-kt, Lean cdcb74f): the K-relevant records, verbatim: each index row with its Lean names and its result_status, the current declaration set (newest FINGERPRINTS.json), the assumption walk's assumes and bare, the declared literature hypotheses, CONDITIONS.md, the five rounds' ADOPTED.md ## Conditions sections, every correspondence verdict holding a REPRESENTATION note (item, checked, evidence), and RUN_LOG.md's headings and take-reading lines. result_status --selftest (fix round P6) replays k_status on them.",
+ "namespace": "SmallKtMinorFree",
+ "rows": [
+  [
+   "Definition (chromatic number χ(G), tex l.62)",
+   [
+    "SmallKtMinorFree.chi"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (minor model, tex l.63)",
+   [
+    "SmallKtMinorFree.MinorModel"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (minor H ≼ G, tex l.63)",
+   [
+    "SmallKtMinorFree.IsMinor"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (K_t-minor-free, tex l.65)",
+   [
+    "SmallKtMinorFree.KMinorFree"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (minimum degree bound δ(G) ≥ k, tex l.128)",
+   [
+    "SmallKtMinorFree.MinDegGE"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (vertex-disjoint induced stars with independent centers, tex l.134)",
+   [
+    "SmallKtMinorFree.StarFamily"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (vertex set of a star, tex l.136)",
+   [
+    "SmallKtMinorFree.StarFamily.star"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (partition into stars, tex l.141)",
+   [
+    "SmallKtMinorFree.StarFamily.setoid"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (contracting the stars, tex l.141)",
+   [
+    "SmallKtMinorFree.StarFamily.contract"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (total number of leaves, tex l.223)",
+   [
+    "SmallKtMinorFree.StarFamily.totalLeaves"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (proper minor, tex l.281)",
+   [
+    "SmallKtMinorFree.IsProperMinor"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (every nonempty minor has α(H) ≥ v(H)/r, tex l.317)",
+   [
+    "SmallKtMinorFree.MinorIndepBound"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Definition (f_{3.1}(G,t), tex l.421)",
+   [
+    "SmallKtMinorFree.dpF"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Conjecture 1.1",
+   [
+    "SmallKtMinorFree.HadwigerConjecture"
+   ],
+   [
+    "stated only (a conjecture: stated as a proposition, asserted nowhere; its statement checked faithful)"
+   ]
+  ],
+  [
+   "Conjecture 1.2",
+   [
+    "SmallKtMinorFree.LinearHadwigerConjecture"
+   ],
+   [
+    "stated only (a conjecture: stated as a proposition, asserted nowhere; its statement checked faithful)"
+   ]
+  ],
+  [
+   "Theorem 1.3",
+   [
+    "SmallKtMinorFree.DelcourtPostleColoringHyp"
+   ],
+   [
+    "assumed, not proved (`DelcourtPostleColoringHyp`: literature hypothesis (declared at Checkpoint A))"
+   ]
+  ],
+  [
+   "Theorem 1.4",
+   [
+    "SmallKtMinorFree.thm_1_4"
+   ],
+   [
+    "proved assuming `DelcourtPostleReductionHyp` (literature hypothesis (declared at Checkpoint A))",
+    "proved assuming `DuchetMeynielHyp` (literature hypothesis (declared at Checkpoint A)) (source not checked)"
+   ]
+  ],
+  [
+   "Theorem 2.1",
+   [
+    "SmallKtMinorFree.DuchetMeynielHyp"
+   ],
+   [
+    "assumed, not proved (`DuchetMeynielHyp`: literature hypothesis (declared at Checkpoint A))"
+   ]
+  ],
+  [
+   "Theorem 2.2",
+   [
+    "SmallKtMinorFree.DelcourtPostleGreedyHyp"
+   ],
+   [
+    "assumed, not proved (`DelcourtPostleGreedyHyp`: literature hypothesis (declared at Checkpoint A))"
+   ]
+  ],
+  [
+   "Theorem 2.3",
+   [
+    "SmallKtMinorFree.thm_2_3"
+   ],
+   [
+    "proved assuming `DuchetMeynielHyp` (literature hypothesis (declared at Checkpoint A)) (source not checked)"
+   ]
+  ],
+  [
+   "Lemma 2.4",
+   [
+    "SmallKtMinorFree.lem_2_4"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Lemma 2.5",
+   [
+    "SmallKtMinorFree.lem_2_5"
+   ],
+   [
+    "not established: non-vacuity Ambiguous on `SmallKtMinorFree.lem_2_5` (round 2026-11-14-full-d1d7d5ebd69; decision: QUESTION)"
+   ]
+  ],
+  [
+   "Lemma 2.6",
+   [
+    "SmallKtMinorFree.lem_2_6"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Lemma 2.7",
+   [
+    "SmallKtMinorFree.lem_2_7"
+   ],
+   [
+    "faithful"
+   ]
+  ],
+  [
+   "Theorem 3.1",
+   [
+    "SmallKtMinorFree.DelcourtPostleReductionHyp"
+   ],
+   [
+    "assumed, not proved (`DelcourtPostleReductionHyp`: literature hypothesis (declared at Checkpoint A))"
+   ]
+  ]
+ ],
+ "known": [
+  "Option.elim.match_1.eq_1 (private in SmallKtMinorFree.Minors)",
+  "Option.elim.match_1.eq_2 (private in SmallKtMinorFree.Minors)",
+  "Option.elim.match_1.splitter (private in SmallKtMinorFree.Minors)",
+  "SmallKtMinorFree.DelcourtPostleColoringHyp",
+  "SmallKtMinorFree.DelcourtPostleGreedyHyp",
+  "SmallKtMinorFree.DelcourtPostleReductionHyp",
+  "SmallKtMinorFree.DuchetMeynielHyp",
+  "SmallKtMinorFree.HadwigerConjecture",
+  "SmallKtMinorFree.IsMinor",
+  "SmallKtMinorFree.IsMinor.trans",
+  "SmallKtMinorFree.IsProperMinor",
+  "SmallKtMinorFree.IterInv",
+  "SmallKtMinorFree.KMinorFree",
+  "SmallKtMinorFree.KMinorFree.mono",
+  "SmallKtMinorFree.LinearHadwigerConjecture",
+  "SmallKtMinorFree.MinDegGE",
+  "SmallKtMinorFree.MinorIndepBound",
+  "SmallKtMinorFree.MinorIndepBound.of_isMinor",
+  "SmallKtMinorFree.MinorModel",
+  "SmallKtMinorFree.MinorModel.adj",
+  "SmallKtMinorFree.MinorModel.branch",
+  "SmallKtMinorFree.MinorModel.branch_eq_of_card_eq",
+  "SmallKtMinorFree.MinorModel.card_le",
+  "SmallKtMinorFree.MinorModel.card_le'",
+  "SmallKtMinorFree.MinorModel.casesOn",
+  "SmallKtMinorFree.MinorModel.connected",
+  "SmallKtMinorFree.MinorModel.ctorIdx",
+  "SmallKtMinorFree.MinorModel.disjoint",
+  "SmallKtMinorFree.MinorModel.edgeMap",
+  "SmallKtMinorFree.MinorModel.edgeMap_injective",
+  "SmallKtMinorFree.MinorModel.edgeMap_mem",
+  "SmallKtMinorFree.MinorModel.eq_of_mem",
+  "SmallKtMinorFree.MinorModel.finite",
+  "SmallKtMinorFree.MinorModel.mk",
+  "SmallKtMinorFree.MinorModel.mk.inj",
+  "SmallKtMinorFree.MinorModel.mk.injEq",
+  "SmallKtMinorFree.MinorModel.mk.noConfusion",
+  "SmallKtMinorFree.MinorModel.mk.sizeOf_spec",
+  "SmallKtMinorFree.MinorModel.noConfusion",
+  "SmallKtMinorFree.MinorModel.noConfusionType",
+  "SmallKtMinorFree.MinorModel.nonempty",
+  "SmallKtMinorFree.MinorModel.ofEmbedding",
+  "SmallKtMinorFree.MinorModel.pick",
+  "SmallKtMinorFree.MinorModel.pick_injective",
+  "SmallKtMinorFree.MinorModel.pick_mem",
+  "SmallKtMinorFree.MinorModel.rec",
+  "SmallKtMinorFree.MinorModel.recOn",
+  "SmallKtMinorFree.MinorModel.size_le",
+  "SmallKtMinorFree.MinorModel.trans",
+  "SmallKtMinorFree.StarFamily",
+  "SmallKtMinorFree.StarFamily.card_contract_add_totalLeaves_le",
+  "SmallKtMinorFree.StarFamily.casesOn",
+  "SmallKtMinorFree.StarFamily.center",
+  "SmallKtMinorFree.StarFamily.center_mem_star",
+  "SmallKtMinorFree.StarFamily.center_not_mem_leaves",
+  "SmallKtMinorFree.StarFamily.centers_indep",
+  "SmallKtMinorFree.StarFamily.chi_le_chi_contract_add_one",
+  "SmallKtMinorFree.StarFamily.class_eq_singleton",
+  "SmallKtMinorFree.StarFamily.class_eq_star",
+  "SmallKtMinorFree.StarFamily.contract",
+  "SmallKtMinorFree.StarFamily.contract.match_1",
+  "SmallKtMinorFree.StarFamily.contractModel",
+  "SmallKtMinorFree.StarFamily.ctorIdx",
+  "SmallKtMinorFree.StarFamily.disjoint",
+  "SmallKtMinorFree.StarFamily.eq_of_mem_star",
+  "SmallKtMinorFree.StarFamily.isMinor_contract",
+  "SmallKtMinorFree.StarFamily.leaf_mem_star",
+  "SmallKtMinorFree.StarFamily.leaves",
+  "SmallKtMinorFree.StarFamily.leaves_adj",
+  "SmallKtMinorFree.StarFamily.leaves_indep",
+  "SmallKtMinorFree.StarFamily.leaves_nonempty",
+  "SmallKtMinorFree.StarFamily.m",
+  "SmallKtMinorFree.StarFamily.mk",
+  "SmallKtMinorFree.StarFamily.mk.inj",
+  "SmallKtMinorFree.StarFamily.mk.injEq",
+  "SmallKtMinorFree.StarFamily.mk.noConfusion",
+  "SmallKtMinorFree.StarFamily.mk.sizeOf_spec",
+  "SmallKtMinorFree.StarFamily.mk_eq_iff",
+  "SmallKtMinorFree.StarFamily.noConfusion",
+  "SmallKtMinorFree.StarFamily.noConfusionType",
+  "SmallKtMinorFree.StarFamily.rec",
+  "SmallKtMinorFree.StarFamily.recOn",
+  "SmallKtMinorFree.StarFamily.setoid",
+  "SmallKtMinorFree.StarFamily.star",
+  "SmallKtMinorFree.StarFamily.star_connected",
+  "SmallKtMinorFree.StarFamily.totalLeaves",
+  "SmallKtMinorFree.StarFamily.totalLeaves.eq_1",
+  "SmallKtMinorFree.chi",
+  "SmallKtMinorFree.chi_eq_chromaticNumber",
+  "SmallKtMinorFree.chi_eq_zero_of_isEmpty",
+  "SmallKtMinorFree.chi_eq_zero_of_verts_empty",
+  "SmallKtMinorFree.chi_induce_empty",
+  "SmallKtMinorFree.chi_induce_insert_le",
+  "SmallKtMinorFree.chi_induce_univ",
+  "SmallKtMinorFree.chi_le_card",
+  "SmallKtMinorFree.chi_le_of_colorable",
+  "SmallKtMinorFree.chi_le_of_hom",
+  "SmallKtMinorFree.chromaticNumber_ne_top_of_finite",
+  "SmallKtMinorFree.colorable_chi",
+  "SmallKtMinorFree.div_sqrt_log_le",
+  "SmallKtMinorFree.dpF",
+  "SmallKtMinorFree.dpF_le",
+  "SmallKtMinorFree.emptyStars",
+  "SmallKtMinorFree.exists_indep_card",
+  "SmallKtMinorFree.exists_indep_subset",
+  "SmallKtMinorFree.exists_induce_chi_eq",
+  "SmallKtMinorFree.induce_biUnion_connected",
+  "SmallKtMinorFree.initSeg",
+  "SmallKtMinorFree.initSeg.eq_1",
+  "SmallKtMinorFree.initSeg_card",
+  "SmallKtMinorFree.initSeg_succ",
+  "SmallKtMinorFree.initSeg_zero",
+  "SmallKtMinorFree.isMinor_induce",
+  "SmallKtMinorFree.isMinor_of_injective_hom",
+  "SmallKtMinorFree.isMinor_refl",
+  "SmallKtMinorFree.isMinor_refl'",
+  "SmallKtMinorFree.isMinor_top_of_le",
+  "SmallKtMinorFree.iterInv_step",
+  "SmallKtMinorFree.k2InK3",
+  "SmallKtMinorFree.kMinorFree_bot",
+  "SmallKtMinorFree.lem_2_4",
+  "SmallKtMinorFree.lem_2_5",
+  "SmallKtMinorFree.lem_2_5_proof",
+  "SmallKtMinorFree.lem_2_6",
+  "SmallKtMinorFree.lem_2_6_proof",
+  "SmallKtMinorFree.lem_2_7",
+  "SmallKtMinorFree.lem_2_7_proof",
+  "SmallKtMinorFree.log_pow_four_le",
+  "SmallKtMinorFree.nat_half_le_div",
+  "SmallKtMinorFree.nat_ivt",
+  "SmallKtMinorFree.one_le_chi",
+  "SmallKtMinorFree.one_le_log_of_three_le",
+  "SmallKtMinorFree.size",
+  "SmallKtMinorFree.size_induce_le",
+  "SmallKtMinorFree.size_lt_of_isProperMinor",
+  "SmallKtMinorFree.thm_1_4",
+  "SmallKtMinorFree.thm_1_4_proof",
+  "SmallKtMinorFree.thm_2_3",
+  "SmallKtMinorFree.thm_2_3_proof",
+  "SmallKtMinorFree.two_lt_div_sqrt_log"
+ ],
+ "assumes": {
+  "SmallKtMinorFree.thm_1_4": [
+   {
+    "binder": "hDP",
+    "embedded": false,
+    "kind": "prop",
+    "name": "SmallKtMinorFree.DelcourtPostleReductionHyp",
+    "type_pp": "SmallKtMinorFree.DelcourtPostleReductionHyp"
+   },
+   {
+    "binder": "hDM",
+    "embedded": false,
+    "kind": "prop",
+    "name": "SmallKtMinorFree.DuchetMeynielHyp",
+    "type_pp": "SmallKtMinorFree.DuchetMeynielHyp"
+   }
+  ],
+  "SmallKtMinorFree.thm_2_3": [
+   {
+    "binder": "hDM",
+    "embedded": false,
+    "kind": "prop",
+    "name": "SmallKtMinorFree.DuchetMeynielHyp",
+    "type_pp": "SmallKtMinorFree.DuchetMeynielHyp"
+   }
+  ]
+ },
+ "bare": {
+  "SmallKtMinorFree.DelcourtPostleReductionHyp": [
+   "SmallKtMinorFree.thm_1_4",
+   "SmallKtMinorFree.thm_1_4_proof"
+  ],
+  "SmallKtMinorFree.DuchetMeynielHyp": [
+   "SmallKtMinorFree.dpF_le",
+   "SmallKtMinorFree.thm_1_4",
+   "SmallKtMinorFree.thm_1_4_proof",
+   "SmallKtMinorFree.thm_2_3",
+   "SmallKtMinorFree.thm_2_3_proof"
+  ],
+  "SmallKtMinorFree.IsMinor": [
+   "SmallKtMinorFree.IsMinor.trans",
+   "SmallKtMinorFree.MinorIndepBound.of_isMinor"
+  ],
+  "SmallKtMinorFree.IsProperMinor": [
+   "SmallKtMinorFree.size_lt_of_isProperMinor"
+  ],
+  "SmallKtMinorFree.IterInv": [
+   "SmallKtMinorFree.iterInv_step"
+  ],
+  "SmallKtMinorFree.KMinorFree": [
+   "SmallKtMinorFree.KMinorFree.mono",
+   "SmallKtMinorFree.thm_2_3",
+   "SmallKtMinorFree.thm_2_3_proof"
+  ],
+  "SmallKtMinorFree.MinDegGE": [
+   "SmallKtMinorFree.lem_2_5",
+   "SmallKtMinorFree.lem_2_5_proof"
+  ],
+  "SmallKtMinorFree.MinorIndepBound": [
+   "SmallKtMinorFree.MinorIndepBound.of_isMinor",
+   "SmallKtMinorFree.exists_indep_subset",
+   "SmallKtMinorFree.iterInv_step",
+   "SmallKtMinorFree.lem_2_5",
+   "SmallKtMinorFree.lem_2_5_proof",
+   "SmallKtMinorFree.lem_2_7",
+   "SmallKtMinorFree.lem_2_7_proof"
+  ]
+ },
+ "literature_hypotheses": [
+  {
+   "lean": "SmallKtMinorFree.DuchetMeynielHyp",
+   "paper": "[Duchet-Meyniel], Theorem 2.1 (thm:minor-independence)"
+  },
+  {
+   "lean": "SmallKtMinorFree.DelcourtPostleReductionHyp",
+   "paper": "[Delcourt-Postle, Thm 1.6], Theorem 3.1 (thm:dp)"
+  },
+  {
+   "lean": "SmallKtMinorFree.DelcourtPostleColoringHyp",
+   "paper": "[Delcourt-Postle], Theorem 1.3 (thm:dp-coloring)"
+  },
+  {
+   "lean": "SmallKtMinorFree.DelcourtPostleGreedyHyp",
+   "paper": "[Delcourt-Postle, Cor 3.2] with [Duchet-Meyniel], Theorem 2.2 (thm:greedy-bound)"
+  }
+ ],
+ "conditions": "# Conditions — lin-small-kt\n\n| id | kind | results | text | source |\n|---|---|---|---|---|\n| C1 | condition | Theorems 1.3, 2.1, 2.2, 3.1 | \"Results the paper cites from the literature without proof (Delcourt-Postle, Duchet-Meyniel) may be taken as named hypotheses, stated faithfully to their sources.\" | RUN_LOG.md ## Intake 2026-11-14 |\n| C2 | source-def | all | The notion of a graph minor (`SmallKtMinorFree.MinorModel`, `SmallKtMinorFree.IsMinor`) is used but not defined in the paper; it is taken from Diestel, Graph Theory, Section 1.7 (minor models with connected disjoint branch sets). Open question: does this match the author's intended notion? | Common.lean docstring of `SmallKtMinorFree.IsMinor` |\n| C3 | reading | Lemma 2.5 (`SmallKtMinorFree.lem_2_5`), and through it the χ > 2r case of Lemma 2.7 | Open K question: are the hypotheses of Lemma 2.5 satisfiable for some r? Compiled: unsatisfiable at r = 2; by argument (Mader's edge bound): unsatisfiable for r ≤ 6, raised to r ≤ 8 in round 2026-11-14-full-cdcb74f8540 (ADOPTED.md), which also argues they can be met for very large r (random graphs); moderate r open. Kept as printed (reading (a)); if they are unsatisfiable for every r, Lemma 2.5 is vacuous and Lemma 2.7 holds with χ(G) ≤ 2r. | ADOPTED.md of round 2026-11-14-full-d1d7d5ebd69, QUESTION rows |\n",
+ "adopted": {
+  "2026-11-14-cdcb74f8540": "## Conditions\n\n| id | status | evidence | reason |\n|---|---|---|---|\n| C1 | met | `SmallKtMinorFree.DuchetMeynielHyp`, `SmallKtMinorFree.DelcourtPostleReductionHyp`, `SmallKtMinorFree.DelcourtPostleColoringHyp`, `SmallKtMinorFree.DelcourtPostleGreedyHyp` (Literature.lean:32-64) | Unchanged since round 2026-11-14-full-d1d7d5ebd69: Literature.lean was not edited since 9baaecd. The text is verbatim from RUN_LOG.md ## Intake, item 7. |\n| C2 | met | `SmallKtMinorFree.MinorModel`, `SmallKtMinorFree.IsMinor` (Common.lean:40-51) | Unchanged since round 2026-11-14-full-d1d7d5ebd69: the Diestel §1.7 branch-set model. This round's correspondence lane again matches its fields (nonempty, disjoint, connected, adj) to Diestel's definition. |\n| C3 | open | Lemma 2.5's hypotheses are compiled unsatisfiable at r = 2 (round 2026-11-14-full-d1d7d5ebd69, non-vacuity@2.probes/lem_2_5_hyp_r2_empty.lean) and are unsatisfiable by argument for r ≤ 6. This round's non-vacuity.probes/iterInv_step_witness_is_hadwiger_counterexample.lean (re-run, exit 0) compiles that any instance of iterInv_step gives a K_(r+1)-minor-free graph with χ ≥ 2r+1. | Still open: satisfiability for large r is equivalent to a counterexample to the linear Hadwiger conjecture among graphs with at most r² vertices, which is open. Reading (a) is kept, as the [DELEGATED] lines in RUN_LOG.md \"## Open questions\" record. |\n\n",
+  "2026-11-14-full-6188648a3a1": "## Conditions\n\n| id | status | evidence | reason |\n|---|---|---|---|\n| C1 | met | `SmallKtMinorFree.DuchetMeynielHyp`, `SmallKtMinorFree.DelcourtPostleReductionHyp`, `SmallKtMinorFree.DelcourtPostleColoringHyp`, `SmallKtMinorFree.DelcourtPostleGreedyHyp` (Literature.lean); this round's paper-faithfulness Passes on Theorems 1.3, 2.1, 2.2, 3.1 and both F15 items; correspondence Passes on all four | I compared the two hypotheses the proofs use with tex l.150-156 and l.417-430 myself: each says what the paper states and no more (DelcourtPostleReductionHyp additionally assumes G nonempty, which the paper's statement also does and which only weakens it). Duchet–Meyniel is checked against the paper's stated consequence, not the 1982 original (hence \"source unavailable\" in Hypotheses). |\n| C2 | met | `SmallKtMinorFree.MinorModel`, `SmallKtMinorFree.IsMinor` (Common.lean:33-44); paper-faithfulness Pass on \"Definition (minor model, tex l.63)\" and \"Definition (minor H ≼ G, tex l.63)\" | I checked the structure myself: nonempty, pairwise disjoint branch sets, each inducing a connected subgraph, and an edge between the branch sets for every edge of H. That is Diestel §1.7's IX and the model definition of Delcourt–Postle, whose reduction the paper uses. The paper (tex l.63-66) uses \"minor\" with no qualifier, so the standard notion is the only reading on offer. |\n\n",
+  "2026-11-14-full-9baaecd7424": "## Conditions\n\n| id | status | evidence | reason |\n|---|---|---|---|\n| C1 | met | `SmallKtMinorFree.DuchetMeynielHyp`, `SmallKtMinorFree.DelcourtPostleReductionHyp`, `SmallKtMinorFree.DelcourtPostleColoringHyp`, `SmallKtMinorFree.DelcourtPostleGreedyHyp` (Literature.lean). This round, paper-faithfulness Passes Theorems 1.3, 2.1, 2.2 and 3.1, and correspondence Passes all four declarations. | The CONDITIONS.md text is verbatim from RUN_LOG.md ## Intake, item 7. Unchanged since the last round (fingerprints equal). I re-read tex l.150-156 and l.417-430 against Literature.lean:36-66: each hypothesis states what the paper states and no more. |\n| C2 | met | `SmallKtMinorFree.MinorModel`, `SmallKtMinorFree.IsMinor` (Common.lean:40-51). This round, paper-faithfulness Passes \"Definition (minor model, tex l.63)\" and \"Definition (minor H ≼ G, tex l.63)\". | Unchanged since round 2026-11-14-full-6188648a3a1. I checked the structure again: nonempty, pairwise disjoint branch sets, each inducing a connected subgraph, and a G-edge between the branch sets of every H-edge. That is Diestel §1.7. The paper (tex l.63-66) leaves \"minor\" undefined. |\n\n",
+  "2026-11-14-full-cdcb74f8540": "## Conditions\n\n| id | status | evidence | reason |\n|---|---|---|---|\n| C1 | met | `SmallKtMinorFree.DuchetMeynielHyp`, `SmallKtMinorFree.DelcourtPostleReductionHyp`, `SmallKtMinorFree.DelcourtPostleColoringHyp`, `SmallKtMinorFree.DelcourtPostleGreedyHyp` (Literature.lean). This round, paper-faithfulness Passes Theorems 1.3, 2.1, 2.2 and 3.1, and correspondence@1 and non-vacuity@1 Pass all four declarations. | The text is verbatim from RUN_LOG.md ## Intake, item 7. Only Theorems 2.1 and 3.1 are taken by results (DEPENDENCIES.json `assumes`: thm_2_3, thm_1_4), as in the paper. |\n| C2 | met | `SmallKtMinorFree.MinorModel`, `SmallKtMinorFree.IsMinor` (Common.lean:40-51). This round, paper-faithfulness Passes \"Definition (minor model, tex l.63)\" and \"Definition (minor H ≼ G, tex l.63)\". | The definition is the Diestel §1.7 branch-set model (nonempty, pairwise disjoint, connected branch sets, an edge of G for each edge of H), unchanged since 9baaecd. |\n| C3 | open | Lemma 2.5's bundle is unsatisfiable at r = 2 (compiled, round 2026-11-14-full-d1d7d5ebd69) and, by argument, for r ≤ 8 (this round's non-vacuity@2 cites extremal edge bounds for t ≤ 9). By this round's argument it is satisfiable for large r: G(n,1/2) with r = twice its Hadwiger number, through Duchet–Meyniel, once log₂ n ≥ 64. iterInv_step's hypotheses imply a counterexample to Hadwiger's conjecture (non-vacuity@2.probes/iterInv_step_hyps_refute_hadwiger.lean, re-run, exit 0). | Still open: there is no Lean witness for large r. The new argument makes vacuity of Lemma 2.5 look false, which further supports reading (a), already taken by [DELEGATED] lines in RUN_LOG.md \"## Open questions\". The χ(G) > 2r branch of Lemma 2.7 stays open, because exhibiting it would refute Hadwiger's conjecture. |\n\n",
+  "2026-11-14-full-d1d7d5ebd69": "## Conditions\n\n| id | status | evidence | reason |\n|---|---|---|---|\n| C1 | met | `SmallKtMinorFree.DuchetMeynielHyp`, `SmallKtMinorFree.DelcourtPostleReductionHyp`, `SmallKtMinorFree.DelcourtPostleColoringHyp`, `SmallKtMinorFree.DelcourtPostleGreedyHyp` (Literature.lean). This round, paper-faithfulness Passes Theorems 1.3, 2.1, 2.2 and 3.1, and correspondence and non-vacuity Pass all four declarations. | The CONDITIONS.md text is verbatim from RUN_LOG.md ## Intake, item 7. Only the two hypotheses the paper uses (Theorems 2.1, 3.1) are taken by results (DEPENDENCIES.json `assumes`: thm_2_3, thm_1_4), as the paper does. |\n| C2 | met | `SmallKtMinorFree.MinorModel`, `SmallKtMinorFree.IsMinor` (Common.lean:40-51). This round, paper-faithfulness Passes \"Definition (minor model, tex l.63)\" and \"Definition (minor H ≼ G, tex l.63)\". | Unchanged since round 2026-11-14-full-9baaecd7424. The definition is the Diestel §1.7 branch-set model: nonempty, pairwise disjoint, connected branch sets, with an edge of G for every edge of H. |\n\n"
+ },
+ "correspondence": {
+  "2026-11-14-cdcb74f8540/correspondence.json": [
+   {
+    "item": "SmallKtMinorFree.MinorModel.card_le",
+    "checked": "Docstring SmallKtMinorFree/Minors.lean:167 ('A minor of a finite graph has at most as many vertices (a chosen vertex per branch set gives an injection)') against type Minors.lean:168-169: [Fintype V] [Fintype W] (M : MinorModel H G) : Fintype.card W <= Fintype.card V. Non-strict, direction correct (minor H, host G). Docstring attaches to this theorem (nothing in between). Unfolded MinorModel (Common.lean:40-46): Prop fields nonempty, disjoint (Pairwise), connected (G.induce branch connected), adj (each H-edge realised by a G-edge between branch sets) -- exactly the branch-set definition of Diestel 1.7; the paper defines no minor itself (tex l.63 uses it). No field beyond that definition; branch sets need not cover V(G), which is correct for minors (deletion allowed). The extra [Fintype W] is not an extra mathematical assumption: probe /home/fp-claude/e2e-2609-08713-formalization/audits/lin-small-kt/2026-11-14-cdcb74f8540/correspondence.probes/signatures_and_junk.lean (exit 0) derives Nat.card W <= Nat.card V from Fintype V alone via MinorModel.finite (Minors.lean:179). No junk operation in the statement. REPRESENTATION: 'H is a minor of G' is represented by a minor model M : MinorModel H G (data) rather than IsMinor; trivial (IsMinor := Nonempty (MinorModel H G), Common.lean:51). v(H) as Fintype.card W; trivial.",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.StarFamily.card_contract_add_totalLeaves_le",
+    "checked": "Docstring Minors.lean:326 ('Contracting the stars removes at least one vertex per leaf') against type Minors.lean:327-329: Fintype.card (Quotient S.setoid) + S.totalLeaves <= Fintype.card V, i.e. v(G) - v(G/stars) >= sum |L_i|; non-strict as 'at least'. Uses addition, no truncated subtraction. Unfolded totalLeaves = sum_i (S.leaves i).card (Common.lean:121); leaves of different stars are disjoint by StarFamily.disjoint (Common.lean:82-83), so this is the number of leaves (the proof's own Finset.card_biUnion at Minors.lean:333 uses that). Unfolded setoid (Common.lean:96-109): x~y iff x=y or both in a common star, so Quotient S.setoid is the vertex set of the contraction (each star to one vertex, other vertices singletons), matching tex l.141-144 and the paper's use v(H_i)=v(F_i)-L_i (proof of Lemma 2.7). The [Fintype (Quotient S.setoid)] instance is arbitrary but Fintype.card is instance-independent. StarFamily Prop fields (Common.lean:71-85) matched to the paper (tex l.134-141 and 'pairwise vertex-disjoint induced stars with independent centers' in Lemmas 2.4/2.5): leaves_nonempty <-> L nonempty; leaves_adj <-> L subset N_G(c); leaves_indep <-> L independent (induced star); disjoint <-> vertex-disjoint stars; centers_indep <-> independent centers. No field the paper lacks; edges between different stars are allowed, as the paper says. REPRESENTATION: the contracted graph's vertex set as Quotient S.setoid (quotient for the contraction), trivial by unfolding setoid; stars indexed by Fin S.m with leaf sets as Finset V, trivial.",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.chi_le_of_hom",
+    "checked": "Docstring Minors.lean:56 ('Chromatic number is monotone along graph homomorphisms') against type Minors.lean:57-58: [Finite V] [Finite W] (f : H ->g G) : chi H <= chi G. Direction correct (a hom H -> G pulls back colourings of G). Unfolded chi (Common.lean:27) = G.chromaticNumber.toNat. JUNK: toNat of top is 0, which would make chi of an infinite-chromatic graph 0; ruled out because both types are Finite: chromaticNumber_ne_top_of_finite (Minors.lean:22) and chi_eq_chromaticNumber (Common.lean:30) show chi is the true chromatic number there. The docstring states no finiteness while the type requires it; with the project-wide convention that all graphs are finite (Common.lean:6-8, tex l.62) this is not a disagreement of meaning. Signature confirmed by #check in probe /home/fp-claude/e2e-2609-08713-formalization/audits/lin-small-kt/2026-11-14-cdcb74f8540/correspondence.probes/signatures_and_junk.lean (exit 0). REPRESENTATION: chi in N via ENat.toNat of Mathlib's chromaticNumber; trivial on finite types by chi_eq_chromaticNumber (Common.lean:30).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.exists_indep_card",
+    "checked": "Docstring SmallKtMinorFree/Proofs.lean:38 ('An independent subset of T of any size at most |I|, for an independent set I subset T') against type Proofs.lean:39-41: (hIT : I subset T) (hI : G.IsIndepSet I) {n} (hn : n <= I.card) : exists L subset T, G.IsIndepSet L and L.card = n. Quantifiers: for every n <= |I| there is L; non-strict <= as 'at most'; exact size = n as 'of any size'. Docstring attaches to this theorem. No junk operation. No project definitions involved (Mathlib IsIndepSet, Finset.card). REPRESENTATION: vertex sets as Finset V, independence via the coercion to Set V; trivial.",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.iterInv_step",
+    "checked": "iterInv_step (Proofs.lean:246-249) carries no docstring, and no README or status sentence mentions it (git grep over the repository outside the audit record finds it only at Proofs.lean:247 and :342); the English claim it inherits is the docstring of IterInv (Proofs.lean:238, 'The invariant of the iteration in the proof of Lemma 2.7'), which attaches to IterInv (Proofs.lean:239) with nothing in between. Unfolded IterInv (Proofs.lean:239-244, also #print in probe /home/fp-claude/e2e-2609-08713-formalization/audits/lin-small-kt/2026-11-14-cdcb74f8540/correspondence.probes/signatures_and_junk.lean, exit 0): exists a nonempty finite F with IsMinor F G, chi F = i, MinDegGE (i-1) F, every proper minor J of F has chi J <= i-1, and v(F) <= v(G) exp(-(chi(G)(chi(G)-1) - i(i-1))/(16 r^2)). Compared with the paper's inductive invariant in the proof of Lemma 2.7 (tex, 'inductively construct a sequence of minors F_chi(G),...,F_2r ... chi(F_i)=i, delta(F_i)>=i-1, every proper minor of F_i has chromatic number at most i-1' and v(F_{i-1}) <= v(F_i)(1-(i-1)/(8r^2))): the size clause is the cumulative form, since prod (1-(j-1)/8r^2) <= exp(-sum_{j=i+1}^{chi}(j-1)/8r^2) and sum_{j=i+1}^{chi}(j-1) = (chi(chi-1)-i(i-1))/2, the same exponent the paper uses at i=2r. The step's type (Proofs.lean:247-249): 2<=r, v(G)<=r^2, MinorIndepBound r G, 2r+1<=i, IterInv i => IterInv (i-1) is the paper's 'Fix i with 2r+1 <= i <= chi(G), and suppose F_i has been constructed'; the upper bound i<=chi(G) is omitted (more general, harmless). JUNK: i-1 is natural subtraction but i>=2r+1>=5; MinDegGE (Common.lean:22) uses Set.ncard, which is 0 on infinite sets, but W is Fintype; chi J for J on an arbitrary U: probe /home/fp-claude/e2e-2609-08713-formalization/audits/lin-small-kt/2026-11-14-cdcb74f8540/correspondence.probes/signatures_and_junk.lean (exit 0) shows a minor of a finite graph has Finite U (MinorModel.finite, Minors.lean:179), so chi J is the true chromatic number; IsProperMinor (Common.lean:58-59) = minor and not isomorphic, matching tex l.281. MinorIndepBound (Common.lean:64-66) matches the Lemma 2.7 hypothesis 'every nonempty minor H satisfies alpha(H) >= v(H)/r' with r cast to R (r>=2 so no division by 0). REPRESENTATION: minors F_i as an existential over a type W in Type with Fintype and Nonempty instances, trivial; the product of per-step factors replaced by a single exp bound, nontrivial but a short argument (1-x <= e^{-x} and the arithmetic-series identity, both done in the proof at Proofs.lean:291-315).",
+    "evidence": ""
+   }
+  ],
+  "2026-11-14-full-6188648a3a1/correspondence.json": [
+   {
+    "item": "SmallKtMinorFree.DelcourtPostleColoringHyp",
+    "checked": "Literature.lean:29-34 against tex l.98-104: exists C:R, 0<C, forall t:N, 3<=t, forall finite V and G, KMinorFree t G -> chi G <= C*t*log(log t); quantifier order (C before t, G) and the bound match the docstring and the paper. log(log t) > 0 for t>=3, no junk. chi junk ruled out for finite V by probe_chi_coe in audits/lin-small-kt/2026-11-14-full-6188648a3a1/correspondence.probes/junk_chi_dpF.lean (exit 0). REPRESENTATION: graphs as SimpleGraph on a Fintype V : Type (trivial); integer t as N with 3<=t (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.DelcourtPostleGreedyHyp",
+    "checked": "Literature.lean:43-50 against tex l.164-171: forall t>=2, nonempty finite V, KMinorFree t G -> chi G <= 2(t-1)(2+posLog(card V/(2(t-1)))). posLog is Mathlib's max 0 (log r) (PosLog.lean:38), matching log^+ (tex l.126-127). (t:R)-1 is real subtraction; 2(t-1)>=2>0 so no division junk. 'nonempty' is [Nonempty V]. Matches docstring. REPRESENTATION: v(G)=Fintype.card V (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.DelcourtPostleReductionHyp",
+    "checked": "Literature.lean:61-66 against tex l.417-430: exists C:N, 1<=C, forall t>=3, nonempty finite V, G, KMinorFree t G -> chi G <= C*t*(1+dpF C G t). C is an integer >=1 chosen before t and G, as in the paper and the docstring. dpF's sSup junk (sSup of empty set = 0) is ruled out: probe_dpF_nonempty (C>=0, t>=3) and probe_dpF_bdd (finite V) in audits/lin-small-kt/2026-11-14-full-6188648a3a1/correspondence.probes/junk_chi_dpF.lean (exit 0) show the set is nonempty and bounded above, so sSup is the maximum the paper writes. REPRESENTATION: the integer constant C:N cast to R inside dpF (trivial); f_{3.1} as an sSup over a set of reals (trivial given the probe).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.DuchetMeynielHyp",
+    "checked": "Literature.lean:36-41 against tex l.150-156: forall t>=2, finite V, G, KMinorFree t G -> MinorIndepBound (2*((t:R)-1)) G; unfolding MinorIndepBound (Common.lean:57-59) gives: every minor H on a finite nonempty W has card W/(2(t-1)) <= indepNum H, which is the paper's statement. r=2(t-1)>=2 so the x/0 junk cannot occur. REPRESENTATION: 'nonempty minor H' as a SimpleGraph on a Fintype, Nonempty W : Type with IsMinor H G (trivial: minors of a finite graph are finite since branch sets are disjoint and nonempty); alpha as Mathlib indepNum (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.HadwigerConjecture",
+    "checked": "Literature.lean:16-20 against tex l.70-73: forall t>=1, forall finite V and G, KMinorFree t G -> G.Colorable (t-1). N subtraction t-1 does not truncate since 1<=t. Matches docstring and paper. REPRESENTATION: '(t-1)-colorable' as Mathlib Colorable (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.IsMinor",
+    "checked": "Common.lean:41-44: Nonempty (MinorModel H G). Unfolds to Diestel's minor-model definition (see MinorModel); invariant under isomorphism of H, so 'up to isomorphism' in the docstring is accurate. REPRESENTATION: minor relation as existence of a model (branch-set) rather than a sequence of deletions/contractions (standard equivalence, nontrivial but textbook, Diestel 1.7).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.KMinorFree",
+    "checked": "Common.lean:46-48 against tex l.65-66: not IsMinor (⊤ : SimpleGraph (Fin t)) G. Matches. Degenerate cases checked in Examples.lean:26-36 (K_0 is a minor of everything; empty graph is K_1-minor-free), consistent with the paper's conventions. REPRESENTATION: K_t as ⊤ on Fin t (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.MinorIndepBound",
+    "checked": "Common.lean:54-59 against tex l.221 and l.317: forall W:Type, Fintype W, Nonempty W, H, IsMinor H G -> card W / r <= indepNum H, with r:R. Matches 'every nonempty minor H satisfies alpha(H) >= v(H)/r'. Junk r=0 (x/0=0 makes it vacuous) is excluded at every use: lem_2_5/lem_2_7 have hr : 2 <= r (Small.lean:25, 43), DuchetMeynielHyp uses r=2(t-1) with t>=2. REPRESENTATION: minors restricted to finite types in Type (trivial: a minor of a finite graph injects into it via its disjoint nonempty branch sets).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.StarFamily",
+    "checked": "Common.lean:61-78 against tex l.134-139 and Lemma 2.4 (tex l.197-205). Prop fields: leaves_nonempty (paper: L nonempty, l.136), leaves_adj (L ⊆ N_G(c), l.136), leaves_indep (L independent, l.136), disjoint (stars {c_i} ∪ L_i pairwise vertex-disjoint, l.198), centers_indep ({c_1..c_m} independent, l.199-200). Each field is in the paper; none is extra; c_i ∉ L_i follows from leaves_adj and looplessness. Edges between different stars are allowed (l.138-139), as in the Lean. REPRESENTATION: indexed family over Fin m with Finset leaf sets (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.StarFamily.contract",
+    "checked": "Common.lean:104-111: Adj p q := p ≠ q ∧ ∃ x y, ⟦x⟧=p ∧ ⟦y⟧=q ∧ G.Adj x y on Quotient S.setoid. Matches docstring (distinct classes adjacent iff G has an edge between them) and the paper's 'contract each star, delete loops, suppress parallel edges' (tex l.141-144, 200-201). Sanity check Examples.lean:86-102 (no stars: adjacency unchanged). REPRESENTATION: the contracted graph as a quotient graph by the star partition instead of iterated G/A with named vertices v_A (trivial: contracting disjoint connected sets one at a time yields the same quotient).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.chi",
+    "checked": "",
+    "evidence": "Common.lean:24-27: docstring says Mathlib's chromaticNumber is finite on a finite vertex type '(`chi_eq_chromaticNumber`)', citing a lemma that does not exist: git grep finds the name only in this docstring, it is absent from Mathlib, and audits/lin-small-kt/2026-11-14-full-6188648a3a1/correspondence.probes/missing_chi_eq_chromaticNumber.lean exits 1 with 'Unknown identifier `SmallKtMinorFree.chi_eq_chromaticNumber`' and 'Unknown constant `SimpleGraph.chi_eq_chromaticNumber`'. The mathematical claim itself is true: probe_chi_coe in audits/lin-small-kt/2026-11-14-full-6188648a3a1/correspondence.probes/junk_chi_dpF.lean (exit 0) proves ((chi G : N) : N∞) = G.chromaticNumber for Fintype V, so the definition body (chromaticNumber.toNat, Common.lean:27) is correct for finite graphs and the toNat ⊤ = 0 junk does not occur in any statement (all use finite vertex types; quotient case probe_chi_contract, minor case via injection into W). REPRESENTATION: chi as N via ENat.toNat (trivial for finite V, by the probe)."
+   },
+   {
+    "item": "SmallKtMinorFree.dpF",
+    "checked": "Literature.lean:52-59 against tex l.421-425: sSup of {chi H.coe / a | a:N, t/√(log t) <= a <= t, H : G.Subgraph, H.verts.ncard <= C a (log a)^4, KMinorFree a H.coe}. Matches the paper's max over H ⊆ G (non-induced subgraphs, as the docstring says). Junk: sSup of an empty or unbounded set is 0; probe_dpF_nonempty (0<=C, t>=3; witness a=t, H=⊥) and probe_dpF_bdd (finite V) in audits/lin-small-kt/2026-11-14-full-6188648a3a1/correspondence.probes/junk_chi_dpF.lean (exit 0) confirm the docstring's 'finite and, for t>=3, nonempty, so sSup is its maximum' under C>=0, which holds at the only use (C>=1, Literature.lean:65). a >= t/√(log t) > 0 forces a>=1 for t>=3, so chi/a has no division junk. Caveat (not a mismatch): the nonemptiness sentence is stated 'for C = C_{3.1}'; for negative C the set would be empty and dpF = 0. REPRESENTATION: H ⊆ G as Mathlib Subgraph viewed via H.coe on its vertex subtype (trivial); v(H) as Set.ncard of verts (trivial for finite V).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.lem_2_4",
+    "checked": "Small.lean:13-18 against tex l.197-205: for finite V, any StarFamily S of G, chi G <= chi S.contract + 1. The StarFamily fields encode exactly the lemma's hypotheses (see StarFamily verdict) and contract is H. chi of the quotient is not junk: probe_chi_contract in audits/lin-small-kt/2026-11-14-full-6188648a3a1/correspondence.probes/junk_chi_dpF.lean (exit 0). REPRESENTATION: H as S.contract on Quotient S.setoid (trivial, see contract).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.lem_2_5",
+    "checked": "Small.lean:20-29 against tex l.218-227: r i : N, 2<=r, 2r+1<=i, nonempty finite V, card V <= r^2, MinDegGE (i-1) G, MinorIndepBound r G -> exists S : StarFamily G, card V*(i-1)/(8 r^2) <= S.totalLeaves. i-1 in MinDegGE is N subtraction but i>=5 so no truncation; ((i:R)-1) in the conclusion is real. 8r^2>0. Matches docstring and paper, including non-strict inequalities. REPRESENTATION: 'G contains stars...' as an existential StarFamily (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.lem_2_6",
+    "checked": "Small.lean:31-38 against tex l.287-291: nonempty finite G -> exists W:Type, Fintype W, Nonempty W, H, IsMinor H G ∧ chi H = chi G ∧ MinDegGE (chi G - 1) H ∧ forall U J, IsProperMinor J H -> chi J <= chi G - 1. N subtraction chi G - 1 does not truncate: probe_chi_pos in audits/lin-small-kt/2026-11-14-full-6188648a3a1/correspondence.probes/junk_chi_dpF.lean (exit 0) proves 1 <= chi G for nonempty finite G. chi J for U without Fintype is still not junk since a proper minor's vertices inject into W (disjoint nonempty branch sets). Matches docstring and paper. REPRESENTATION: 'H a nonempty minor' as an existentially chosen type W with instances (trivial).",
+    "evidence": ""
+   }
+  ],
+  "2026-11-14-full-9baaecd7424/correspondence.json": [
+   {
+    "item": "SmallKtMinorFree.DelcourtPostleColoringHyp",
+    "checked": "SmallKtMinorFree/Literature.lean:29-34 vs paper.tex:98-104. Exists C:R, 0<C, forall t:N, 3<=t, forall finite V and G, KMinorFree t G -> (chi G:R) <= C*t*log(log t). Quantifier order (exists C before forall t, G) matches 'absolute constant'. log is Real.log (open Real); log log t > 0 for t>=3 so no junk. chi on Fintype V is the true chromatic number (chi_eq_chromaticNumber, Common.lean:30). Docstring 'Not used by any proof' consistent with the file. REPRESENTATION: graph = SimpleGraph on a Fintype V : Type (trivial); t as N (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.DelcourtPostleGreedyHyp",
+    "checked": "SmallKtMinorFree/Literature.lean:43-50 vs paper.tex:164-171. forall t>=2, forall finite nonempty V, G, KMinorFree t G -> chi G <= 2(t-1)(2+posLog(card V/(2(t-1)))). Real.posLog is max 0 (log r) (Mathlib Analysis/SpecialFunctions/Log/PosLog.lean:38), equal to the paper's log^+ (tex l.126) on the positive argument here (2(t-1)>=2). t-1 is taken in R, no truncation. Cast/division elaboration checked by an Iff.rfl against a fully explicit-cast restatement in audits/lin-small-kt/2026-11-14-full-9baaecd7424/correspondence.probes/dpF_attained_and_casts.lean (compiles, exit 0). 'nonempty' = [Nonempty V]. REPRESENTATION: v(G) = Fintype.card V (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.DelcourtPostleReductionHyp",
+    "checked": "SmallKtMinorFree/Literature.lean:61-66 vs paper.tex:417-430 and the plain-English reading in the task. Exists C:N, 1<=C (integer C>=1), forall t>=3, forall finite nonempty V, G, KMinorFree t G -> chi G <= C*t*(1+dpF C G t); the same C is passed to dpF as in the paper's f_{3.1} (C_{3.1} appears inside f). Elaboration (all casts N->R, dpF fed (C:R)) checked by Iff.rfl in audits/lin-small-kt/2026-11-14-full-9baaecd7424/correspondence.probes/dpF_attained_and_casts.lean (exit 0). Junk: dpF is an sSup; audits/lin-small-kt/2026-11-14-full-9baaecd7424/correspondence.probes/dpF_attained_and_casts.lean proves dpF_mem: for Fintype V, 0<=C, t>=3, dpF C G t is a member of its defining set (set finite and nonempty, Set.Nonempty.csSup_mem), so dpF is the attained maximum the paper writes, not a junk 0. The plain-English reading (integer C>=1; every t>=3; nonempty finite K_t-minor-free G; f = max of chi(H)/a over integers t/sqrt(log t)<=a<=t and subgraphs H with v(H)<=C a log^4 a, K_a-minor-free) says neither more nor less than the type. REPRESENTATION: 'nonempty graph' as [Nonempty V] (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.DuchetMeynielHyp",
+    "checked": "SmallKtMinorFree/Literature.lean:36-41 vs paper.tex:150-156 and the plain-English reading in the task. forall t>=2, forall finite V, G, KMinorFree t G -> MinorIndepBound (2*((t:R)-1)) G; unfolding MinorIndepBound (Common.lean:64-66): forall W:Type, Fintype W, Nonempty W, H on W, IsMinor H G -> card W/(2(t-1)) <= indepNum H. Divisor 2(t-1)>=2>0, no x/0 junk; t-1 in R. Restricting minors to finite W loses nothing: a minor model of H in finite G gives an injection W -> V (pick a point of each disjoint nonempty branch set), so every minor is finite. indepNum is Mathlib's sSup of sizes of independent sets (Combinatorics/SimpleGraph/Clique.lean:1045), bounded on finite W. The plain-English reading matches the type. REPRESENTATION: alpha(H)=indepNum, v(H)=Fintype.card W (trivial); minor as a minor model on an arbitrary W:Type (trivial, isomorphism-invariant).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.HadwigerConjecture",
+    "checked": "SmallKtMinorFree/Literature.lean:16-20 vs paper.tex:70-73. forall t>=1, forall finite V, G, KMinorFree t G -> G.Colorable (t-1). N-subtraction t-1 is exact for t>=1. Docstring 'stated, not proved' consistent (it is a def : Prop, used by no theorem as a type). REPRESENTATION: (t-1)-colorable = Mathlib Colorable (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.IsMinor",
+    "checked": "SmallKtMinorFree/Common.lean:48-51: Nonempty (MinorModel H G). Unfolded MinorModel (Common.lean:40-46): branch sets nonempty, pairwise disjoint, each inducing a connected subgraph of G, every edge of H realised by a G-edge between the two branch sets. This is Diestel's IX / minor-model definition; paper uses minors undefined (tex l.63-64), docstring says so. 'Minors up to isomorphism': the definition depends only on H up to graph isomorphism (transport the branch map). Checked isMinor_refl (Examples.lean:14) and the K_0/K_1 examples (Examples.lean:24-36) compile in the build. REPRESENTATION: minor relation as existence of a minor model (trivial by Diestel's equivalent definition).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.KMinorFree",
+    "checked": "SmallKtMinorFree/Common.lean:53-55: not IsMinor (⊤ : SimpleGraph (Fin t)) G, matching tex l.65-66 'K_t not a minor of G'. Edge case t=0: K_0 is a minor of every graph so no graph is K_0-minor-free (Examples.lean:31) - all uses have t>=1. REPRESENTATION: K_t as ⊤ on Fin t (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.MinorModel",
+    "checked": "SmallKtMinorFree/Common.lean:36-46. Prop fields: nonempty (branch sets nonempty), disjoint (pairwise disjoint), connected (G.induce (branch w)).Connected), adj (each H-edge realised by a G-edge between branch sets). Each matches Diestel's definition of a model IX as the docstring states (paper uses minors without definition, tex l.63-64); no extra Prop field (nonempty is also implied by Mathlib's Connected, redundant but faithful). REPRESENTATION: branch sets as W -> Set V (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.StarFamily",
+    "checked": "SmallKtMinorFree/Common.lean:68-85 vs tex l.134-139 and Lemma 2.4 (l.197-201). Prop fields: leaves_nonempty (L_i nonempty), leaves_adj (L_i subset N_G(c_i)), leaves_indep (L_i independent) - together exactly 'G[{c}∪L] induced star' of l.135-138; disjoint (stars {c_i}∪L_i pairwise vertex-disjoint); centers_indep (Pairwise not Adj on centers = {c_1..c_m} independent; centers are distinct by disjoint). Every field is in the paper; edges between different stars are allowed (l.138-139), as in Lean. REPRESENTATION: indexed family by Fin m, leaves as Finset V (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.StarFamily.contract",
+    "checked": "SmallKtMinorFree/Common.lean:111-118: graph on Quotient S.setoid, Adj p q iff p≠q and some G-edge x y with [x]=p, [y]=q. This is G with each star contracted to one vertex, loops deleted (p≠q), parallel edges suppressed (simple graph), as tex l.141-144 and l.200-201. Each star is connected (center adjacent to all leaves), so this is a genuine contraction. Example Examples.lean:87-102 (empty family leaves adjacency unchanged) compiles. REPRESENTATION: contracted graph as quotient by the star partition (trivial by unfolding).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.dpF",
+    "checked": "SmallKtMinorFree/Literature.lean:52-59 vs tex l.421-425. sSup of {chi H.coe / a : a in N, H : G.Subgraph, t/sqrt(log t) <= a <= t, ncard H.verts <= C a (log a)^4, KMinorFree a H.coe}. Conditions match the paper's 't >= a >= t/sqrt(log t)', 'v(H) <= C a log^4 a', 'H K_a-minor-free', non-strict throughout. Elaboration (real division, real log of casts) checked by rfl in audits/lin-small-kt/2026-11-14-full-9baaecd7424/correspondence.probes/dpF_attained_and_casts.lean. Junk: sSup ruled out by audits/lin-small-kt/2026-11-14-full-9baaecd7424/correspondence.probes/dpF_attained_and_casts.lean theorem dpF_mem (exit 0): for Fintype V, 0<=C, 3<=t, dpF C G t lies in the set (finite: values chi/a with chi<=card V, a<=t; nonempty: a=t, H=⊥ since log t>=1). So the docstring claim 'its sSup is its maximum' holds; a>=3>0 for t>=3 so no chi/0. The empty subgraph contributes value 0, which does not change the maximum (any single vertex gives 1/a>0 when G is nonempty) . REPRESENTATION: H ⊆ G as a Mathlib (not necessarily induced) G.Subgraph viewed via H.coe (trivial; docstring states it).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.lem_2_4",
+    "checked": "SmallKtMinorFree/Small.lean:13-18 vs tex l.197-205. Fintype V, any StarFamily S, chi G <= chi S.contract + 1 (in N, no subtraction). The hypotheses of the paper (vertex-disjoint induced stars, independent centers) are exactly the StarFamily fields; H = S.contract. chi of the quotient: Quotient of a Fintype is Finite, so chi S.contract is the true chromatic number (chi_eq_chromaticNumber). m = 0 is allowed in Lean (paper's 1<=i<=m with m unspecified); statement trivially true there and consistent. REPRESENTATION: contracted graph on Quotient S.setoid (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.lem_2_5",
+    "checked": "SmallKtMinorFree/Small.lean:20-29 vs tex l.218-227. r i : N, hr 2<=r, hi 2r+1<=i, Nonempty V (G nonempty), hv card V <= r^2, hδ MinDegGE (i-1) G (N-subtraction exact since i>=5), hα MinorIndepBound r G; conclusion exists S : StarFamily G with card V*(i-1)/(8 r^2) <= totalLeaves, in R with (i:R)-1. Inequalities all non-strict as in the paper. REPRESENTATION: the star family as StarFamily (trivial), total size as totalLeaves (trivial).",
+    "evidence": ""
+   }
+  ],
+  "2026-11-14-full-cdcb74f8540/correspondence@1.json": [
+   {
+    "item": "SmallKtMinorFree.DelcourtPostleColoringHyp",
+    "checked": "SmallKtMinorFree/Literature.lean:32 vs paper/paper.tex:98-104 (Thm 1.3): exists C:ℝ, 0<C, forall t:ℕ, 3≤t, forall finite V and G, KMinorFree t G -> (chi G:ℝ) ≤ C*t*log(log t). Quantifier order (C before t) and t≥3 match; Real.log is natural log (tex l.126). chi is on a Fintype, so no ⊤-junk (chi_eq_chromaticNumber, SmallKtMinorFree/Common.lean:30). log(log t)>0 for t≥3. Docstring 'Not used by any proof' is consistent with the hypothesis walk (not taken by any statement). REPRESENTATION: graphs as SimpleGraph V on a Fintype V : Type (trivial: every finite graph has an isomorphic copy on a type in Type).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.DelcourtPostleGreedyHyp",
+    "checked": "SmallKtMinorFree/Literature.lean:47 vs paper/paper.tex:164-171 (Thm 2.2): forall t≥2, finite nonempty V, KMinorFree t G -> chi G ≤ 2(t-1)(2+posLog(card V/(2(t-1)))). Real.posLog x = max 0 (log x) by rfl (audits/lin-small-kt/2026-11-14-full-cdcb74f8540/correspondence@1.probes/library_defs_junk.lean, exit 0), equal to the paper's log⁺ (tex l.126-127); the argument is >0 since card V ≥ 1 and 2(t-1)≥2, no division junk. 't-1' is real subtraction ((t:ℝ)-1). REPRESENTATION: as above (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.DelcourtPostleReductionHyp",
+    "checked": "SmallKtMinorFree/Literature.lean:64 and dpF at SmallKtMinorFree/Literature.lean:57 vs paper/paper.tex:417-430 (Thm 3.1). exists C:ℕ, 1≤C, forall t≥3, finite nonempty V, KMinorFree t G -> chi G ≤ C*t*(1+dpF C G t). dpF unfolded: sSup of {chi H.coe / a : a:ℕ, H:G.Subgraph, t/√(log t) ≤ a ≤ t, H.verts.ncard ≤ C a (log a)^4, KMinorFree a H.coe}; the same C is used in f and in the bound, as in the paper. JUNK: sSup of an empty/unbounded set is 0; ruled out: the set is finite (finitely many subgraphs of a Fintype graph and a ≤ t) and nonempty for t≥3 by the witness a=t, H=⊥ using div_sqrt_log_le (SmallKtMinorFree/Proofs.lean:449) and kMinorFree_bot (SmallKtMinorFree/Proofs.lean:460) -- compiled in audits/lin-small-kt/2026-11-14-full-cdcb74f8540/correspondence@1.probes/library_defs_junk.lean (exit 0). The empty subgraph contributes the value 0, which cannot change the maximum of nonnegative values. a>2 for t≥3 (two_lt_div_sqrt_log, SmallKtMinorFree/Proofs.lean), so no a=0 division or log 0 junk. chi H.coe is on the finite subtype H.verts, no ⊤ junk. The plain-English reading in the prompt (integer C≥1, t≥3, nonempty finite K_t-minor-free G, f = max over integers a in [t/√log t, t] and K_a-minor-free subgraphs H with v(H) ≤ C a log⁴ a) says exactly what the type says. REPRESENTATION: H ⊆ G as a Mathlib G.Subgraph (not necessarily induced) coerced to a graph on H.verts, v(H)=H.verts.ncard (trivial); integer a as ℕ (trivial, a>0 forced).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.DuchetMeynielHyp",
+    "checked": "SmallKtMinorFree/Literature.lean:39 with MinorIndepBound SmallKtMinorFree/Common.lean:64 vs paper/paper.tex:150-156 (Thm 2.1): forall t≥2, finite V, KMinorFree t G -> forall W:Type [Fintype W] [Nonempty W] H, IsMinor H G -> card W / (2((t:ℝ)-1)) ≤ indepNum H. indepNum = sSup {n | exists s, IsNIndepSet n s} (#print in audits/lin-small-kt/2026-11-14-full-cdcb74f8540/correspondence@1.probes/library_defs_junk.lean), finite W so a true maximum. r=2(t-1)≥2>0, no x/0 junk. Plain-English reading (t≥2, finite G with no K_t minor, every nonempty minor has α(H) ≥ v(H)/(2(t-1))) matches the type exactly. REPRESENTATION: 'minor' as existence of a MinorModel on any finite nonempty type W (trivial, minors up to isomorphism).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.HadwigerConjecture",
+    "checked": "SmallKtMinorFree/Literature.lean:18 vs paper/paper.tex:70-73: forall t:ℕ, 1≤t, forall finite V and G, KMinorFree t G -> G.Colorable (t-1). ℕ-subtraction t-1 is exact for t≥1. Stated as a Prop def, not proved and not used as a theorem's type. REPRESENTATION: (t-1)-colorable as Mathlib Colorable (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.IsMinor",
+    "checked": "SmallKtMinorFree/Common.lean:51: Nonempty (MinorModel H G); docstring (minor of G, from Diestel §1.7, up to isomorphism) matches: H lives on an arbitrary type W, so H ≼ G iff some graph isomorphic to H has a model. REPRESENTATION: minor relation as existence of a branch-set model (Diestel's IX characterisation; trivial for the paper's usage since the paper does not define minors, tex l.63).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.KMinorFree",
+    "checked": "SmallKtMinorFree/Common.lean:55: ¬ IsMinor (⊤ : SimpleGraph (Fin t)) G vs paper/paper.tex:63-65. Exact. REPRESENTATION: K_t as the complete graph on Fin t (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.MinorIndepBound",
+    "checked": "SmallKtMinorFree/Common.lean:64: forall W:Type [Fintype W] [Nonempty W] (H : SimpleGraph W), IsMinor H G -> card W / r ≤ indepNum H; docstring 'every nonempty minor H satisfies α(H) ≥ v(H)/r' (tex l.221, 317) matches after unfolding. JUNK: for r = 0 the def holds vacuously (x/0=0; compiled in audits/lin-small-kt/2026-11-14-full-cdcb74f8540/correspondence@1.probes/library_defs_junk.lean, exit 0); every in-scope use has r ≥ 2 (DuchetMeynielHyp: r=2(t-1), t≥2; lem_2_5/lem_2_7/iterInv_step take hr : 2 ≤ r), so the junk case never arises. Docstring itself discloses that minors range over finite nonempty types in Type. REPRESENTATION: 'nonempty minor' as Nonempty W (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.StarFamily",
+    "checked": "SmallKtMinorFree/Common.lean:71-85 vs paper/paper.tex:134-139 and Lemma 2.4 (tex l.197-201). Prop fields: leaves_nonempty (L_i nonempty), leaves_adj (L_i ⊆ N_G(c_i)), leaves_indep (L_i independent), disjoint (stars {c_i}∪L_i pairwise vertex-disjoint), centers_indep ({c_1..c_m} independent; centers distinct by disjointness). Each is in the paper's definition of induced star / Lemma 2.4 hypothesis; edges between different stars are allowed, as the paper says (tex l.139). F1: no extra Prop field. REPRESENTATION: an indexed family Fin m with Finset leaf sets (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.StarFamily.chi_le_chi_contract_add_one",
+    "checked": "SmallKtMinorFree/Minors.lean:288-289, docstring 'Lemma 2.4.' attaches to this theorem: [Finite V], chi G ≤ chi S.contract + 1 vs paper/paper.tex:197-204 χ(G) ≤ χ(H)+1. Quotient of a finite type is finite, so neither chi is ⊤-junk. REPRESENTATION: H as S.contract on the quotient type (see contract).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.StarFamily.contract",
+    "checked": "SmallKtMinorFree/Common.lean:115: graph on Quotient S.setoid, Adj p q iff p ≠ q ∧ exists x y, ⟦x⟧=p, ⟦y⟧=q, G.Adj x y. Docstring and paper tex l.141-144, 200-201 (contract each star to one vertex, delete loops, suppress parallel edges): p ≠ q deletes loops, Prop-valued Adj suppresses parallels. REPRESENTATION: simultaneous contraction as a quotient graph rather than the paper's iterated G/A (nontrivial but short: iterating G/A over disjoint connected stars gives a graph isomorphic to this quotient; each star is connected by star_connected, Minors.lean:248).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.StarFamily.setoid",
+    "checked": "SmallKtMinorFree/Common.lean:96: r x y := x = y ∨ exists i, x ∈ star i ∧ y ∈ star i; docstring (partition into stars and singletons) matches; transitivity uses S.disjoint. REPRESENTATION: the partition {stars} ∪ {singletons} as a Setoid (trivial).",
+    "evidence": ""
+   }
+  ],
+  "2026-11-14-full-cdcb74f8540/correspondence@2.json": [
+   {
+    "item": "SmallKtMinorFree.dpF",
+    "checked": "Docstring SmallKtMinorFree/Literature.lean:177-181 against body l.182-184 and tex l.421-425: max of chi(H)/a over integers a with t >= a >= t/sqrt(log t), H subset of G (G.Subgraph, not necessarily induced, as in the paper's H subseteq G), v(H) <= C a log^4 a, H K_a-minor-free; x = chi H.coe / a. Unfolded KMinorFree/IsMinor/MinorModel (Common.lean:40-55) and chi (Common.lean:27). JUNK: a = 0 would give x/0 = 0, but KMinorFree 0 is false (probe example; Examples.lean:31), so a = 0 is never admitted. sSup: the docstring's claims 'finite and, for t >= 3, nonempty (a = t, empty subgraph)' are checked on finite V: nonemptiness is shown in the probe (a = 3, H = bot, using div_sqrt_log_le and kMinorFree_bot) and inside dpF_le (Proofs.lean:477-481); finiteness holds because G.Subgraph is finite for Fintype V, so sSup is the max and not the sSup-of-unbounded junk. For t <= 2 the set is empty and dpF = 0, but the docstring only claims t >= 3. Residual I am not fully sure of: dpF takes no Fintype V, and for infinite V, H.verts.ncard = 0 for infinite H (junk), so the v(H) bound would hold vacuously there; every use (DelcourtPostleReductionHyp, Literature.lean:190, and dpF_le, Proofs.lean:468) has [Fintype V], so the junk case never arises, and the docstring's 'finite' claim is only meant for finite graphs (Common.lean:7 says all graphs are on a Fintype V). REPRESENTATION: subgraph H as Mathlib G.Subgraph viewed via H.coe on its vertex subtype; v(H) as H.verts.ncard (trivial for finite V); a as N cast to R (trivial). Elaborated signature printed by audits/lin-small-kt/2026-11-14-full-cdcb74f8540/correspondence@2.probes/signatures_and_junk.lean (lake env lean, exit 0).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.dpF_le",
+    "checked": "Docstring Proofs.lean:467 'The bound on f_{3.1} from Theorem 2.3' against signature Proofs.lean:468-470: for Fintype V, Cd >= 1, t >= 3, dpF Cd G t <= 4(16Cd) + 8(16Cd) sqrt(log Cd + 4 log log t), from DuchetMeynielHyp. This is the bound of tex l.455-460 with C := 16 Cd (the proof uses thm_2_3_proof with parameter C a, Proofs.lean:531). Upper bound of a sSup proved by csSup_le with nonemptiness (Proofs.lean:477-481), so no reliance on sSup junk. DuchetMeynielHyp unfolded (Literature.lean:164-166): forall t >= 2, finite V, K_t-minor-free G -> MinorIndepBound (2(t-1)) G, i.e. every finite nonempty minor H has card W/(2(t-1)) <= indepNum H (Common.lean:64-66); matches the recorded plain-English reading exactly. REPRESENTATION: C_{3.1} as a natural Cd cast to R (trivial). Elaborated signature printed by audits/lin-small-kt/2026-11-14-full-cdcb74f8540/correspondence@2.probes/signatures_and_junk.lean (lake env lean, exit 0).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.emptyStars",
+    "checked": "Docstring Examples.lean:72 'The empty family of stars' against Examples.lean:73-81: m := 0, all fields vacuous over Fin 0. Matches. REPRESENTATION: star family as StarFamily with Fin m indexing (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.isMinor_top_of_le",
+    "checked": "Docstring Minors.lean:153 'K_a is a minor of K_b when a <= b' against Minors.lean:154-155: a <= b -> IsMinor (top : SimpleGraph (Fin a)) (top : SimpleGraph (Fin b)). Matches. REPRESENTATION: K_n as top on Fin n (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.lem_2_4",
+    "checked": "Docstring Small.lean:244-246 against Small.lean:247-248 and tex l.197-205: for Fintype V and S : StarFamily G, chi G <= chi S.contract + 1. Unfolded StarFamily (Common.lean:71-85); its Prop fields matched to the paper (F1, tex l.134-141 and l.198-201): leaves_nonempty = 'L nonempty', leaves_adj = 'L subset N_G(c)', leaves_indep = 'L independent' (together: G[{c} u L] is an induced star), disjoint = 'pairwise vertex-disjoint', centers_indep = '{c_1..c_m} independent'; no field the paper lacks. contract (Common.lean:115-118): classes of the star partition (setoid, Common.lean:96-97), distinct classes adjacent iff some G-edge between them = contract each star, delete loops, suppress parallel edges (tex l.141-144). No project instance involved. chi of the quotient is finite (Quotient of a Fintype), so no toNat junk. m = 0 allowed, consistent with the paper. REPRESENTATION: stars as Fin m-indexed centers/leaf Finsets (trivial); contracted graph as a SimpleGraph on Quotient S.setoid (trivial by unfolding: classes are the stars and the singletons outside them). Elaborated signature printed by audits/lin-small-kt/2026-11-14-full-cdcb74f8540/correspondence@2.probes/signatures_and_junk.lean (lake env lean, exit 0).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.lem_2_5",
+    "checked": "Docstring Small.lean:251-254 against Small.lean:255-259 and tex l.218-227: r >= 2, i >= 2r+1 (naturals), nonempty Fintype V, card V <= r^2, MinDegGE (i-1) G (Common.lean:22: every vertex has neighborSet ncard >= i-1; ncard is exact for finite V; i-1 truncation harmless as i >= 5), MinorIndepBound r G (Common.lean:64-66: every finite nonempty minor H has card W / r <= indepNum H), conclusion: exists StarFamily S with v(G)(i-1)/(8r^2) <= S.totalLeaves (real arithmetic, (i:R)-1). Matches quantifiers and the non-strict inequality. StarFamily fields checked as for lem_2_4. Minors restricted to vertex types in Type: every minor of a finite G has an isomorphic copy in Type, so nothing is lost. REPRESENTATION: alpha as Mathlib indepNum, v(H) as Fintype.card W, 'pairwise vertex-disjoint stars with independent centers' as StarFamily, total leaf size as totalLeaves (Common.lean:121) (all trivial). Elaborated signature printed by audits/lin-small-kt/2026-11-14-full-cdcb74f8540/correspondence@2.probes/signatures_and_junk.lean (lake env lean, exit 0).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.lem_2_6",
+    "checked": "Docstring Small.lean:262-264 against Small.lean:265-268 and tex l.287-291: for nonempty finite G, exists a finite nonempty W and H on W with IsMinor H G, chi H = chi G, MinDegGE (chi G - 1) H, and every proper minor J (any U : Type) has chi J <= chi G - 1. IsProperMinor (Common.lean:58-59) = minor and not isomorphic, as tex l.281. Junk: chi G - 1 truncation is harmless since chi G >= 1 (one_le_chi, Minors.lean:44); chi J for J on an arbitrary U is not toNat junk because a minor of finite H is finite (MinorModel.finite, Minors.lean:179). REPRESENTATION: the minor H as an existential (type, Fintype, Nonempty, graph) (trivial). Elaborated signature printed by audits/lin-small-kt/2026-11-14-full-cdcb74f8540/correspondence@2.probes/signatures_and_junk.lean (lake env lean, exit 0).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.thm_1_4",
+    "checked": "Docstring Main.lean:304-308 against Main.lean:309-311 and tex l.114-120: exists C > 0 (real) before forall t >= 3, forall finite V and G, KMinorFree t G -> chi G <= C t sqrt(log log t). Quantifier order matches ('absolute constant'); all finite graphs including the empty one (chi = 0) are covered, as in the paper. log log t >= log log 3 > 0 so sqrt has a positive argument. HYPOTHESES: DelcourtPostleReductionHyp unfolded (Literature.lean:189-191): exists C : N, 1 <= C, forall t >= 3, nonempty finite V, G, KMinorFree t G -> chi G <= C t (1 + dpF C G t); with dpF (Literature.lean:182-184, see that item) this is exactly the recorded plain-English reading (integer C >= 1, t >= 3, nonempty finite K_t-minor-free G, f = max of chi(H)/a over a in [t/sqrt(log t), t] and K_a-minor-free H subset G with v(H) <= C a log^4 a), and matches tex l.417-430 (same C in both places, as the paper). DuchetMeynielHyp (Literature.lean:164-166) matches its recorded reading (t >= 2, finite K_t-minor-free G, every nonempty minor H has alpha(H) >= v(H)/(2(t-1))); 'finite' in the reading corresponds to [Fintype V], and the minors range over finite nonempty W in Type (Common.lean:65), which loses nothing since minors of finite graphs are finite. REPRESENTATION: graphs as SimpleGraph on a Fintype V : Type (trivial); chi as toNat of chromaticNumber, equal to it on finite types (Common.lean:30-34) (trivial). Elaborated signature printed by audits/lin-small-kt/2026-11-14-full-cdcb74f8540/correspondence@2.probes/signatures_and_junk.lean (lake env lean, exit 0).",
+    "evidence": ""
+   }
+  ],
+  "2026-11-14-full-d1d7d5ebd69/correspondence@1.json": [
+   {
+    "item": "SmallKtMinorFree.DelcourtPostleColoringHyp",
+    "checked": "SmallKtMinorFree/Literature.lean:29-34 vs paper/paper.tex:98-104 (Thm 1.3). Exists C:R, 0<C, forall t:N, 3<=t, forall V Fintype, G, KMinorFree t G -> (chi G:R) <= C*t*log(log t). Quantifier order (C before t, G) matches 'absolute constant'. log is Real.log of the cast t (natural log, tex l.126). chi unfolds to chromaticNumber.toNat, finite by chi_eq_chromaticNumber (SmallKtMinorFree/Common.lean:30). Docstring 'Not used by any proof' confirmed by git grep (only Literature.lean:32 and the Main.lean index row). REPRESENTATION: finite graph = SimpleGraph on a Fintype V in Type (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.DelcourtPostleGreedyHyp",
+    "checked": "SmallKtMinorFree/Literature.lean:43-50 vs paper/paper.tex:164-171 (Thm 2.2). t>=2, Nonempty V (paper 'nonempty'), KMinorFree t G -> chi G <= 2(t-1)(2+posLog(card V/(2(t-1)))). Probe /home/fp-claude/e2e-2609-08713-formalization/audits/lin-small-kt/2026-11-14-full-d1d7d5ebd69/correspondence@1.probes/library_defs_print.lean (exit 0) prints Real.posLog = fun r => max 0 (log r), matching log^+ x := max{0,log x} (tex l.127), and shows (t:R)-1 is real subtraction (no truncation). Argument card V/(2(t-1)) > 0 for t>=2 and V nonempty, so no division junk. Not used by any proof (git grep). REPRESENTATION: v(G) = Fintype.card V (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.DelcourtPostleReductionHyp",
+    "checked": "SmallKtMinorFree/Literature.lean:61-66 with dpF SmallKtMinorFree/Literature.lean:52-58 vs paper/paper.tex:417-430 (Thm 3.1). Exists C:N, 1<=C (paper 'integer C>=1'), forall t>=3, forall V Fintype Nonempty (paper 'nonempty graph'), G, KMinorFree t G -> chi G <= C*t*(1+dpF C G t); the same C is used inside f, as in the paper. dpF = sSup of {chi(H)/a : a:N, t/sqrt(log t) <= a <= t, ncard H.verts <= C a (log a)^4, KMinorFree a H.coe} over H : G.Subgraph (not necessarily induced, matching 'H subseteq G'). JUNK sSup: probe /home/fp-claude/e2e-2609-08713-formalization/audits/lin-small-kt/2026-11-14-full-d1d7d5ebd69/correspondence@1.probes/dpF_set_nonempty_bdd.lean (exit 0) proves the defining set is BddAbove (by card V) for every Fintype V, and Nonempty for t>=3, C>=0 (a=t, H=bot, using compiled div_sqrt_log_le SmallKtMinorFree/Proofs.lean:449 and kMinorFree_bot SmallKtMinorFree/Proofs.lean:460), and checks by rfl that it is dpF's set; so dpF is a true maximum, not sSup junk. The probe's #print with pp.coercions shows x = ↑(chi H.coe)/↑a in R, and ↑C*↑t*(1+dpF ↑C G t) in R. Including the empty subgraph contributes 0, harmless for a max of nonnegatives. Plain-English reading in the prompt matches the type exactly (integer C>=1, t>=3, nonempty finite K_t-minor-free G, f as maximum over a in [t/sqrt(log t), t] and K_a-minor-free subgraphs with v(H)<=C a log^4 a). REPRESENTATION: subgraph H subseteq G as Mathlib G.Subgraph coerced to a graph on H.verts, v(H) as H.verts.ncard (trivial, V finite); max as sSup (nontrivial in principle, discharged by the probe).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.DuchetMeynielHyp",
+    "checked": "SmallKtMinorFree/Literature.lean:36-41 and MinorIndepBound SmallKtMinorFree/Common.lean:64-66 vs paper/paper.tex:150-156 (Thm 2.1). forall t>=2, forall V Fintype, G, KMinorFree t G -> forall W Fintype Nonempty, H:SimpleGraph W, IsMinor H G -> card W/(2((t:R)-1)) <= indepNum H. Probe /home/fp-claude/e2e-2609-08713-formalization/audits/lin-small-kt/2026-11-14-full-d1d7d5ebd69/correspondence@1.probes/library_defs_print.lean (exit 0) prints the unfolded body and indepNum = sSup {n | exists s, IsNIndepSet n s} (on a finite W this is the max, the set containing 0 and bounded by card W). Divisor 2(t-1) >= 2 > 0, so no x/0 junk. Plain-English reading in the prompt ('for every t>=2 and every finite graph G with no K_t minor, every nonempty minor H of G has independence number at least v(H)/(2(t-1))') matches the type. REPRESENTATION: 'minor H of G' = any graph H on a finite nonempty W:Type with a minor model in G (up to isomorphism; trivial); minors restricted to universe Type, which loses nothing since every minor of a finite graph is isomorphic to one on a finite type in Type.",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.HadwigerConjecture",
+    "checked": "SmallKtMinorFree/Literature.lean:14-20 vs paper/paper.tex:70-73. forall t>=1, forall V Fintype, G, KMinorFree t G -> G.Colorable (t-1). N subtraction t-1 does not truncate since t>=1. Docstring matches. REPRESENTATION: (t-1)-colorable = Mathlib Colorable (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.IsMinor",
+    "checked": "SmallKtMinorFree/Common.lean:48-51: IsMinor H G := Nonempty (MinorModel H G), MinorModel SmallKtMinorFree/Common.lean:40-46. Paper tex l.63-64 uses minors without definition; the docstring says the notion is Diestel's (H is a minor iff G contains a model IH: disjoint connected branch sets with an edge between branch sets for every edge of H), which is the body. 'Minors are taken up to isomorphism' holds: H may live on any type W. Contraction/deletion definition and branch-set definition agree (standard). REPRESENTATION: minor relation as existence of a minor model (trivial by unfolding, standard equivalence with contraction-deletion).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.KMinorFree",
+    "checked": "SmallKtMinorFree/Common.lean:53-55 vs paper/paper.tex:65-66: not IsMinor (⊤ : SimpleGraph (Fin t)) G; K_t = complete graph on Fin t. Docstring matches. REPRESENTATION: K_t as ⊤ on Fin t (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.StarFamily",
+    "checked": "SmallKtMinorFree/Common.lean:68-85 vs paper/paper.tex:134-141 and Lemma 2.4 tex l.197-205. Prop fields: leaves_nonempty (L_i nonempty), leaves_adj (L_i subseteq N_G(c_i)), leaves_indep (L_i independent), disjoint (stars {c_i} ∪ L_i pairwise vertex-disjoint), centers_indep (centers pairwise non-adjacent = {c_1..c_m} independent). Each is in the paper's definition of an induced star (tex l.135-137) or in Lemma 2.4's hypotheses; none extra. Edges between different stars are allowed (tex l.138-139), as in the Lean. REPRESENTATION: the family indexed by Fin m with Finset leaf sets (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.StarFamily.chi_le_chi_contract_add_one",
+    "checked": "SmallKtMinorFree/Minors.lean:304-305 docstring 'Lemma 2.4.' vs paper/paper.tex:197-205: [Finite V], chi G <= chi S.contract + 1 with S a StarFamily (the hypotheses) and S.contract the contraction H. Matches. REPRESENTATION: H = graph on Quotient S.setoid (trivial by unfolding contract, SmallKtMinorFree/Common.lean:115-118). chi of the quotient is finite since the quotient of a finite type is finite.",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.StarFamily.contract",
+    "checked": "SmallKtMinorFree/Common.lean:111-118 vs paper/paper.tex:141-144 and l.200-201: vertices = classes of S.setoid (each star one class, other vertices singletons), Adj p q iff p != q and G has an edge between representatives. That is contracting each star, deleting loops (p != q) and suppressing parallel edges (simple graph). Docstring matches. REPRESENTATION: quotient type for the contracted vertex set (trivial by unfolding setoid).",
+    "evidence": ""
+   }
+  ],
+  "2026-11-14-full-d1d7d5ebd69/correspondence@2.json": [
+   {
+    "item": "SmallKtMinorFree.colorable_chi",
+    "checked": "No docstring. Minors.lean:27: [Finite V] → G.Colorable (chi G). chi (Common.lean:27) = G.chromaticNumber.toNat; junk toNat ⊤ = 0 excluded on finite types by chi_eq_chromaticNumber (Common.lean:30). REPRESENTATION: χ as ℕ via ENat.toNat (trivial on Finite V). Statement is what the name says.",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.colorable_iff_chi_le",
+    "checked": "No docstring. Minors.lean:44-46: [Finite V], G.Colorable k ↔ chi G ≤ k; Finite V rules out the junk chi = 0 for chromaticNumber = ⊤. chi (Common.lean:27) = G.chromaticNumber.toNat; junk toNat ⊤ = 0 excluded on finite types by chi_eq_chromaticNumber (Common.lean:30). REPRESENTATION: χ as ℕ via ENat.toNat (trivial on Finite V).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.dpF",
+    "checked": "Literature.lean:52-59 docstring vs body; probe /home/fp-claude/e2e-2609-08713-formalization/audits/lin-small-kt/2026-11-14-full-d1d7d5ebd69/correspondence@2.probes/elaborated_statements.lean (exit 0) prints the body with casts: x = ↑(chi H.coe) / ↑a in ℝ, t/√(log t) ≤ ↑a, a ≤ t, ↑(H.verts.ncard) ≤ C·↑a·(log ↑a)^4, KMinorFree a H.coe. Matches tex l.421-425 (max over H ⊆ G of χ(H)/a with t ≥ a ≥ t/√log t, v(H) ≤ C a log⁴ a, H K_a-minor-free). JUNK: sSup of an empty or unbounded set is 0 in ℝ. The docstring claims finiteness and nonemptiness for t ≥ 3 (a = t, H = ⊥); nonemptiness needs C ≥ 0 (true for C = C_3.1 ≥ 1 as docstring says), t/√log t ≤ t by div_sqrt_log_le (Proofs.lean:449), ⊥ K_t-minor-free by kMinorFree_bot (Proofs.lean:460); dpF_le (Proofs.lean:477-481) builds exactly this witness. Finiteness is immediate when V is finite (finitely many subgraphs, a ≤ t); every use of dpF (DelcourtPostleReductionHyp Literature.lean:64-66, dpF_le) has [Fintype V]. Caveat: dpF itself has no Fintype V, and for infinite V ncard of an infinite H.verts is 0 (junk) so infinite subgraphs would enter the set; the docstring's unconditional 'finite' is then not immediate, but no statement in scope uses dpF on an infinite type. REPRESENTATION: subgraph H ⊆ G as Mathlib G.Subgraph coerced to a graph on H.verts (trivial); v(H) as Set.ncard of H.verts (trivial on finite V); max as sSup (trivial given finite nonempty set).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.exists_induce_chi_eq",
+    "checked": "Docstring Minors.lean:601 'A finite graph has induced subgraphs of every chromatic number up to its own.' Statement Minors.lean:602-603: [Fintype U], k ≤ chi J → ∃ s, chi (J.induce s) = k. Finite so chi has no junk (chi (Common.lean:27) = G.chromaticNumber.toNat; junk toNat ⊤ = 0 excluded on finite types by chi_eq_chromaticNumber (Common.lean:30). REPRESENTATION: χ as ℕ via ENat.toNat (trivial on Finite V).). Matches (includes k = 0 via s = ∅, consistent with 'every').",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.isMinor_induce",
+    "checked": "No docstring. Minors.lean:157: IsMinor (G.induce s) G. IsMinor (Common.lean:51) = Nonempty (MinorModel H G), MinorModel (Common.lean:40-46): branch sets nonempty, pairwise disjoint, each inducing a connected subgraph, every edge of H realised. REPRESENTATION: minor as Diestel branch-set model, up to isomorphism (paper uses minors undefined, tex l.63; standard equivalence, nontrivial only in that it is the textbook definition rather than contraction/deletion sequences).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.isMinor_of_injective_hom",
+    "checked": "No docstring. Minors.lean:147-148: an injective homomorphism H →g G gives IsMinor H G (singleton branch sets, MinorModel.ofEmbedding Minors.lean:136-145, whose docstring 'singleton-branch model given by an injective homomorphism' matches). IsMinor (Common.lean:51) = Nonempty (MinorModel H G), MinorModel (Common.lean:40-46): branch sets nonempty, pairwise disjoint, each inducing a connected subgraph, every edge of H realised. REPRESENTATION: minor as Diestel branch-set model, up to isomorphism (paper uses minors undefined, tex l.63; standard equivalence, nontrivial only in that it is the textbook definition rather than contraction/deletion sequences).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.isMinor_of_iso",
+    "checked": "No docstring. Minors.lean:154: H ≃g G → IsMinor H G. IsMinor (Common.lean:51) = Nonempty (MinorModel H G), MinorModel (Common.lean:40-46): branch sets nonempty, pairwise disjoint, each inducing a connected subgraph, every edge of H realised. REPRESENTATION: minor as Diestel branch-set model, up to isomorphism (paper uses minors undefined, tex l.63; standard equivalence, nontrivial only in that it is the textbook definition rather than contraction/deletion sequences).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.isMinor_subgraph",
+    "checked": "No docstring. Minors.lean:160: IsMinor H.coe G for H : G.Subgraph. Matches name. REPRESENTATION: subgraph as Mathlib Subgraph coerced to a graph on H.verts (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.isMinor_top_of_le",
+    "checked": "Docstring Minors.lean:163 'K_a is a minor of K_b when a ≤ b.' Statement Minors.lean:164-165: a ≤ b → IsMinor (⊤ : SimpleGraph (Fin a)) (⊤ : SimpleGraph (Fin b)). REPRESENTATION: K_n as ⊤ on Fin n (trivial). Matches.",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.lem_2_4",
+    "checked": "Docstring Small.lean:14-16 vs statement Small.lean:17-18: [Fintype V] (S : StarFamily G) : chi G ≤ chi S.contract + 1; tex l.197-205. StarFamily (Common.lean:71-85): Fin m-indexed centers and Finset leaf sets, each nonempty, contained in N(c_i), independent; stars {c_i} ∪ L_i pairwise disjoint; centers pairwise non-adjacent (= independent set). StarFamily.contract (Common.lean:115-118): quotient by setoid (Common.lean:96-109, x ~ y iff x = y or both in one star), distinct classes adjacent iff some G-edge between them = contracting each star, deleting loops, suppressing parallel edges (tex l.141-144). Quotient is finite, so chi of contract has no junk (chi (Common.lean:27) = G.chromaticNumber.toNat; junk toNat ⊤ = 0 excluded on finite types by chi_eq_chromaticNumber (Common.lean:30). REPRESENTATION: χ as ℕ via ENat.toNat (trivial on Finite V).). REPRESENTATION: family of stars as bundled structure with Fin m index (trivial); contracted graph as quotient type (trivial by unfolding).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.lem_2_5",
+    "checked": "Docstring Small.lean:21-24 vs statement Small.lean:25-29 (casts confirmed by probe /home/fp-claude/e2e-2609-08713-formalization/audits/lin-small-kt/2026-11-14-full-d1d7d5ebd69/correspondence@2.probes/elaborated_statements.lean): [Fintype V] [Nonempty V], 2 ≤ r, 2r+1 ≤ i, card V ≤ r², MinDegGE (i-1) G, MinorIndepBound ↑r G → ∃ S : StarFamily G, ↑(card V)·(↑i - 1)/(8·↑r²) ≤ ↑S.totalLeaves; tex l.218-227. MinDegGE (Common.lean:22) ∀ v, k ≤ ncard (neighborSet v): finite V so ncard is the degree; i - 1 in ℕ does not truncate (i ≥ 5); the bound uses real subtraction. MinorIndepBound (Common.lean:64-66): every nonempty finite minor H: v(H)/r ≤ α(H) (indepNum). totalLeaves (Common.lean:121) = Σ |L_i|. StarFamily fields as in lem_2_4. Strictness all non-strict, as paper. REPRESENTATION: graph as SimpleGraph on Fintype (trivial); minors quantified over W : Type only (trivial: every finite minor is isomorphic to one on a Type); stars as StarFamily (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.lem_2_6",
+    "checked": "Docstring Small.lean:32-34 vs statement Small.lean:35-38: [Fintype V] [Nonempty V] → ∃ W Fintype, Nonempty W, H, IsMinor H G ∧ chi H = chi G ∧ MinDegGE (chi G - 1) H ∧ ∀ U J, IsProperMinor J H → chi J ≤ chi G - 1; tex l.287-291. chi G ≥ 1 by one_le_chi (Minors.lean:48) so ℕ subtraction chi G - 1 is the paper's χ(G)-1. IsProperMinor (Common.lean:58-59) = IsMinor J H ∧ IsEmpty (J ≃g H) = 'minor not isomorphic to H' (tex l.281). U is any Type, but a minor model into finite H forces U finite (MinorModel.finite Minors.lean:192), so chi J has no junk. IsMinor (Common.lean:51) = Nonempty (MinorModel H G), MinorModel (Common.lean:40-46): branch sets nonempty, pairwise disjoint, each inducing a connected subgraph, every edge of H realised. REPRESENTATION: minor as Diestel branch-set model, up to isomorphism (paper uses minors undefined, tex l.63; standard equivalence, nontrivial only in that it is the textbook definition rather than contraction/deletion sequences).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.lem_2_7",
+    "checked": "Docstring Small.lean:41-43 vs statement Small.lean:44-46 (casts confirmed by probe /home/fp-claude/e2e-2609-08713-formalization/audits/lin-small-kt/2026-11-14-full-d1d7d5ebd69/correspondence@2.probes/elaborated_statements.lean): [Fintype V] [Nonempty V], 2 ≤ r, card V ≤ r², MinorIndepBound ↑r G → ↑(chi G) ≤ 2↑r + 4↑r·√(posLog (↑card V / (2↑r))); real division. tex l.315-322. posLog x = max 0 (log x) = log⁺ (tex l.124-125); argument > 0 since V nonempty, r ≥ 2, so no log 0 junk. REPRESENTATION: log⁺ as Real.posLog (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.one_le_chi",
+    "checked": "No docstring. Minors.lean:48: [Finite V] [Nonempty V] → 1 ≤ chi G. chi (Common.lean:27) = G.chromaticNumber.toNat; junk toNat ⊤ = 0 excluded on finite types by chi_eq_chromaticNumber (Common.lean:30). REPRESENTATION: χ as ℕ via ENat.toNat (trivial on Finite V).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.thm_1_4",
+    "checked": "Docstring Global.lean:14-18 vs statement Global.lean:19-21 (casts by probe /home/fp-claude/e2e-2609-08713-formalization/audits/lin-small-kt/2026-11-14-full-d1d7d5ebd69/correspondence@2.probes/elaborated_statements.lean): DelcourtPostleReductionHyp → DuchetMeynielHyp → ∃ C > 0, ∀ t ≥ 3, ∀ V [Fintype V] G, KMinorFree t G → ↑(chi G) ≤ C·↑t·√(log(log ↑t)); tex l.114-120. Quantifier order ∃C ∀t ∀G as paper; strict 0 < C. Finite graphs per tex l.55. KMinorFree (Common.lean:55) = ¬ IsMinor ⊤(Fin t) G. Empty G allowed (chi = 0 genuinely, not junk). HYPOTHESES: DelcourtPostleReductionHyp (Literature.lean:64-66, printed by probe): ∃ C : ℕ, 1 ≤ C ∧ ∀ t ≥ 3, ∀ V Fintype Nonempty G, KMinorFree t G → ↑chi G ≤ ↑C·↑t·(1 + dpF ↑C G t); the recorded plain English ('integer C ≥ 1 ... every nonempty finite K_t-minor-free G has χ(G) ≤ C·t·(1 + f(G,t)), f the maximum of χ(H)/a over t/√log t ≤ a ≤ t, H ⊆ G, v(H) ≤ C a log⁴ a, K_a-minor-free') says neither more nor less: the same C appears in the bound and in dpF, and the max is a genuine maximum since dpF's set is finite and nonempty here (see dpF verdict). DuchetMeynielHyp: see thm_2_3. REPRESENTATION: graph as SimpleGraph on a Fintype in Type (trivial); log log t of a natural t via ℝ cast (trivial).",
+    "evidence": ""
+   },
+   {
+    "item": "SmallKtMinorFree.thm_2_3",
+    "checked": "Docstring Small.lean:49-52 vs statement Small.lean:53-57 (casts by probe /home/fp-claude/e2e-2609-08713-formalization/audits/lin-small-kt/2026-11-14-full-d1d7d5ebd69/correspondence@2.probes/elaborated_statements.lean): DuchetMeynielHyp → [Fintype V] [Nonempty V], 2 ≤ t, KMinorFree t G, ↑card V ≤ 4(↑t-1)² → ↑chi G ≤ 4(↑t-1) + 8(↑t-1)√(posLog(↑card V/(4(↑t-1)))); all subtraction and division in ℝ; tex l.182-189. posLog argument > 0 (V nonempty, t ≥ 2). HYPOTHESIS DuchetMeynielHyp (Literature.lean:39-41, printed by probe): ∀ t ≥ 2, ∀ V [Fintype V] G, KMinorFree t G → MinorIndepBound (2(↑t-1)) G, i.e. every minor H on a nonempty finite W : Type has ↑|W|/(2(t-1)) ≤ ↑α(H). The recorded plain English ('every integer t ≥ 2 and every finite graph G with no K_t minor, every nonempty minor H of G has independence number at least v(H)/(2(t−1))') matches exactly; restricting minors to finite W : Type loses nothing since minors of a finite graph are finite and iso-invariant. REPRESENTATION: α as Mathlib indepNum (trivial); log⁺ as posLog (trivial).",
+    "evidence": ""
+   }
+  ]
+ },
+ "run_log": "# Run log — lin-small-kt\n## Intake (2026-11-14)\n## Checkpoint A (2026-11-14)\n## Stage 2\n## Mechanical failures\n## Rounds\n## Open questions\n- [DELEGATED 2026-11-14, operator under hands-off (intake); reversal: none] keep the statement as the paper prints it, proved, with no VACUOUS.md row; take reading (a) (QUESTION row on SmallKtMinorFree.lem_2_5, round 2026-11-14-full-d1d7d5ebd69) — the adjudicator's recommendation: its hypotheses are shown empty only for r = 2 (compiled) and r ≤ 6 (argument), not for every r, so vacuity is not established; open item C3\n- [DELEGATED 2026-11-14, operator under hands-off (intake); reversal: none] keep the statement as the paper prints it, proved, with no VACUOUS.md row; take reading (a) (QUESTION row on SmallKtMinorFree.lem_2_5_proof, round 2026-11-14-full-d1d7d5ebd69) — the adjudicator's recommendation: its hypotheses are shown empty only for r = 2 (compiled) and r ≤ 6 (argument), not for every r, so vacuity is not established; open item C3\n- [DELEGATED 2026-11-14, operator under hands-off (intake); reversal: none] keep the statement as the paper prints it, proved, with no VACUOUS.md row; take reading (a) (QUESTION row on SmallKtMinorFree.iterInv_step, round 2026-11-14-full-d1d7d5ebd69) — the adjudicator's recommendation: its hypotheses are shown empty only for r = 2 (compiled) and r ≤ 6 (argument), not for every r, so vacuity is not established; open item C3\n- [DELEGATED 2026-11-14, operator under hands-off (intake); reversal: none] keep the statement as printed (the paper's χ(G) > 2r branch of Lemma 2.7), no VACUOUS.md row; take reading (a) (QUESTION row on SmallKtMinorFree.iterInv_step, round 2026-11-14-cdcb74f8540) — the adjudicator's recommendation: a witness would be a counterexample to an open conjecture, so vacuity is open, not shown; open item C3\n## Checkpoint C (2026-11-14, delegated)\n## Answered\n## Delivery\n## Current stage\n"
+}

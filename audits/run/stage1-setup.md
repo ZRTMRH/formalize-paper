@@ -95,12 +95,28 @@ Read this after the human's OK at Checkpoint A. It ends with the pin commit; the
      reason "literature result taken as a hypothesis; non-vacuity cannot exhibit a witness",
      revisit_when "never"). Without these, every round reports it UNCOVERED and the loop never
      exits.
+   - The probe settings are derived from the computer's memory when left out (`lean_slot.py`,
+     `--show` prints them): a reserve of max(4 GB, a quarter) kept free, 1 to 4 probe slots and a
+     free-memory floor. Write only what question 7 changes: `lean_ram_mb` (MB) if the human named
+     the computer's RAM, a lower `lean_slots` if other runs or heavy programs share it
+     (`lean_free_mb`, `lean_max_wait` and `lean_reserve_mb` are for operators). The memory guard,
+     which the protocol's scripts and Claude Code's SessionStart hook start, pauses the run's own
+     probes when free memory falls below the reserve, whatever started them; it never refuses or
+     kills anything.
    - **No value may contain `<<`.**
-4. **Checks.** `python3 audits/prompt.py --show` lists no unfilled blank, and
+4. **Checks.** `python3 audits/lean_slot.py --show` prints the probe limit (and any slots other runs
+   hold now) and the memory guard's line; it starts the guard if it is not running (under Codex this
+   is the guard's first starter, beside the watchdog). Record its `Memory guard:` line in RUN_LOG.md
+   with the Checkpoint A approval.
+   `python3 audits/prompt.py --show` lists no unfilled blank, and
    `python3 audits/selftest_all.py --project <name> --fast` passes (run it in the background, RUN.md
    rule 9; in `release` mode a
    `DISCLOSED[selftest]` line does not fail it: record it with `stops.py disclose --cmd "python3
-   audits/selftest_all.py --fast"` once step 5 has created the log).
+   audits/selftest_all.py --fast"` once step 5 has created the log). Ask the harness for its longest
+   background limit (Claude Code: 1 h by default, 2 h at most); on a slow machine the run can be cut.
+   If it is, run the scripts it did not report `ok` with `selftest_all.py --fast --only a,b,…`, each
+   group in its own background task, and log the split under "Mechanical failures": the union of
+   `ok` lines on one commit is the check.
 5. **Commit and pin.**
    - Create `<ROUNDS-DIR>/RUN_LOG.md` (sections below, "RUN_LOG.md sections"): `python3 audits/project.py
      --intake-move` puts the intake saved in Stage 0 (with the line `python3 audits/prompt.py --intake
@@ -144,6 +160,7 @@ Read this after the human's OK at Checkpoint A. It ends with the pin commit; the
 ## Checkpoint C (date)      the human's answers to DECISIONS.md, verbatim
                             (delegated: "## Checkpoint C (<date>, delegated)", one [DELEGATED] line per decision)
 ## Answered                 one line per answered item: - answered <anchor> (<date>, <round>): <answer>
+## K stage                  written by project.py --k-stage only (the human's reply "K" after delivery)
 ## Fresh readers            one line per pass: document · sha256 · commit · pass n · verdict line · reader file
 ## Current stage            one line, set with project.py --stage (this is what resume reads)
 ```
