@@ -49,8 +49,7 @@ the md and the PDF, never A's notes, an earlier verdict or each other's output.
 
 **Parallel.** At Stage 5 render SUMMARY and REPORT (and the sheet, when it needs it) at the same
 time: each document's loop is independent, and their saves take a lock and retry a busy index.
-Spawn both checkers of a round at once. On a machine of 16 GB or less, at most 3 agents run at once
-(RUN.md, "Cost"): start the next as one returns.
+Spawn both checkers of a round at once (on the 8 GB route, RUN.md "Cost", start the next as one returns).
 
 **A usage limit or a capacity error is not a failed round.** Wait it out as `spawn-and-seal.md`
 ("Retry budget") says -- until its reset time, or with its backoff -- and then spawn the agent again
@@ -72,13 +71,13 @@ it (every round's PDF, source and verdict). After a restart, run `next`: it rest
 interrupted command left uncommitted, then names the step. An agent you spawned before the restart
 is lost: record its step `fail` (or respawn it once, as above).
 
-**The md changes** (a new prepare, a reader fix, the approval stamp on the sheet): every output on
+**The md changes** (a new prepare, the approval stamp on the sheet): every output on
 the old md is refused, `next` says `begin`, and the loop starts again at round 1 with a new budget.
 Only a document whose md changed is rendered again.
 
 **The guard.** `signoff.py approve --by human` refuses unless the PDF at the document's usual path
 is the one `RENDER.json` shipped and was made from the md as it is now (`render_record.py check`;
-`no-pdf` passes, the md ships). `project.py --deliver` does not refuse (approver, 2026-10-28): it
+`no-pdf` passes, the md ships). `project.py --deliver` does not refuse: it
 leaves such a PDF out, delivers the md alone and prints a note. Either way, render again: never a
 stop.
 

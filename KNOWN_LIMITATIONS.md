@@ -9,7 +9,8 @@ What you should know before relying on a run. The full, detailed list (mostly fo
   benchmark of ten short papers with planted errors (`benchmark/`), not in general.
 - **Cited results are assumed, not proved, by default.** A result the paper only cites becomes an explicit,
   named hypothesis in the Lean, and the report lists it. The citation check compares a cited result with its
-  source only when the source is openly available (for example on arXiv), and it does not yet run under Codex.
+  source only when the source is openly available (for example on arXiv); under Codex only with `--search` (public
+  papers), where publisher pages often refuse access and a 4-reference paper cost about 1.4 M tokens (mostly cached).
 - **Slips in the paper's proofs are reported when noticed,** not searched for line by line: the absence of a
   listed slip says little.
 - **The checks catch an agent's mistakes, not an agent that sets out to deceive.** The summary and the report
@@ -66,6 +67,9 @@ What you should know before relying on a run. The full, detailed list (mostly fo
   hands-off a statement changed in the K stage is approved by the agent on the human's recorded answer.
 - **The intake's list of stops is worded more narrowly** than stop 1 now is: a goal result true only vacuously
   also stops (the intake text is unchanged so that runs in flight keep their intake check).
+- **With no goal result named, a false result never stops the run**: stop 1 covers goal results only, so a result
+  that looks false is disclosed in the documents, never asked. The goal list (`goal_results`) is written by the operator
+  and is not checked against the human's answer to intake question 2b.
 - **The probe wrapper is allowed like every agent-run script,** so `lean_slot.py run --no-slot -- <command>` runs
   without a permission prompt (a run is not a sandbox; INSTALL.md).
 - **An approved statement found unfaithful after the sign-off ships unchanged** under the delegating levels, marked
@@ -73,7 +77,7 @@ What you should know before relying on a run. The full, detailed list (mostly fo
 - **The Lean probe limit is followed by instruction**, not enforced: reviewers and helpers are told to compile
   through `lean_slot.py`; the run's own checks (Phase 0, the sign-off checks) are not slotted; after a 300 s wait a
   probe runs without a slot; under WSL the free-memory floor reads the Linux VM's memory, not Windows'.
-- **The memory guard also pauses on memory pressure, which can slow a run.** Besides low free memory, it pauses the probes of every formalize-paper project of the account (a second run, or the user's own `lake env lean` in such a project, included; editor processes never) when the kernel reports sustained memory pressure (Linux), and it briefly treats each new probe as needing up to 5 GB (2 GB on an 8 GB machine); on a busy or small machine probes therefore wait more and the run takes longer, and every probe waits while one of the run's own checks runs (after 15 minutes paused in all, one probe runs beside it). A probe cut at its time limit after a pause says so and is re-run, not called too large. In a 16 GB test with 12 simultaneous probes, real memory peaked at 7.6 GB with the machine responsive, against 14.6 GB and seven probes killed without the guard (V2 round 4, after fix round RAMK).
+- **The memory guard also pauses on memory pressure, which can slow a run.** Besides low free memory, it pauses the probes of every formalize-paper project of the account (a second run, or the user's own `lake env lean` in such a project, included; editor processes never) when the kernel reports sustained memory pressure (Linux), and it briefly treats each new probe as needing up to 3.2 GB (2 GB on an 8 GB machine); on a busy or small machine probes therefore wait more and the run takes longer, and every probe waits while one of the run's own checks runs (after 15 minutes paused in all, one probe runs beside it). The time a probe is paused is added to its 240 s limit (up to about 540 s with its slot wait), so a paused probe keeps its memory and its slot longer; a probe cut with 180 s or less of running says so and is re-run, not called too large. In a 16 GB test with 12 simultaneous probes, real memory peaked at 7.6 GB with the machine responsive, against 14.6 GB and seven probes killed without the guard (V2 round 4, after fix round RAMK).
 - **The memory guard pauses, it does not kill.** When free memory runs low it pauses the Lean probes of all formalize-paper projects of the account (at most
   10 minutes per pause) and never touches the run's own checks, so one probe, or the run's own checks alone, larger
   than the memory left can still exhaust it; the kernel's out-of-memory killer then takes a probe first (Linux). A
@@ -87,8 +91,6 @@ What you should know before relying on a run. The full, detailed list (mostly fo
   time limit bound it instead. Under WSL the guard decides on the Linux VM's
   memory; Windows' free memory is only reported. Up to a second passes between its checks. A paper on a heavy
   library may not fit on an 8 GB computer without swap: it is then slow, with a note at Checkpoint A.
-- **The intake's question 7 still describes the old probe default** (one slot per 8 GB); the probe settings are now
-  derived from the memory (the intake text is unchanged so that runs in flight keep their intake check).
 - **A missing-theory decision line in the log's own words is judged by the next review round, not at once.** When a
   logged decision mentions missing theory but is not in the required form, the next adjudicator rules whether it is
   one. A line logged after the last round (a delegated Checkpoint C decision) costs one more full round; delivered
@@ -132,6 +134,15 @@ What you should know before relying on a run. The full, detailed list (mostly fo
 - **A stray script in audits/ is listed, not judged.**
 - **The PDFs are produced and checked by agents.** The markdown delivered beside each PDF is the
   authoritative text.
+- **At the `involved` level, two delivered documents can show answered questions as still open.** REPORT's
+  section 8 and RUN_RECORD's question rows may be written before your Checkpoint C answers; they can then list
+  as open questions you answered at Checkpoint B, at a re-approval or at Checkpoint C. `DECISIONS.md` and the
+  run log record every answer correctly: trust them over those two tables. To be fixed in the next version.
+- **A note about running the tool can be recorded as a condition on the paper.** If your intake answer to the
+  last question (memory, a test run, a shared machine) is recorded in `CONDITIONS.md` as a condition on all
+  results, the summary's K line can read "K reached for 0 of N" even though the report finds no mathematical
+  gap (seen once, under Codex). Read the report and `CONDITIONS.md` before the K line. To be fixed in the next
+  version.
 - **Platforms.** Most tested on Linux (Debian or Ubuntu, or Ubuntu under WSL2) with Claude Code. macOS (the separate `macos` branch) and the Codex CLI have had fewer runs, but both have delivered real papers: under Codex, a 5-page paper on Linux and on an 8 GB Mac; on the Mac under Claude Code, Ramanujan's proof of Bertrand's postulate; a "model at capacity" error can pause a Codex run until you type `resume`.
 - **Time and usage.** A run takes hours even for a short paper (a 35-page paper took about 16 hours of active
   run time on an earlier version), and it uses a large share of a subscription's usage limits.

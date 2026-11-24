@@ -20,8 +20,8 @@ It runs under Linux (Debian or Ubuntu, or Ubuntu under WSL2 on Windows) with Cla
 OpenAI Codex CLI (tested with 0.163.0), and on macOS from the separate `macos` branch. Claude Code on
 Linux has had the most runs; Codex and macOS have had fewer, but each has delivered real papers: under
 Codex, a 5-page paper on Linux (about 4 h, the same outcome as under Claude Code) and the same paper on
-an 8 GB Mac; on the Mac under Claude Code, Ramanujan's proof of Bertrand's postulate. The citation check
-does not yet run under Codex (planned). See [`codex/README.md`](codex/README.md).
+an 8 GB Mac; on the Mac under Claude Code, Ramanujan's proof of Bertrand's postulate. Under Codex the
+citation check runs with `--search` for a public paper. See [`codex/README.md`](codex/README.md).
 
 **Credit.** The one-criterion-per-reviewer design and the wording of three reviewer rubrics are
 adapted from Wes Pegden's [Trellis](https://github.com/wpegden/trellis) (arXiv:2606.09674); see
@@ -30,7 +30,7 @@ adapted from Wes Pegden's [Trellis](https://github.com/wpegden/trellis) (arXiv:2
 ## Who it is for
 
 A mathematician with one AI subscription (Claude Code or the Codex CLI) and an ordinary
-computer: 16 GB of RAM is enough; 8 GB also works, more slowly, if you ask at intake question 7 for one agent at a time: a real paper delivered
+computer: 16 GB of RAM is enough; 8 GB also works, more slowly (say the RAM at intake question 7): a real paper delivered
 on a 2019 MacBook Air (dual-core 1.6 GHz Intel Core i5, 8 GB).
 macOS needs the separate `macos` branch.
 It checks whether a paper's statements are faithfully formalized and correct, with no need to read Lean, and
@@ -39,7 +39,7 @@ produces a report for the paper's authors:
   reviewer who sees only the Lean, with every difference spelled out;
 - defects proved in Lean and classified by kind (typo, missing hypothesis, false as printed), and proof gaps it
   notices;
-- a citation check (with Claude Code; Codex support is planned soon), where the cited work is openly available (e.g. on
+- a citation check (under Codex: `--search` for a public paper), where the cited work is openly available (e.g. on
   arXiv): whether it states the cited result in the form used, and whether bibliography entries are correct and up
   to date (e.g. preprints since published). With Claude Code it reached 74% of cited results across seven real papers.
 
@@ -132,7 +132,8 @@ python3 -B audits/project.py --selftest && python3 -B audits/lanecheck.py --self
 # start a run
 claude                                                     # then type /formalize-paper
 # or, with Codex:
-codex --sandbox workspace-write --add-dir ~/my-formalization/.git   # then type $formalize-paper
+codex -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write --add-dir ~/my-formalization/.git --search   # public paper; then $formalize-paper
+codex -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write --add-dir ~/my-formalization/.git            # confidential paper; then $formalize-paper
 ```
 
 **By hand (macOS):** the same, cloning the `macos` branch, after three one-time extras listed in the macOS
@@ -163,7 +164,7 @@ the report for you to reverse. Otherwise the run stops for you only when:
 If Claude pauses on a usage limit or an API error, leave the session open and type `continue` once
 it clears. A run on a short paper takes a few hours; a 35-page paper takes one to two days. A Claude
 Max plan is recommended. 16 GB of RAM is enough (say so at intake question 7); 8 GB works, more
-slowly, with one agent at a time. More detail: [`INSTALL.md`](INSTALL.md).
+slowly. More detail: [`INSTALL.md`](INSTALL.md).
 
 ## Track record
 

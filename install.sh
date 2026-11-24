@@ -215,7 +215,7 @@ fi
 
 if [[ $CODEX -eq 1 ]]; then
   if [[ -x "$HERE/codex/install-codex.sh" ]]; then
-    "$HERE/codex/install-codex.sh" "$TARGET"
+    FP_UPGRADE=$UPGRADE "$HERE/codex/install-codex.sh" "$TARGET"
   else
     echo "  --codex: codex/install-codex.sh is not present in this version; see KNOWN_LIMITATIONS.md" >&2
   fi

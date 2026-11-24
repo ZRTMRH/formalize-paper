@@ -101,8 +101,8 @@ maintainers; the numbered items T1–T35 say what each limitation means for you 
   RUN_LOG.md and the conversation transcript; nothing yet verifies those hashes against later
   history automatically.
 - **Polling-loop attribution is heuristic.** A loop counts as a lane's when its cwd is in the
-  repository or its parent chain reaches a lane process (only the `codex_spawn.py` fallback runs
-  lanes as processes of their own; built-in subagents do not). A loop a built-in lane starts
+  repository or its parent chain reaches a lane process (built-in subagents are no processes of
+  their own). A loop a built-in lane starts
   after `cd /tmp` is not attributed, and a loop that copies the operator's
   `FORMALIZE_PAPER_OPERATOR=1` tag is spared: detection, not prevention. Other projects' loops
   (cwd outside the repository, not started by a lane process) are never flagged or killed.
@@ -127,9 +127,9 @@ maintainers; the numbered items T1–T35 say what each limitation means for you 
   adjudication. *Planned:* a final "record refresh" adjudication in Stage 5, before the report. The
   report already lists stale `File.lean:N` citations together with the current line.
 - **Full audit rounds are memory-hungry.** Many reviewer lanes probing Lean at once can exhaust
-  memory on a 16–32 GB machine. The agent spawns lanes in waves of at most 8
-  (`audits/run/spawn-and-seal.md`); ask for smaller waves on less memory. *Planned:* a project
-  setting `max_parallel_lanes`, so that `prompt.py` prints the spawn order in waves; a shared Lean
+  memory on a 16–32 GB machine. The agent runs at most 8 reviewers at once
+  (`audits/run/spawn-and-seal.md`); ask for fewer at once on less memory. *Planned:* a project
+  setting `max_parallel_lanes`, so that `prompt.py` prints the spawn order; a shared Lean
   server for the lanes.
 - **Diff rounds never clear some UNCOVERED rows.** If a verdict was recorded on a helper that has
   since been deleted, or on an auto-generated syntax declaration from a `macro` or `syntax`, the
@@ -273,9 +273,9 @@ maintainers' table in `TRADEOFFS.md`, which says why each was accepted and how i
   the cited work is openly available, agents check that it states the cited result in the form used
   and that the bibliography entries are right (`CITATIONS.md`; it reached 74% of cited results across
   seven real papers). It never stops a run, it is not proved in Lean, a citation whose source is not
-  openly available is not checked, and it does not yet run under Codex. The prior-art reviewer runs
+  openly available is not checked, and under Codex it reads sources only with `--search`. The prior-art reviewer runs
   only when the intake asks for a library contribution. *For you:* a wrong citation may go
-  unremarked when its source is not openly available, and always under Codex. *In the report:* yes,
+  unremarked when its source is not openly available, and under Codex without `--search`. *In the report:* yes,
   `CITATIONS.md` gives each cited result's finding (as stated, a stronger form, not reachable); trust row "AI reviewer: prior-art: NOT RUN" when
   that reviewer did not run.
 - **T3 Encoded hypotheses can escape the hypothesis walk.** The walk is syntactic: a hypothesis
@@ -395,7 +395,7 @@ Batch E (DESIGN-E2) built fixes 2-6 of `FORGERY-REVIEW-2026-11.md`. Still open, 
   35-page paper. Parallel runs share one subscription's usage limits.
 - **T25 Ceilings and caps are guesses.** Statement rounds 4 (re-approval 2), diff rounds by budget
   2/4/6, delivery rounds 2, renderer rounds 6, failed cures 2 per stop and 3 per check, openings 3
-  per round, reader-fix rounds 2, SUMMARY 62 lines. *For you:* when a cap is reached the
+  per round, SUMMARY 62 lines. *For you:* when a cap is reached the
   conservative default holds and is disclosed. *In the report:* yes, when reached.
 - **T26 Proof-phase rounds are bounded only by progress,** and a fault that recurs each round but is
   cured at the first try is not counted against any cap. *For you:* time and tokens only.

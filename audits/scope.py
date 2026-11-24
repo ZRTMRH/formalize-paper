@@ -264,21 +264,25 @@ def fp_delta(prev, cur, auto=()):
     return sorted(n for n, fp in cur.items() if n not in auto and prev.get(n) != fp)
 
 
-def previous_commit(cfg, repo, exclude=None):
+def previous_commit(cfg, repo, exclude=None, rule=2):
     """The commit the last earlier round audited (project.order_rounds: by Lean ancestry; a set-aside
     round is no round), else the branch base. Only a round scope.py scoped (its TARGET.json) is a
     base: an ADOPTED.md planted in a prompts directory must not make an unaudited commit the base
-    (re-check of fix-mini1)."""
+    (re-check of fix-mini1). Rule 2 (W-R4 A3, KW F1): a statement round is no base either (it reviews
+    statements, not the proofs on its commit); rule 1, for a TARGET.json recorded before `_meta.base_rule`,
+    counts it."""
     rounds = [r for r in project.rounds(cfg, repo=repo) if os.path.basename(r) != exclude
-              and os.path.exists(os.path.join(r, "TARGET.json"))]
+              and os.path.exists(os.path.join(r, "TARGET.json"))
+              and (rule < 2 or project.round_kind(r) != "statements")]
     return project.round_commit(rounds[-1]) if rounds else cfg["base_commit"]
 
 
-def make_target(cfg, round_name, kind, repo, fps):
+def make_target(cfg, round_name, kind, repo, fps, rule=2):
     """The TARGET.json document for a round: lanes and items, plus how it was made (`_meta`).
     `fps` is this commit's fingerprint table ({key: fp}, with `.auto`), or None to skip the
-    fingerprint delta (selftests only)."""
-    prev = None if kind in ("full", "statements") else previous_commit(cfg, repo, exclude=round_name)
+    fingerprint delta (selftests only). `rule`: the diff-base rule (previous_commit); 2 is recorded as
+    `_meta.base_rule`, 1 (an old record's, for `--verify`) is not."""
+    prev = None if kind in ("full", "statements") else previous_commit(cfg, repo, exclude=round_name, rule=rule)
     decls, rows, unnamed, changed, removed = compute(repo, cfg["lean_files"], project.index_file(cfg),
                                                      prev, kind != "diff")
     added = []
@@ -295,6 +299,8 @@ def make_target(cfg, round_name, kind, repo, fps):
     doc = {lane: (rows if lane in RESULT_LANES else decls) for lane in lanes}
     doc["_meta"] = {"kind": kind, "prev": prev, "commit": round_name and project.round_commit(round_name),
                     "fingerprint_added": added, "removed": removed}
+    if rule >= 2:
+        doc["_meta"]["base_rule"] = 2
     if "paper-faithfulness" in doc:
         f10 = refutation_scope(cfg, repo, round_name, kind, decls, rows)
         doc["paper-faithfulness"] = list(rows) + [i for i in f10 if i not in rows]
@@ -476,6 +482,15 @@ def taken_problem(cfg, repo, round_name):
                 f"subject), list it in the run log (`echo \"- <its full hash> fresh round after the set-aside of "
                 f"{round_name}\" | python3 audits/project.py --log \"Mechanical failures\"`), then run prompt.py 3 "
                 f"again: it names the new round")
+    if project.round_kind(rd) == "full" and os.path.exists(os.path.join(rd, "ADOPTED.md")):
+        why = _round_settled(rd)
+        if why:     # W-R4 B1 (CX C2): adjudicated, not settled -- a fresh full round needs a new name
+            why = re.sub(r'[`"$\\!]', "'", " ".join(why.split()))     # pasted into a double-quoted echo (review L2)
+            return (f"round {round_name} was adjudicated and is not settled ({why}), and a round's name is used once: "
+                    f"make the empty Lean commit `git commit --allow-empty -m \"fresh full round on {round_name}\"` "
+                    f"(exactly that subject), list it in the run log (`echo \"- <its full hash> fresh full round on "
+                    f"{round_name}: {why}\" | python3 audits/project.py --log \"Mechanical failures\"`), then run "
+                    f"prompt.py 3 --full again: it names the new round")
     return f"round {round_name} is already scoped (its TARGET.json exists): a round's scope is written once"
 
 
@@ -754,9 +769,11 @@ def verify_round(cfg, repo, round_name, kind, fps):
     failed): today's records are its inputs."""
     rdir = os.path.join(repo, cfg["rounds_dir"])
     recorded = json.load(open(os.path.join(rdir, round_name, "TARGET.json"), encoding="utf-8"))
+    # W-R4 A3: a TARGET.json without `_meta.base_rule` was scoped under the old diff-base rule; it verifies under it
+    rule = 2 if (recorded.get("_meta") or {}).get("base_rule") == 2 else 1
     top, c, committed = scope_commit(rdir, round_name)
     if c is None:
-        res = make_target(cfg, round_name, kind, repo, fps)
+        res = make_target(cfg, round_name, kind, repo, fps, rule=rule)
         return compare(recorded, res[0]), res
     bad = []
     try:
@@ -766,7 +783,7 @@ def verify_round(cfg, repo, round_name, kind, fps):
         bad.append(f"the TARGET.json its scope commit {c[:11]} recorded cannot be read")
     tmp, fr = frozen_rounds_dir(top, c, rdir)
     try:
-        res = make_target(dict(cfg, rounds_dir=fr), round_name, kind, repo, fps)
+        res = make_target(dict(cfg, rounds_dir=fr), round_name, kind, repo, fps, rule=rule)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return bad + compare(recorded, res[0]), res
@@ -845,7 +862,8 @@ def _round_settled(rd):
                 (q.lane, q.item) == (r.lane, r.item) and q.decision in ("ADOPT", "REJECT", "DEFER", "QUESTION")
                 for q in rows[i + 1:]):
             return f"its REVOTE NEEDED row {r.lane} | {r.item} is not decided"
-        if r.decision == "UNCOVERED" and "(expected" not in (r.reason or "") + (r.verdict or ""):
+        # W-R5 AP9: the mark is read anywhere in the row, the decision cell included ("UNCOVERED (expected: …)")
+        if r.decision == "UNCOVERED" and "(expected" not in (r.reason or "") + (r.verdict or "") + (r.text or ""):
             return f"its UNCOVERED row {r.lane} | {r.item} is not marked expected"
     return None
 
@@ -872,6 +890,11 @@ def adopted_doc_fix(cfg, repo, c):
                   and (q not in old or old[q][2] != d[2]))
 
 
+def _no(why):
+    """None, saying on stderr why Stage 5's no-round route was not taken (P5 S-1; never an `error:` line)."""
+    print("# no-round not taken: " + re.sub(r"\berror:", "error -", " ".join(str(why).split())), file=sys.stderr)
+
+
 def no_round_line(cfg, repo, kind, stage):
     """Stage 5 (trial #11: a full round and a diff round, about 84 minutes, for docstring-only fixes): the
     NEXT[no-round] line when the round would audit nothing new, else None. Both need the Lean unchanged since the
@@ -887,29 +910,31 @@ def no_round_line(cfg, repo, kind, stage):
     try:
         import make_report, stops
         if stops.redo_target(cfg):
-            return None     # a set-aside's cure needs its fresh round (MAINTAINING R4)
+            return _no("a set-aside's redo round is due")     # its cure needs its fresh round (MAINTAINING R4)
         import tool_patch
         if tool_patch.forced_round_problems(cfg):
-            return None     # a tool patch that may have changed a review's inputs needs a real full round (OPERATOR-PATCH §4)
+            return _no("a tool patch may have changed a review's inputs")     # a full round is due (OPERATOR-PATCH §4)
         c = project.changes_after_last_audit(cfg, project.rounds(cfg))
         if c is None or c["problem"] or c["dirty"]:
-            return None
+            return _no("the changes since the last audited round are unreadable or uncommitted")
         changed = bool(c["commits"])
         if kind == "diff" and not changed:
-            return None     # nothing changed: the empty-scope route (empty_scope_next) says what follows
+            return _no("nothing changed (the empty-scope route)")     # empty_scope_next says what follows
         if changed and not c.get("comment_only"):
-            return None
+            return _no(f"more than comments and docstrings changed since round {c['round']}")
         last = os.path.join(repo, cfg["rounds_dir"], c["round"])
         if kind == "full" and not (project.is_full_round(c["round"]) and project.round_kind(last) == "full"
                                    and _round_settled(last) is None):
-            return None
-        if make_report.stale_problems(cfg) or make_report.pending_adjudication(cfg) \
-                or make_report.unverified_problems(cfg):
-            return None
+            return _no(f"round {c['round']} is not a settled full-scope round")
+        for f_, w_ in ((make_report.stale_problems, "--deliver would ask for a round"),
+                       (make_report.pending_adjudication, "an item awaits the next adjudication"),
+                       (make_report.unverified_problems, "a precondition is unverified")):
+            if f_(cfg):
+                return _no(w_)
         if kind == "diff" and changed and adopted_doc_fix(cfg, repo, c):
-            return None     # next batch B2: an ADOPTed docstring fix on an index row is re-read by the diff round
-    except Exception:       # noqa: BLE001 -- fail towards the round that audits more
-        return None
+            return _no("an ADOPTed docstring fix on an index row")     # next batch B2: the diff round re-reads it
+    except Exception as e:       # noqa: BLE001 -- fail towards the round that audits more
+        return _no(f"the check failed ({type(e).__name__}: {e})")
     what = (f"only comments and docstrings changed since round {c['round']} ({str(c['commit'])[:11]}), "
             + ("checked with Lean as --deliver checks it" if c.get("comment_only_basis") == "compiled" else
                # DESIGN-M7: the source basis (or none given: never overclaim)
@@ -1292,6 +1317,25 @@ def _no_round_controls(check):
             "next adjudication, or a set-aside's redo round is due",
             run("diff", stale=["1 Lean commit(s)"]) is None and run("full", unver=["x: out of date"]) is None
             and run("diff", pend=[("adj-record", "x")]) is None and run("full", redo="2026-01-01-bbbbbbb") is None)
+        import contextlib, io
+        why_ = []
+        for k_, kw_ in (("diff", dict(redo="r")), ("diff", dict(dirty=["P"])), ("diff", dict(commits=[])),
+                        ("diff", dict(comment_only=False)), ("full", dict(kind="diff")), ("diff", dict(stale=["s"])),
+                        ("diff", dict(pend=["p"])), ("full", dict(unver=["u"])), ("diff", dict(adopt=["N.a"])),
+                        ("diff", dict(boom=True)), ("diff", dict()), ("diff", dict(stage=st4))):
+            with contextlib.redirect_stderr(io.StringIO()) as e_:
+                run(k_, **kw_)
+            why_.append(e_.getvalue())
+        chk("0.3.2 A4 (P5 S-1): each declined no-round case says why on stderr (one line, no `error:`); a taken one "
+            "and Stage 4 say nothing",
+            [w.count("# no-round not taken: ") for w in why_] == [1] * 10 + [0, 0]
+            and all(x in w for x, w in zip(("redo round", "uncommitted", "nothing changed", "more than comments",
+                                            "not a settled", "--deliver would ask", "awaits the next adjudication",
+                                            "unverified", "ADOPTed", "RuntimeError: unreadable"), why_)))
+        with contextlib.redirect_stderr(io.StringIO()) as e_:
+            _no("RuntimeError: x\nFAIL[tooling] error: y")
+        chk("0.3.2 A-R1 (REVIEW-COMPAT-A032 NOTE-3): a multi-line reason is one stderr line (no FAIL line of its own)",
+            e_.getvalue() == "# no-round not taken: RuntimeError: x FAIL[tooling] error - y\n")
     finally:
         (project.changes_after_last_audit, project.rounds, project.round_kind, make_report.stale_problems,
          make_report.pending_adjudication, make_report.unverified_problems, stops.redo_target,
@@ -1345,6 +1389,12 @@ def _no_round_controls(check):
             and settled(head + "| correspondence | N.a | STALE | **UNCOVERED** | gone |\n")
             and settled(head + "| correspondence | N.a | STALE | **UNCOVERED** | gone (expected: x) |\n") is None
             and settled(head + "| nolane | N.a | Fail | **ADOPT** | r |\n"))
+        chk("W-R5 AP9: an UNCOVERED row marked expected in its decision cell, with its reason (a check on a helper "
+            "lemma), settles the round; the same row unmarked does not",
+            settled(head + "| substantiveness | N.b | NotDoneYet | **UNCOVERED (expected: helper lemma only; cannot "
+                    "affect whether a paper result is faithfully stated)** | not reached |\n") is None
+            and "not marked expected" in (settled(head + "| substantiveness | N.b | NotDoneYet | **UNCOVERED** | "
+                                                  "not reached |\n") or ""))
     finally:
         shutil.rmtree(d, ignore_errors=True)
     return ok
@@ -1566,6 +1616,52 @@ end P
         shutil.rmtree(os.path.join(rdir, f"2026-01-03-{head}"))
         check("no rounds -> previous = the branch base",
               previous_commit(dict(cfg, rounds_dir=os.path.join(d, "none")), d) == base)
+        # W-R4 A3 (KW F1): a statement round is no diff base (rule 2, recorded as `_meta.base_rule`); a TARGET.json
+        # recorded without `base_rule` still verifies under the old rule
+        open(os.path.join(rdir, names[1], "TARGET.json"), "w").write('{"_meta": {"kind": "statements"}}')
+        _rn = f"2026-01-05-{head}"
+        os.makedirs(os.path.join(rdir, _rn))
+        _new, _, _ = make_target(cfg, _rn, "diff", d, None)
+        _oldr, _, _ = make_target(cfg, _rn, "diff", d, None, rule=1)
+        check("W-R4 A3: the diff base skips a statement round (the last full or diff round before it), records "
+              "base_rule 2, and its scope widens over the old rule's",
+              previous_commit(cfg, d) == h1 and previous_commit(cfg, d, rule=1) == h2
+              and _new["_meta"]["prev"] == h1 and _new["_meta"].get("base_rule") == 2
+              and "base_rule" not in _oldr["_meta"] and _oldr["_meta"]["prev"] == h2
+              and set(_oldr["correspondence"]) <= set(_new["correspondence"]))
+        json.dump(_oldr, open(os.path.join(rdir, _rn, "TARGET.json"), "w"))
+        _v_old = verify_round(cfg, d, _rn, "diff", None)[0]
+        json.dump(dict(_oldr, _meta=dict(_oldr["_meta"], base_rule=2)), open(os.path.join(rdir, _rn, "TARGET.json"), "w"))
+        _v_forged = verify_round(cfg, d, _rn, "diff", None)[0]
+        json.dump(_new, open(os.path.join(rdir, _rn, "TARGET.json"), "w"))
+        _v_new = verify_round(cfg, d, _rn, "diff", None)[0]
+        check("W-R4 A3: --verify passes an old-format TARGET (no base_rule, base = the statement round) and a new one; "
+              "an old-rule base under base_rule 2 is a mismatch", _v_old == [] and _v_new == [] and _v_forged != [])
+        shutil.rmtree(os.path.join(rdir, _rn))
+        open(os.path.join(rdir, names[1], "TARGET.json"), "w").write("{}")
+        # W-R4 B1 (CX C2): a full round on HEAD, adjudicated and not settled: the empty-commit route, fixed subject
+        _fr = f"2026-01-06-full-{head}"
+        os.makedirs(os.path.join(rdir, _fr))
+        open(os.path.join(rdir, _fr, "TARGET.json"), "w").write('{"_meta": {"kind": "full"}}')
+        _keep_settled = globals()["_round_settled"]
+        _t_plain = taken_problem(cfg, d, _fr)
+        open(os.path.join(rdir, _fr, "ADOPTED.md"), "w").write("# x\n")
+        globals()["_round_settled"] = lambda rd: "its UNCOVERED row a | b is not marked expected (`$(x)` \"q\")"
+        try:
+            _t_route = taken_problem(cfg, d, _fr) or ""
+            globals()["_round_settled"] = lambda rd: None
+            _t_settled = taken_problem(cfg, d, _fr) or ""
+        finally:
+            globals()["_round_settled"] = _keep_settled
+        import tree_state
+        check("W-R4 B1: a full round on HEAD adjudicated and not settled prints the empty-commit route with the fixed "
+              "subject `fresh full round on <R>` (the reason in the log line), which tree_state accepts; a settled or "
+              "unadjudicated one is just 'already scoped'; the next name is free",
+              f'git commit --allow-empty -m "fresh full round on {_fr}"' in _t_route
+              and "not marked expected (''(x)' 'q')" in _t_route and "already scoped" in _t_plain and "already scoped" in _t_settled
+              and any(p_.match(f"fresh full round on {_fr}") for p_ in tree_state.OPERATOR_EMPTY)
+              and taken_problem(cfg, d, f"2026-01-07-full-{base[:11]}") is None)
+        shutil.rmtree(os.path.join(rdir, _fr))
         check("kinds decide lanes: statements = the three statement lanes",
               lanes_for("statements", cfg) == STATEMENT_LANES)
         check("kinds decide lanes: full = every correctness lane plus the config's",
@@ -1798,7 +1894,7 @@ def _cap_controls(check):
     paper-faithfulness finding open (release: NOTE[round-cap], the operator judges, cap_record), otherwise
     NOTE[round-cap] (no stop: the conservative default); set-aside
     rounds are not counted; a statement round after an approval with no re-approval open is not capped."""
-    import fingerprint
+    import fingerprint, lanecheck
     d = tempfile.mkdtemp(prefix="scope-cap-")
     G = lambda *a: subprocess.run(["git", "-C", d, *a], capture_output=True, text=True, env=_tick()).stdout.strip()
     keep = (project.REPO, fingerprint.open_reapproval, fingerprint.approval_history)
@@ -1824,8 +1920,7 @@ def _cap_controls(check):
             r = os.path.join(d, "P", f"2026-01-{n[0]:02d}-full-{n[0]:07x}")
             os.makedirs(r)
             json.dump({"_meta": {"kind": "statements"}}, open(os.path.join(r, "TARGET.json"), "w"))
-            open(os.path.join(r, "ADOPTED.md"), "w").write(
-                "| lane | item | verdict | decision | reason |\n|---|---|---|---|---|\n" + rows)
+            lanecheck.fixture_rows(r, rows)
             if aside:
                 open(os.path.join(r, project.ABANDONED), "w").write("{}")
             G("add", "-A"); G("commit", "-qm", f"scope {os.path.basename(r)}")

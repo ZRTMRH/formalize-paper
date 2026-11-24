@@ -37,7 +37,7 @@ F1 -- a result is faithful only if (all from the records, never from the operato
     row, the approval's exclusion) -- or, for an Ambiguous, a reading-choice row, for a Fail a
     `differs` row (those rows are the operator's: they only ever add a status that claims less); an Ambiguous
     whose QUESTION a final answer settled by the reading the row says the Lean takes is answered too, and reads
-    "faithful under reading (x) of the <lane> question ..." (kept_reading; a benchmark run);
+    "faithful under reading (x) of the <lane> question ..." (reading_answer; a benchmark run);
   * the approved fingerprints of its declarations equal the newest audited ones (no drift);
   * every assumption the walk lists for it is classified and recorded (F7, F9);
   * no status 1-10 applies.
@@ -82,16 +82,6 @@ STATUS_WORDS = {"false": "false as printed", "vacuous": "vacuous as printed",
                 "unsupported": "the paper's argument does not establish it",
                 "misprint": "a misprint; true as intended"}
 REPAIRED = ("typo", "add hypothesis", "local", "substantial")
-STATUS_LEGEND = (
-    "How to read a result's status: \"faithful\" means every review of the Lean statement against the paper "
-    "(correspondence, paper-faithfulness, non-vacuity, on the result and on the definitions it uses) passed on "
-    "its current version, nothing is assumed beyond the paper, and -- unless \"stated only\" is listed -- it is "
-    "proved with the standard axioms only. Every other status names what holds instead: \"proved as repaired\" "
-    "(the printed statement is false and the Lean proves the corrected one), \"assumed, not proved\" (the "
-    "result is stated as a named hypothesis, as a cited result is, and never proved), \"proved assuming H\", \"stated "
-    "only\", \"vacuous\", \"differs\", \"not established: <why>\" (a review is missing, out of date or not "
-    "settled; nothing is claimed).")
-
 Route = collections.namedtuple("Route", "result reason route code")
 
 
@@ -292,7 +282,7 @@ def context(cfg, live_fps=None):
     c["hist"] = _history(rd, ns, known)
     c["dec"] = _decisions(rd)
     c["capped"] = _capped(rd)
-    # the QUESTION rows and RUN_LOG.md: an answered question that keeps the reading the Lean takes (kept_reading);
+    # the QUESTION rows and RUN_LOG.md: an answered question that keeps the reading the Lean takes (reading_answer);
     # A5: both cells of each row (a row may write everything in its decision cell), never decisions.question_rows'
     # value (review M6: that feeds DECISIONS.md)
     try:
@@ -656,12 +646,6 @@ def _same_scheme(a, b):
     return bool(kinds(a) & kinds(b))
 
 
-def kept_reading(c, rnd, lane, item):
-    """(reading, who) when the answer kept the reading the Lean takes (reading_answer), else None."""
-    r = reading_answer(c, rnd, lane, item)
-    return (r[1], r[2]) if r and r[0] == "kept" else None
-
-
 def _capped_or(reason, c, lane, items):
     """`reason`, or -- when the statement-round cap left this (lane, item) open (c["capped"]) -- the open
     faithfulness finding it is (route round-cap: disclosed, never a delivery block). An unanswered QUESTION (route
@@ -718,7 +702,7 @@ def verdict_reasons(c, label, names, records, is_def, kept=None):
     """[(reason, route)] standing between the result and F1 (empty: F1's verdict conditions hold).
     `records`: which adjudicator-owned records name the result ({"defect", "vacuous", "skipped", "excluded",
     "reading", "differs"}). `kept`: a list that gets a "faithful under reading" status for every Ambiguous settled
-    by an answered question keeping the Lean's reading (kept_reading)."""
+    by an answered question keeping the Lean's reading (reading_answer)."""
     out = []
     decls = [n for n in names if not c["cur"] or n in c["cur"]]
 
@@ -1047,7 +1031,7 @@ def result_status(cfg, row, inp=None):
     return analyse(cfg, row, ctx_of(cfg, inp))[0]
 
 
-# ---- next batch G1 (approver D1, CR-5/CR-6/CR-11): the conditions checklist and the K certificate ---------------
+# ---- next batch G1 (approver D1, NW-5/NW-6/NW-11): the conditions checklist and the K certificate ---------------
 # K1: the Lean statement says exactly what the paper says; K2: kernel-checked, no `sorry`, standard axioms; K3: every
 # nontrivial representation proved equivalent in Lean (a bridge theorem); K4: no unproved assumption. These readers
 # FLAG only: they never refuse, never stop (reviewers judge triviality and adequacy; code checks mechanics).
@@ -1055,7 +1039,6 @@ def result_status(cfg, row, inp=None):
 CONDITIONS_MD = "CONDITIONS.md"
 COND_KINDS = ("condition", "scope", "known-issue", "bridge", "reading", "source-def", "finding")
 COND_CLOSED = ("met", "not applicable")
-COND_STATUSES = ("met", "open", "out of reach", "not applicable")
 COND_ID = re.compile(r"^(?:C\??-?\d+|K3-\d+)$")     # C<n>, an adjudicator's C?-<n> (a condition missing from the list), K3-<n>
 RAW_ID_WHY = "id not in C<n>/K3-<n> form"     # fix round K (AUDIT-P5 §3): such a row is kept under its raw id, open
 
@@ -1492,7 +1475,7 @@ def is_plain(st):
 
 # --- selftest --------------------------------------------------------------------------------------------
 def selftest():
-    import shutil, subprocess, tempfile
+    import shutil, subprocess, tempfile, lanecheck
     fails = []
 
     def say(name, ok):
@@ -1534,8 +1517,7 @@ def selftest():
                 json.dump({"lane": lane, "scope": [i for i, _ in vs],
                            "verdicts": [{"item": i, "verdict": v, "checked": "x"} for i, v in vs]},
                           open(os.path.join(d, lane + ".json"), "w"))
-            open(os.path.join(d, "ADOPTED.md"), "w").write(
-                "| lane | item | verdict | decision | reason |\n|---|---|---|---|---|\n" + adopted)
+            lanecheck.fixture_rows(d, adopted)
             return d
 
         labels = ["Definition 1.1", "Lemma 1.2", "Lemma 1.3 (a)", "Lemma 1.3 (b)", "Theorem 2.1", "Conjecture 3.1"]
@@ -1986,7 +1968,7 @@ def selftest():
                 say("B1 (review M2): an open re-vote of the item keeps it the adjudicator's (pending), whatever the "
                     "other row says; the re-votes unreadable: the adjudicator's too",
                     r_rv == [("adjudicator", "adj-record")] and len(p_rv) == 1 and r_err == [("adjudicator", "adj-record")])
-                # u3: an Ambiguous QUESTION: unanswered -> question; answered (a reading kept_reading cannot read) ->
+                # u3: an Ambiguous QUESTION: unanswered -> question; answered (a reading reading_answer cannot read) ->
                 # decided; the open questions unreadable -> never decided
                 reset()
                 mkround("2026-01-01-aaaaaaa", fp0, allpass([("paper-faithfulness", "Lemma 1.2", "Ambiguous")]),
@@ -2690,17 +2672,12 @@ def main(argv=None):
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--check", action="store_true", help="exit 1 if any result is not established (a route other "
                                                          "than an open question)")
-    ap.add_argument("--live", action="store_true", help="compare with the fingerprints of HEAD (runs Lean)")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest()
     cfg, _ = project.select(a.project)
-    live = None
-    if a.live:
-        import fingerprint
-        live = fingerprint.compute(cfg)
-    inp = {CTX_KEY: context(cfg, live)}
+    inp = {CTX_KEY: context(cfg)}
     st = statuses(cfg, inp)
     rts = routes(cfg, inp)
     if a.json:

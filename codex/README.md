@@ -3,7 +3,7 @@
 Codex has had fewer runs than Claude Code, but it delivers real papers. Under Codex CLI 0.163.0,
 hands-off runs have delivered on Linux the example note and a real 5-page paper (about 4 h, the same
 outcome as under Claude Code), and on an 8 GB Mac (the `macos` branch) the example note and the same
-5-page paper. The citation check does not yet run under Codex (planned).
+5-page paper. The citation check runs under Codex with `--search` for a public paper.
 
 > **What to expect in practice (tested with Codex CLI 0.163.0)**
 > - Earlier versions ran end to end on the one-page example note (0.2.0) and a small synthetic paper
@@ -32,11 +32,12 @@ In short, from your home directory:
 
 ```bash
 ~/formalize-paper/install.sh --codex ~/my-formalization
-cd ~/my-formalization && codex --sandbox workspace-write --add-dir ~/my-formalization/.git
+cd ~/my-formalization && codex -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write --add-dir ~/my-formalization/.git --search   # public paper
+cd ~/my-formalization && codex -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write --add-dir ~/my-formalization/.git            # confidential paper
 ```
 
-(`install.sh --codex` prints this command with the project's actual git directory.) Install
-before starting the session, so that its role catalog includes all eleven generated agents. When
+(`install.sh --codex` prints both commands with the project's actual git directory.) Install
+before starting the session, so that its role catalog includes all ten generated agents. When
 Codex first opens the project it asks whether you trust the folder: answer yes; the project's
 `.codex/config.toml` and roles are loaded only for a trusted folder. Do not turn the sandbox off to
 load roles. If a startup warning (`F2`) still says project-local config is disabled after you trusted
@@ -74,24 +75,19 @@ How to undo every change: INSTALL.md, "Uninstall".
 | `formalize_writer` | Same common rules; generated sign-off writer prompt |
 | `formalize_escalation` | Same common rules; the escalation-check prompt plus the question |
 | `formalize_renderer` | Same common rules; the generated PDF prompts (renderer, verifier, cover, checkers; `run/render-pdf.md`) |
-| `formalize_tool_patch_reviewer` | Same common rules; the generated tool-patch reviewer prompt (release mode: `tool_patch.py review`, RUN.md "Tool patches") |
-| `formalize_status_check` | Same common rules; the generated status-check prompt (no longer used at delivery since 2026-10-28: the delivery reviewers run as `formalize_reader`, run/stage5-delivery.md step 5) |
+| `formalize_tool_patch_reviewer` | Same common rules; the generated tool-patch reviewer prompt (release mode: `tool_patch.py review`, `run/stops-and-set-asides.md` "Tool patches") |
 | `formalize_citations` | Same common rules; the citation prompts (agents 1 and 2, Stage 5 step 5a), each with intake 1c's network rule |
 | `formalize_helper` | Same common rules; the author-side helper brief (`--prompt formalizer`) plus its assignment |
 
 `audits/run/codex.md` maps every subagent the Claude Code path spawns to its role, and lists every
 other Claude/Codex difference (network, PDF viewing, waits). No role sets the network, the sandbox
-or tools: each child inherits the parent's sandbox (network off), so under Codex the citation
-agents reach the cited works only when the session was started with `--search`, which is untested
-for children; use it only for a public paper (intake 1c). Without it the citation notes degrade
-(items "not reachable", or "not produced: no network"), never a stop.
+or tools: each child inherits the parent's sandbox (shell network off) and its web search, live
+only when the session was started with `--search` (public papers only, intake 1c). Without it the
+citation notes degrade (items "not reachable", or "not produced: no network"), never a stop.
 
 Each role's instructions end with one Codex-only sandbox rule (`codex_agents.SANDBOX_RULE`): a command
-the sandbox blocks is recorded as a failure, never escalated to an approval.
-
-Not yet covered by a generated role in this version: the advisory citation agents (Stage 5 step
-5a) and the author-side helpers; `audits/run/codex.md` does not map them to a role yet. A Codex
-run may therefore skip or improvise these steps (the citation notes are advisory).
+the sandbox blocks is recorded as a failure, never escalated to an approval. The citation role adds
+that web search is not a sandbox command (`codex_agents.CITATION_SEARCH`).
 
 `audits/codex_agents.py` generates project `.codex/agents/*.toml`; all roles select
 `gpt-6.1-sol` with `model_reasoning_effort="medium"`. `integrity.py` checks deterministic
@@ -102,7 +98,7 @@ Always use fresh context (`fork_turns="none"`, or v1 `fork_context=false`), neve
 forks or reused reviewer threads. Wait for children with one blocking `wait_agent` call with a
 long `timeout_ms` (minutes), not with repeated short waits, `sleep` or `list_agents` polls: each
 poll is a model turn that re-sends the whole context (`audits/run/spawn-and-seal.md`, "Under Codex"). The installed backend accepts `agent_type` plus the role name.
-Spawn lanes in parallel; seal individual completions as they arrive. A fresh agent still receives
+Spawn lanes in parallel, at most the route's number at once (`audits/run/spawn-and-seal.md`); seal individual completions as they arrive. A fresh agent still receives
 normal system, environment and skill context; it must not inherit author conversation or other
 lanes' judgments. These boundaries were tested by independent canary tests, with retained logs.
 
@@ -136,7 +132,7 @@ verdict tokens/seals do not cryptographically bind every probe byte.
 The orchestrator checks **every child's result and expected files**, even when the parent exits
 0. A child error, a missing output or a missing completion digest is a mechanical failure: that
 child alone is re-run with its original message, within a time budget (`audits/run/spawn-and-seal.md`).
-What a failed seal, token or lanecheck line does is RUN.md's failure table: a token, digest or seal
+What a failed seal, token or lanecheck line does is the failure table (`run/stops-and-set-asides.md`): a token, digest or seal
 mismatch is an integrity fault -- in the default release installation the agent redoes the review
 and the report discloses it (the run stops for you only at the four release stops), in a dev
 installation it stops the run for you at every involvement level; a lane's own mistake is a NOTE the
@@ -145,7 +141,7 @@ The actual per-child status matters; a parent process can exit 0 after reporting
 Never retry a failed reviewer outside the sandbox automatically.
 
 After a delivery under `statements-only` or `hands-off`, the completion message offers the **K reply**:
-type `K` as a normal message in the same session to go through the open K items one at a time
+type `K` as a normal message in the same session to go through the open K gaps one at a time
 (`audits/run/stage5-delivery.md` step 8). Lanes and helpers compile probes through
 `audits/lean_slot.py run`, which may wait up to 300 s for a machine-wide Lean slot: keep Codex's
 tool-call timeout at least 600 s (`audits/run/codex.md`).
@@ -201,15 +197,9 @@ python3 ~/formalize-paper/codex/watchdog.py --notify-cmd "notify-send formalize-
   replayed over the whole real parent log (its capacity stop is the one *stalled*; its FAILs are
   each *needs a human*). Experimental.
 
-## Fallback and logs
+## Logs
 
-`audits/codex_spawn.py` remains an explicitly selected fallback for environments without built-in
-agents. It runs separate CLI processes, uses medium reasoning, rejects missing/empty/stale
-finals and known sandbox startup errors, and validates authenticated owner completion seals.
-Nested sandbox failures remain possible; do not silently switch to this fallback or escalate.
-
-Its `--log-dir PATH` overrides `~/.cache/formalize-paper/codex/<timestamp>/`. Record actual log
-locations. For built-in agents retain child thread ids and session-log locations, effective
+Record actual log locations. For built-in agents retain child thread ids and session-log locations, effective
 models/efforts, and each completion/seal. Inspect executed reads, not mere filename mentions in
 prompts. Sensitive spawn tokens should be redacted in exported evidence.
 

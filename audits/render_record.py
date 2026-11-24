@@ -367,10 +367,7 @@ def reader_pass_cmd(cfg, doc, rnd):
     hands-off sheet, its check)."""
     if doc == "SIGNOFF" and cfg is not None and project.involvement(cfg) == "hands-off":
         return f"python3 audits/signoff.py check --round {rnd}"
-    if doc == "SIGNOFF":
-        return f"python3 audits/prompt.py --prompt fresh-reader --doc signoff --round {rnd} --write"
-    return (f"python3 audits/prompt.py --prompt fresh-reader --doc {doc.lower()} --round <newest round> --write "
-            f"(run/fresh-reader.md; run/stage5-delivery.md step 5)")
+    return f"python3 audits/prompt.py --prompt fresh-reader --doc signoff --round {rnd} --write"
 
 
 def gate_cmd(doc, rnd, cfg=None):

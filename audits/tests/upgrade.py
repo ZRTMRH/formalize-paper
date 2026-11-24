@@ -113,6 +113,18 @@ def selftest():
         rc2, out2 = run(["bash", INSTALL, "--upgrade", proj], env)
         say("a second --upgrade changes nothing (no new commit)",
             rc2 == 0 and int(G("rev-list", "--count", "HEAD")[1]) == int(before) + 1)
+        # W-R1 (REVIEW-WHOLE-032 FIX-1): with --codex, an older version's generated roles (one changed since, one no
+        # longer generated) are replaced, not refused
+        env["CODEX_HOME"] = os.path.join(home, ".codex")
+        rc3, out3 = run(["bash", INSTALL, "--upgrade", "--codex", proj], env)
+        roles = os.path.join(proj, ".codex", "agents")
+        open(os.path.join(roles, "formalize_citations.toml"), "a").write("# an older version\n")
+        open(os.path.join(roles, "formalize_status_check.toml"), "w").write("# a role this version no longer has\n")
+        rc4, out4 = run(["bash", INSTALL, "--upgrade", "--codex", proj], env)
+        rc5, _ = run([sys.executable, "-B", os.path.join(a, "codex_agents.py"), "--check", roles], env)
+        say("--upgrade --codex replaces an older version's generated roles (a changed one, a removed one)",
+            rc3 == 0 and rc4 == 0 and "upgraded in" in out4 and rc5 == 0
+            and not os.path.exists(os.path.join(roles, "formalize_status_check.toml")))
     finally:
         shutil.rmtree(t, ignore_errors=True)
     print("selftest:", "ok" if all(res) else "FAILED")

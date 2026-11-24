@@ -46,10 +46,8 @@ def load():
 
 # operator text names only what exists: scripts, their flags, failure codes, cause codes
 EXTERNAL_FLAGS = ("--dangerously-skip-permissions", "--dangerously-bypass-approvals-and-sandbox",
-                  "--search")   # Codex CLI launch flags named in run/codex.md (CODEX-U2)
-# scripts the operator's text may name before they land: the tool-patch route (approver 2026-10-24, builder A;
-# project.CURES["patch"], stops.py imports it at close). Remove the entry once audits/tool_patch.py is in the tree
-PENDING_SCRIPTS = ("tool_patch.py",)
+                  "--search",   # Codex CLI launch flags named in run/codex.md (CODEX-U2)
+                  "--codex")    # install.sh's (run/codex.md)
 SCRIPT_RE = re.compile(r"(?<![\w/.-])(?:audits/)?((?:tests/)?[a-z_0-9]+)\.py\b")
 CODE_RE = re.compile(r"\b(FAIL|RED|PROBLEM|NOTE|PENDING|DISCLOSED|NEXT)\[([a-z0-9-]+)\]")
 
@@ -76,8 +74,7 @@ def dangling_refs(texts, src):
     for d, t in texts.items():
         for m in SCRIPT_RE.finditer(t):
             n = m.group(1) + ".py"
-            if n not in src and "tests/" + n not in src and not os.path.exists(os.path.join(AUDITS, n)) \
-                    and n not in PENDING_SCRIPTS:
+            if n not in src and "tests/" + n not in src and not os.path.exists(os.path.join(AUDITS, n)):
                 out.append(f"{d}: script {n}")
         for m in CODE_RE.finditer(t):
             if not re.search(r"[\"'\[{]" + re.escape(m.group(2)) + r"[\"'\]]", allsrc):
@@ -141,16 +138,21 @@ def lint(run_md, run_files, on_disk, intake, ap):
                    and "**never a stop**" in core and "**build it** (option (1))" in core
                    and "**named hypothesis** (option (2))" in core
                    and "Do not read `AUDIT_PROTOCOL.md`" in core and "Read it in full" not in core))
-    ft = core.split("## When something fails", 1)[-1].split("## Logging", 1)[0] if "## When something fails" in core else ""
+    # 0.3.2 item 8: the failure table is the first section of run/stops-and-set-asides.md; RUN.md points to it
+    stf = run_files.get("run/stops-and-set-asides.md", "")
+    ft = (stf.split("## When something fails", 1)[-1].split("\n## ", 1)[0]
+          if "## When something fails" in stf else "")
     classes = sorted({c for c, _ in project.CAUSES.values()} | set(project.STOP_CLASSES))
-    checks.append(("RUN.md's failure table names every cause class of project.CAUSES (B3) "
+    checks.append(("the failure table (run/stops-and-set-asides.md) names every cause class of project.CAUSES (B3) "
                    f"{[c for c in classes if c not in ft] or ''}",
                    bool(ft) and all(c in ft for c in classes)))
-    rc_ = re.search(r"<!-- release-column:begin -->\n(.*?)\n<!-- release-column:end -->", run_md, re.S)
-    checks.append(("RUN.md's failure table carries the release column generated from project.RELEASE, CURES and "
-                   "CLOSER (U2 §4), and says --delegated is dev mode only",
-                   rc_ is not None and rc_.group(1) == project.closer_table() and rc_.start() > run_md.find("| what failed |")
-                   and "`close --delegated` is dev mode only" in core))
+    rc_ = re.search(r"<!-- release-column:begin -->\n(.*?)\n<!-- release-column:end -->", stf, re.S)
+    checks.append(("the failure table carries the release column generated from project.RELEASE, CURES and "
+                   "CLOSER (U2 §4); RUN.md points to it and says --delegated is dev mode only",
+                   rc_ is not None and rc_.group(1) == project.closer_table() and rc_.start() > stf.find("| what failed |")
+                   and "`close --delegated` is dev mode only" in core and "failure table" in core))
+    checks.append(("RUN.md, read at every start and resume, holds no failure table and stays under 55 KB",
+                   "| what failed |" not in run_md and len(run_md.encode("utf-8")) < 55000))
     # B8 (U2 §5, §8): rule 4 is generated from integrity.OWNERS; every owned pattern has its label there
     r4 = re.search(r"<!-- rule4:begin -->\n(.*?)\n<!-- rule4:end -->", run_md, re.S)
     owned = [p_ for p_, pre, _v in integrity.OWNERS if pre is not None]
@@ -201,6 +203,10 @@ def lint(run_md, run_files, on_disk, intake, ap):
     checks.append(("RUN.md, stops-and-set-asides.md and spawn-and-seal.md state one rule: a child's capacity "
                    "error or usage limit, waited out within the time budget, is logged, never a stop",
                    cap in core and cap in rf("stops-and-set-asides.md") and cap in rf("spawn-and-seal.md")))
+    # 0.3.2 A5 (P6 F5): a refused command is never put to the human unrecorded
+    checks.append(("stops-and-set-asides.md: only a human stop's refused `close --human` goes to the human; any other "
+                   "refused command follows rule 12 (stop 3)", "ask the human to run" not in rf("stops-and-set-asides.md")
+                   and "`close --human`" in rf("stops-and-set-asides.md") and "RUN.md rule 12" in rf("stops-and-set-asides.md")))
     # small-paper run: the operator read REPORT.pdf three times, ~90% of its context (rule 13)
     page_reads = [f_ for f_ in run_files if re.search(r"\bread every page\b", rf(f_[4:]), re.I)]
     checks.append(("RUN.md keeps rule 13 (the operator reads no PDF; the renderer, verifier and checkers do), "
@@ -244,6 +250,9 @@ def lint(run_md, run_files, on_disk, intake, ap):
     where = [n for n, t in [("RUN.md", run_md), ("AUDIT_PROTOCOL.md", ap)] + sorted(run_files.items())
              if stale.search(t)]
     checks.append((f"no document says the report's page 1 or its box (B10: the summary) {where or ''}", not where))
+    # 0.3.2 Phase D: the citation check runs under Codex (with --search); no document may say it does not
+    where = [n for n, t in sorted(release_docs().items()) + sorted(run_files.items()) if "not yet run under Codex" in t]
+    checks.append((f"no document says the citation check does not yet run under Codex (0.3.2 D) {where or ''}", not where))
     # trial #10 audit: a 25-minute re-vote of an idle paper hypothesis, kept anyway (stay with the paper)
     b4 = re.sub(r"\s+", " ", ap)
     checks.append(("AUDIT_PROTOCOL.md B.4: rejecting an idle paper hypothesis's removal needs no re-vote (the rule "
@@ -413,8 +422,9 @@ def main(argv):
         ("control: a record file named in a lane block fails",
          lint(run_md, run_files, on_disk, intake, ap.replace(lane_b, lane_b + "\nrecord it in ADOPTED.md", 1))),
         ("control: a stale release column (a code moved to another kind by hand) fails",
-         lint(run_md.replace("| human | `codex-approval`, ", "| human | ", 1).replace("| rerun | ", "| rerun | `codex-approval`, ", 1),
-              run_files, on_disk, intake, ap)),
+         lint(run_md, dict(run_files, **{"run/stops-and-set-asides.md": run_files["run/stops-and-set-asides.md"].replace(
+             "| human | `codex-approval`, ", "| human | ", 1).replace("| rerun | ", "| rerun | `codex-approval`, ", 1)}),
+              on_disk, intake, ap)),
         ("control: a rule 4 that lost an owned record (stale against OWNERS) fails",
          lint(run_md.replace("   - `pin`: `TOOLING_PIN.json`;\n", "", 1), run_files, on_disk, intake, ap)),
         ("control: a record added to integrity.OWNERS without a label fails (RUN.md regenerated to match)",

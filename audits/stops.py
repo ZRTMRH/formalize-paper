@@ -99,7 +99,6 @@ DISCLOSED_LINE = re.compile(r"^\s*DISCLOSED\[([a-z0-9-]+)\]\s*(.*)$")
 FILES = ("STOP.json", "CLOSED.json")
 CURE_RE = re.compile(r"^CURE([1-9]\d*)\.json$")   # S<n>/CURE<k>.json: a failed release self-cure attempt
 ROUND_PAT = r"\d{4}-\d{2}-\d{2}-(?:full-)?[0-9a-f]{7,40}"
-SET_ASIDE_RE = re.compile(r"^set-aside (\S+)(?: (\S+))?$")
 # a stall's command is one of the protocol's read-only check forms (required, optional), each a
 # {flag or "@positional": None or a value pattern}; anything else is opened with --note
 FORMS = {
@@ -121,7 +120,7 @@ FORMS = {
 SAFE_TOKEN = re.compile(r"^[\w@./:=+-]+$")
 FAIL_LINE = re.compile(r"^\s*(?:FAIL|PROBLEM|GITMETA|DRIFT|MISMATCH|RED|HARD|STOP|ERROR|MISSING)(?:\b|\[)|\berror:")
 CODE_RE = re.compile(r"^\s*[A-Z]+\[([a-z0-9-]+)\]")
-NEVER_SET_ASIDE = ("ADOPTED.md", "INFORMAL.json", "SIGNOFF.json", "TARGET.json", "FINGERPRINTS.json",
+NEVER_SET_ASIDE = ("ADOPTED.md", "INFORMAL.json", "INFORMAL-2.json", "SIGNOFF.json", "TARGET.json", "FINGERPRINTS.json",
                    "STATEMENTS_BUNDLE.md")
 RUNNER = None     # the selftest's fake command runner
 
@@ -145,8 +144,7 @@ def git(repo, *a, check=True):
     return r.stdout.strip()
 
 
-def rounds_dir(cfg):
-    return os.path.join(project.REPO, cfg["rounds_dir"])
+rounds_dir = project.rounds_dir
 
 
 def load(path):
@@ -1007,7 +1005,7 @@ def _open_stop(cfg, cmd=None, note=None, cause=None, round_name=None, check=None
                f"cause table says, then: python3 audits/stops.py close --stop {s} --delegated \"<what was done>\"")
 
 
-# next batch B26 (CR-10 c): under Claude Code's auto mode the permission classifier refused the cure of a human stop
+# next batch B26 (NW-10 c): under Claude Code's auto mode the permission classifier refused the cure of a human stop
 AUTO_MODE_HINT = (". Under Claude Code's auto mode the classifier may refuse `stops.py close` and some cures; then ask "
                   "the human to run the printed command")
 
@@ -1066,7 +1064,7 @@ def classify(cfg, s, as_, evidence):
     except Refused:
         os.remove(p)
         raise
-    what = {"tool-bug": f"a tool bug: python3 audits/tool_patch.py begin --stop {s} (RUN.md \"Tool patches\"), then "
+    what = {"tool-bug": f"a tool bug: python3 audits/tool_patch.py begin --stop {s} (run/stops-and-set-asides.md \"Tool patches\"), then "
                         f"close --cured \"tool-patch TP<k>\"",
             "interference": f"outside interference: stop 3, the human's -- show them the recurring events and close it "
                             f"with --human \"<their answer, verbatim>\"",
@@ -1093,7 +1091,7 @@ def budget_grant(cfg, s, own, cured_text):
 def record_fix_only(doc):
     """True when every cause of a stop is of class record-fix or adjudication (a fault of an adjudicator's
     record): the operator cures it by a record correction or the next adjudication at every level, the
-    human's level included (RUN.md failure table), and closes it with --delegated."""
+    human's level included (the failure table, run/stops-and-set-asides.md), and closes it with --delegated."""
     cs = (doc or {}).get("causes") or []
     return bool(cs) and all(c.get("class") in ("record-fix", "adjudication") for c in cs)
 
@@ -1880,6 +1878,24 @@ def cure_done(kinds):
     return "; ".join(dict.fromkeys(out)) or "the check was re-run"
 
 
+# W-R4 C3 (FG G5): the short label of each release stop, shown to people in place of "a failed tool call"
+RELEASE_LABELS = {1: "a goal result that looks false, vacuous or unprovable",
+                  2: "an outward action the intake did not allow",
+                  3: "something only the human can fix",
+                  4: "a genuine ambiguity of meaning"}
+
+
+def note_label(cfg, d):
+    """What a `--note` stop is called: in `release` mode, one whose cause is a release human stop is "release stop
+    <k> (<short label>)"; otherwise (and always in `dev`) "a failed tool call"."""
+    if project.mode(cfg) == "release":
+        codes = {x.get("code") for x in d.get("causes") or []}
+        ks = sorted(k for k, cs in project.RELEASE_STOPS.items() if codes & set(cs))
+        if ks:
+            return f"release stop {ks[0]} ({RELEASE_LABELS[ks[0]]})"
+    return "a failed tool call"
+
+
 def stop_rows(cfg, rd=None, phase=None):
     """[dict] of EVERY stop, for the report and `list`: the stop, its classes, who closed it, how. `phase`
     "run": only the stops the generated documents list; "delivery": only those README D lists
@@ -1893,7 +1909,7 @@ def stop_rows(cfg, rd=None, phase=None):
         c = load(os.path.join(rd, STOPS, s, "CLOSED.json"))
         first = next((x["line"] for x in d.get("causes") or []), "")
         what = (f"`{d.get('command')}` exited {d.get('exit')}: {project.full(first)}" if d.get("command")
-                else f"a failed tool call (operator's note: {project.full(d.get('note', ''))})")
+                else f"{note_label(cfg, d)} (operator's note: {project.full(d.get('note', ''))})")
         if c:
             who = ("the human (answer, verbatim: \"" + c.get("text", "") + "\")" if c.get("by") == "human"
                    else (f"the operator (release, a fault in the proof-validity core, no Lean-side workaround; so "
@@ -1917,7 +1933,7 @@ def stop_rows(cfg, rd=None, phase=None):
             who, done = "nobody yet", ("OPEN: the run waits for the human" if not cure_plan(cfg, d)
                                        else "OPEN: the operator is curing it")
         what_full = (f"`{d.get('command')}` exited {d.get('exit')}: {first}" if d.get("command")
-                     else f"a failed tool call (operator's note: {d.get('note', '')})")
+                     else f"{note_label(cfg, d)} (operator's note: {d.get('note', '')})")
         out.append({"stop": s, "date": d.get("date"), "round": d.get("round"), "what": what, "what_full": what_full,
                     "classes": sorted({x["class"] for x in d.get("causes") or []}), "by": who, "done": done,
                     "human": bool(c and c.get("by") == "human"), "cured": bool(c and c.get("by") == "cure"),
@@ -2788,8 +2804,7 @@ def disclose(cfg, cmd=None, note=None, cause=None, script=None):
         if cause != "tool-fault":
             raise Refused("--note discloses only a crash: --cause tool-fault --script NAME (a check's own findings "
                           "are disclosed with --cmd)")
-        if (script not in project.SCRIPT_RELEASE or project.SCRIPT_RELEASE[script] is not None) and \
-                script not in project.TOOL_FAULT_SCRIPTS:
+        if script not in project.SCRIPT_RELEASE or project.SCRIPT_RELEASE[script] is not None:
             raise Refused(f"--script {script!r}: only a script whose whole job is non-blocking "
                           f"({', '.join(k for k, v in project.SCRIPT_RELEASE.items() if v is None)}) may crash "
                           f"without a stop; any other is unknown-retry, then tool-bug (a stop)")
@@ -2826,13 +2841,9 @@ def disclose(cfg, cmd=None, note=None, cause=None, script=None):
     return f"D{n}"
 
 
-# --- the delivery gate (release mode, review H3) ------------------------------------------------
-# Every check that can print a DISCLOSED line is re-run at delivery; each live line must be covered
-# by a D record (same code, same text up to hashes -- and, for a reader line, digits: a stale pass
-# keeps its D record when only the hashes and pass numbers move), and REPORT.md and DECISIONS.md
-# must name every D record (the report is regenerated after the last disclose). Refusing instead
-# of recording automatically keeps one writer of D records (`disclose`, which re-runs the check),
-# and never stalls: each line comes from a check that exits 0 here, so its disclose goes through.
+# --- the delivery gate (math_gate) ------------------------------------------------------------
+# A live DISCLOSED line is covered by a D record when its code and text match up to hashes (and, for a reader
+# line, digits: a stale pass keeps its D record when only the hashes and pass numbers move).
 PHASE0_LINES = None   # the selftest's fake for phase0's in-process findings
 
 
@@ -2851,22 +2862,6 @@ def _covered(rows):
         for x in r.get("faults") or []:
             out.setdefault(_norm(x.get("code"), x.get("line", "")), r.get("fault"))
     return out
-
-
-def deliver_checks(cfg):
-    """The read-only check forms (FORMS) that can disclose, as delivery re-runs them."""
-    py = "python3 audits/"
-    cmds = [py + "make_report.py --check", py + "decisions.py --check", py + "readers.py --doc summary --check",
-            py + "readers.py --doc report --check", py + "readers.py --doc decisions --check",
-            py + "selftest_all.py --fast"]
-    appr = load(os.path.join(rounds_dir(cfg), "APPROVED_FINGERPRINTS.json")) or {}
-    if appr.get("round"):
-        cmds.append(py + f"signoff.py check --round {appr['round']}")
-        # B10 (U2 §6.3, L4; with stage2-statements.md, "Under hands-off"): the hands-off sheet has no reader;
-        # signoff.py check is kept and the README discloses the missing reader
-        if project.involvement(cfg) != "hands-off":
-            cmds.append(py + "readers.py --doc signoff --round approved --check")
-    return cmds
 
 
 def standard_blocking(cfg):
@@ -2959,7 +2954,7 @@ def phase0_lines(cfg):
 
 def tool_patch_checks(cfg):
     """{the regression command of an applied tool patch that cured a stop}: the check its close recorded
-    (CLOSED.json "check", tool_patch.applied_info's regression_cmd), re-run by deliver_gate. It is no FORMS command
+    (CLOSED.json "check", tool_patch.applied_info's regression_cmd), re-run by math_gate. It is no FORMS command
     (tests/regressions/ is the patch's own file), so command_problem would refuse it: the DOC-FIX replay of conf1 (a
     generator fault fixed by a tool patch, the stop opened with no --check) could never deliver."""
     out = set()
@@ -2986,7 +2981,7 @@ def tool_patch_checks(cfg):
 # other delivery-phase fault (project._deliver); none opens a stop. A Lean commit after the last audited round
 # (deliver-stale) and an open re-approval are checked by project._deliver.
 GATE_NOTE_CODES = ("tooling", "pin", "ownership", "tool-patch", "set-aside-changed", "stop-trail", "waiver",
-                   "record-changed", "uncommitted-record", "gitmeta", "resolution-trail")
+                   "record-changed", "uncommitted-record", "gitmeta")
 GATE_ROUND_FILE = re.compile(r"(?:^|[\s`'\"(/])\d{4}-\d{2}-\d{2}-[^/\s]+/")
 
 
@@ -3104,11 +3099,6 @@ def math_gate(cfg):
     return block, notes
 
 
-def deliver_gate(cfg):
-    """[why delivery is refused]: the math gate's refusals (math_gate)."""
-    return math_gate(cfg)[0]
-
-
 def unnamed(cfg):
     """{"REPORT.md"|"DECISIONS.md"|"RUN_RECORD.md": [ids or problems]} of what a prepared document must name and
     does not ({} when all do). Approver (2026-10-24): the process record is RUN_RECORD.md -- every stop of the run,
@@ -3120,7 +3110,7 @@ def unnamed(cfg):
     import run_record
     rd = rounds_dir(cfg)
     closed = [r for r in stop_rows(cfg, phase="run") if r["by"] != "nobody yet"]
-    want = {"REPORT.md": [(r["stop"], rf"\bstop {re.escape(r['stop'])} \(") for r in closed if r.get("human")],
+    want = {"REPORT.md": [(r["stop"], rf"(?i)\bstop {re.escape(r['stop'])} \(") for r in closed if r.get("human")],
             "DECISIONS.md": [(r["stop"], rf"(?m)^> - stop {re.escape(r['stop'])} \(") for r in closed
                              if not r.get("cured") and not r.get("core") and not r.get("withdrawn")]}
     # C2-FIX 5b: a check not established by a core fault is said on SUMMARY page 1 and in the report (its marker), and
@@ -4036,10 +4026,10 @@ def _selftest():
             and sum("A.lean:3 a placeholder" in x for x in n1) == 1
             and [x for x in nd if "DISCLOSED" in x] == ["DISCLOSED[escalation-cite] RUN_LOG.md cites escalation E9, "
                                                         "which ESCQZ (no D record)"]
-            and deliver_gate(cfg) == [])
+            and math_gate(cfg)[0] == [])
         dr = disclose(cfg_r, cmd="python3 audits/readers.py --doc report --check")
         outs["readers"] = stale(2, "ba9876543210")
-        g2 = deliver_gate(cfg_r)
+        g2 = math_gate(cfg_r)[0]
         dr2 = disclose(cfg_r, cmd="python3 audits/readers.py --doc report --check")   # B15 (RR-H3c): no D7
         say("H3 / B10: a stale pass whose hashes and pass number moved keeps its record; REPORT.md and DECISIONS.md "
             "need not name a reader disclosure (README D lists it: a reader pass never makes a document stale, U2 "
@@ -4047,9 +4037,9 @@ def _selftest():
             and "D6" in [r_["fault"] for r_ in disclosed_rows(cfg_r, phase="delivery")]
             and "D6" not in [r_["fault"] for r_ in disclosed_rows(cfg_r, phase="run")])
         names(["D1", "D2", "D3", "D4", "D5", "D6"])
-        g3 = deliver_gate(cfg_r)
+        g3 = math_gate(cfg_r)[0]
         outs["decisions"] = (1, "FAIL: x\n")
-        g4 = deliver_gate(cfg_r)
+        g4 = math_gate(cfg_r)[0]
         outs["decisions"] = (0, "ok\n")
         say("H3 (approver 2026-10-28): the gate passes once every disclosure is recorded and named; a failing "
             "decisions.py --check (a document check) is not the gate's",
@@ -4127,6 +4117,27 @@ def _selftest():
         say("release-cure: a goal result (H) stays a human stop", "--human" in mg
             and "human stop in release" in refused(close_stop, cfg_r, sg, cured="x"))
         close_stop(cfg_r, sg, human="drop it")
+        _rowg = next(r for r in stop_rows(cfg_r) if r["stop"] == sg)
+        say("W-R4 C3 (FG G5): a release --note stop of cause unproved-goal is named 'release stop 1 (<label>)', never "
+            "'a failed tool call'; dev mode keeps the old text",
+            _rowg["what"].startswith("release stop 1 (a goal result that looks false, vacuous or unprovable) "
+                                     "(operator's note: Theorem 1 looks false")
+            and _rowg["what_full"].startswith("release stop 1 (") and project.mode(cfg) == "dev"
+            and note_label(cfg, {"causes": [{"code": "unproved-goal"}]}) == "a failed tool call"
+            and note_label(cfg_r, {"causes": [{"code": "tool-call"}]}) == "a failed tool call"
+            and note_label(cfg_r, {"causes": [{"code": "ambiguity"}]}) == "release stop 4 (a genuine ambiguity of meaning)")
+        _had = os.path.exists(os.path.join(rd, "REPORT.md"))
+        _keep = open(os.path.join(rd, "REPORT.md"), encoding="utf-8").read() if _had else None
+        open(os.path.join(rd, "REPORT.md"), "w").write(f"# Report\n\nStop {sg} (release stop 1): answered.\n")
+        _b10a = sg in unnamed(cfg_r).get("REPORT.md", [])
+        open(os.path.join(rd, "REPORT.md"), "w").write("# Report\n\nNo stops.\n")
+        _b10b = sg in unnamed(cfg_r).get("REPORT.md", [])
+        if _had:
+            open(os.path.join(rd, "REPORT.md"), "w").write(_keep)
+        else:
+            os.remove(os.path.join(rd, "REPORT.md"))
+        say("W-R4 B10 (FG G4): REPORT.md naming a human-answered stop as 'Stop S<n> (' (capitalised) names it; a "
+            "REPORT that does not name it is still listed", not _b10a and _b10b)
         # review H2: the human stops no script detects have H codes; an unknown --note cause fails closed
         h2 = []
         outs["make_report"] = (1, "Traceback (most recent call last):\n  File audits/make_report.py\nKeyError: x\n")
@@ -5352,29 +5363,10 @@ def _selftest():
             and not strail(c_, s12) and any("redo_lanecheck" in p or "lanecheck on the fresh round" in p for p in t12) and py + f"lanecheck.py --round {F3_}" in db12
             and "use --full" in why3 and "N.b" in why3)
         outs.pop("lanecheck")
-        # B10 (U2 §6.3, L4): the hands-off sheet has no reader; delivery never gates it, the summary's reader is gated
-        ap_ = os.path.join(rd, "APPROVED_FINGERPRINTS.json")
-        ap_keep = open(ap_).read() if os.path.exists(ap_) else None
-        if ap_keep is not None:
-            os.remove(ap_)
-        dc_ = {lv: deliver_checks(dict(c_, involvement=lv)) for lv in project.INVOLVEMENT_LEVELS}
-        json.dump({"round": R_}, open(ap_, "w"))
-        dca_ = {lv: deliver_checks(dict(c_, involvement=lv)) for lv in project.INVOLVEMENT_LEVELS}
-        os.remove(ap_)
-        if ap_keep is not None:
-            open(ap_, "w").write(ap_keep)
         say("approver (2026-10-23): a PDF is never a stop, in dev too (an older run's `pdf` code stays refused; "
             "PDF-AGENTS review 2); nor a delivery code",
             all("never a stop" in refused(open_stop, dict(c_, mode=md_), note="x", cause=cd_, check=py + "integrity.py --check")
                 for md_ in project.MODES for cd_ in ("pdf", "deliver", "unverified", "deliver-stale")))
-        say("B10: deliver_checks re-runs the summary's reader gate at every level and the sheet's only outside "
-            "hands-off (signoff.py check is kept)",
-            all(py + "readers.py --doc summary --check" in v for v in dca_.values())
-            and py + "readers.py --doc signoff --round approved --check" not in dca_["hands-off"]
-            and all(py + "readers.py --doc signoff --round approved --check" in dca_[lv]
-                    for lv in ("involved", "statements-only"))
-            and all(py + f"signoff.py check --round {R_}" in v for v in dca_.values())
-            and not any("signoff" in x for v in dc_.values() for x in v))
         # TRADEOFFS T34: an earlier self-cure is judged by the apparatus pinned at its close, not by today's tables
         d = os.path.join(base, "t34")
         rd = os.path.join(d, "P")

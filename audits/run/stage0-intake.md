@@ -26,6 +26,17 @@ resumed conversation finds it (`project.py --stage` says so) and never sends the
   push leaves the paper's files out (`paper/`, or wherever 1a put them) and has no parent; log it
   under `## Intake` constraints.
 - 2a the range; 2b `goal_results`; 2c the indexed environments.
+  **2b answered with no goal** ("none", "no goal", "I don't know"): ask 2b again, alone, with this text
+  verbatim: "We need the goals to attack as the main target — what are the most important ones you want
+  to verify? If you don't know any particular one, it's okay to tell me every result is a goal. If you
+  insist on no goal results, then the run will not stop for any false result and will only record it as
+  a defect rather than warn you." The answer to this second ask is final: never ask 2b a third time.
+  Then: the results it names are the goals; "every result is a goal"
+  makes every numbered result of the range a goal (Stage 1 step 3 lists them in `goal_results` from the
+  index table, before the pin); insisting on none leaves `goal_results` empty: no result is a goal, stop
+  1 never applies, and a result found false is handled like any non-goal result (RUN.md, "Statement
+  changes after approval") and recorded as a defect. Log the 2b line as `- 2b: <the final answer>`
+  with `  asked again; answer: "<the human's reply, verbatim>"` on the next line.
 - 3a `literature_hypotheses`; 3b `libraries` (a library other than Mathlib is less vetted: its
   definitions are checked before use, "Missing theory" in `stage2-statements.md`).
 - 4: faithfulness only is `goal: faithfulness`, prior-art lane off; the other answer is
@@ -38,7 +49,10 @@ resumed conversation finds it (`project.py --stage` says so) and never sends the
   --5d "human <name>"` (or `--5d agent`, only when the answer is the agent under `involved`) prints:
   `- 5d: human <name>` or `- 5d: agent`, the human's words on the next line (`  answer: "..."`).
   Only the exact line `- 5d: agent` lets the agent re-approve its own approval (under `involved`;
-  never under `statements-only`); any other 5d line means the human.
+  never under `statements-only`); any other 5d line means the human. If 5c is (b) and 5d names the
+  agent, do not log 5d: say so at Checkpoint A -- (b) needs the approver's own typed answer at
+  Checkpoint B -- and ask the human to choose (a) with the agent approving, (b) with themselves
+  approving, or (c); proceed only on that answer.
 - 6a the report's reader; 6b the copy destination; 6c, 6d, 6e what may be pushed or sent.
 - 7 anything else, logged.
 
@@ -163,10 +177,8 @@ Deliverables
 Anything else
 7.  Anything else I should know? For example: known errors or doubts, conventions, deadlines.
     How much RAM does this computer have, and will other formalization runs or other heavy
-    programs share it? The run then limits how many reviewer and helper Lean probes run at once
-    on the whole machine (default: one per 8 GB, minus one for the run's own checks, at least 1,
-    at most 4; at least 2 GB kept free). With 16 GB or less it also keeps at most 3 agents at a
-    time, and each compiles its Lean files one at a time.
+    programs share it? The run picks its memory route from it (8, 16 or 32+ GB: how many Lean
+    probes and agents run at once).
 ```
 
 ## Checkpoint A
@@ -176,7 +188,9 @@ Show the derived setup on one screen:
 - title, authors and version, from the source;
 - the project name and branch;
 - the namespace and `lean_lib` name;
-- the goal results;
+- the goal results ("every numbered result of the range", when that was the answer; when the human
+  insisted on none after 2b was asked again: "No goal result: you chose none, so the run will not stop
+  for any false result and will only record it as a defect rather than warn you.");
 - the indexed environments;
 - the literature hypotheses;
 - the libraries besides Mathlib (`libraries`), and any result already known to need theory none
@@ -206,7 +220,8 @@ Show the derived setup on one screen:
   `lake new … math`).
 
 Proceed only on the human's OK. Then start `<rounds dir>/CONDITIONS.md` (next batch D1): one table
-`| id | kind | results | text | source |` with a row for every condition the human stated (question 7
+`| id | kind | results | text | source |`, one row per condition the human stated, ids `C1`, `C2`, … (`D<n>` are
+disclosure records) (question 7
 and any other answer: kind `condition`, `scope` or `known-issue`; `text` their words verbatim; `source`
 `RUN_LOG.md ## Intake <date>` or the file they point to, e.g. an answer key), committed by name
 (`conditions: intake`) once the rounds directory exists (Stage 1 step 5). It is your file, like

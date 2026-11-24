@@ -12,11 +12,11 @@ close it `--cured`; never begin a re-approval inside the open stop (the begin re
 that has already changed). If the change is wanted, begin a re-approval afterwards, as below.
 
 **An intended change** (for example an approved lemma found false) follows the steps below. Who
-decides depends on the level (U2 §0, §5), the same in `release` and `dev`:
+decides depends on the level, the same in `release` and `dev`:
 - `hands-off`: you decide (step 4), tagged [DELEGATED …; reversal: re-approve], except a change that
   would repair a faithfulness finding made after the sign-off, or a refuted non-goal statement: not
   made; keep the approved statement, log a [DELEGATED keep] line and add a `CONDITIONS.md` `finding`
-  item (an open K item, offered in the K stage; approver D2). In the K
+  item (an open K item, offered in the K stage). In the K
   stage a human's answer is carried out here, approved `--by agent` on their recorded answer
   (RUN.md, "Statement changes after approval").
 - `statements-only` and `involved`: a **QUESTION** for the human, never a stop. Begin (step 1),
@@ -26,7 +26,7 @@ decides depends on the level (U2 §0, §5), the same in `release` and `dev`:
   refuses (`PENDING[question]`, not a failure: open no stop on it).
 - A goal result found false, or true only vacuously, stays stop 1 (`--cause unproved-goal`).
 
-**A refuted statement** (U2 §3; the same rule before and after approval): a statement is refuted
+**A refuted statement** (the same rule before and after approval): a statement is refuted
 when a refutation compiles -- `def <ns>.<X>_as_printed : Prop :=` the approved statement, and a
 proved `theorem <ns>.not_<X>_as_printed : ¬ <ns>.<X>_as_printed`. Begin its repair with
 `python3 audits/signoff.py reapprove --begin --refuted-by <ns>.not_<X>_as_printed --reason "<why>"`
@@ -39,13 +39,13 @@ too (a failed correction), it is the same `_as_printed`, unchanged, that the fir
 The record (`REAPPROVAL.json` `refuted`) obliges a PAPER_DEFECTS.md `false` row naming the
 refutation, or an encoding-error line (F10), and a minimal repair (typo, add hypothesis, local)
 cites the paper-faithfulness lane's F12 verdict (the step of the paper's proof using the added
-hypothesis; AUDIT_PROTOCOL.md, "A REPAIR"); otherwise the row's repair is `substantial`. The same rule
+hypothesis, or "no printed step" (AUDIT_PROTOCOL, F12); AUDIT_PROTOCOL.md, "A REPAIR"); otherwise the row's repair is `substantial`. The same rule
 holds for a `false` row whose corrected statement was stated before the approval: every round, the
 paper-faithfulness lane's prompt lists each `false` row with a minimal repair, with the item name
 "F12: the repair of <result>" (the label the row's `where` cell begins with). Only that item counts;
 for a re-approved result, only from a lane run after the latest `--begin` (a failed correction is
 confirmed afresh). Under `involved` it is the human's QUESTION (the pending state holds; only
-delivery waits), then steps 2-4 below. Under `statements-only` and `hands-off` (approver D2) a
+delivery waits), then steps 2-4 below. Under `statements-only` and `hands-off` a
 refuted non-goal statement is not repaired: it stays byte-identical and is left unproved (`leave
 <decl> unproved`, "stated, not proved"), the PAPER_DEFECTS `false` row records it, and a
 `CONDITIONS.md` `finding` item offers the repair in the K stage, where the human's answer is carried
@@ -103,7 +103,7 @@ re-approved by the agent, marked CHANGED."
    the agent may not make is no close, and the re-approval stays open. This is still trust-based (no script sees who typed the
    words), but the human approval is evidenced by the recorded answer. `approve --by agent` refuses (`PENDING[question]`) unless
    the level is `hands-off`, or `involved` with the intake's 5d logged as `- 5d: agent` (never
-   `statements-only`), and the approval it replaces was the agent's. Under `hands-off`, do not ask:
+   `statements-only`), and the approval it replaces was the agent's; an unreadable 5d means the human. Under `hands-off`, do not ask:
    approve the new sheet as in Stage 2 step 8 (`--by agent`, with a `--note` saying the
    re-approval was delegated at intake). The change must be one RUN.md "Statement changes after
    approval" allows (never a strengthening or generalization beyond a reading the paper admits; a

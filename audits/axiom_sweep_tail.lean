@@ -38,12 +38,25 @@ run_cmd do
     | _ => return false
   let mut total : Nat := 0; let mut holes : Nat := 0; let mut left : Nat := 0; let mut waiting : Nat := 0
   let mut bad : Array (Name × Array Name) := #[]
-  for (n, _) in env.constants.toList do
+  let root : Name := `__MODULE_ROOT__
+  -- the candidates from the module tables (as dependencies_tail's auditProjectNames): every constant of a
+  -- module under the root, a namespaced one of any other module, every one of this file; `ours` decides
+  let mut cands : Array Name := #[]
+  for i in [0:env.header.moduleNames.size] do
+    let names := env.header.moduleData[i]!.constNames
+    if root != Name.anonymous && root.isPrefixOf env.header.moduleNames[i]! then cands := cands ++ names
+    else for c in names do
+      if nsp.isPrefixOf ((privateToUserName? c).getD c) then cands := cands.push c
+  for (c, _) in env.constants.map₂.toList do cands := cands.push c
+  -- a realized constant (an equation lemma made on first use) can be in two modules' tables: once each
+  let mut once : NameSet := {}
+  for n in cands do
+    if once.contains n then continue
+    once := once.insert n
     -- private declarations are mapped to their user name, not skipped as internal; and a
     -- declaration in one of the project's own modules is the project's even outside its
     -- namespace (a root-level `sorry` helper used to pass), as is one in this very file
     let u := (privateToUserName? n).getD n
-    let root : Name := `__MODULE_ROOT__
     let ours := (`__NAMESPACE__).isPrefixOf u || match env.getModuleIdxFor? n with
       | some i => root != Name.anonymous && root.isPrefixOf env.header.moduleNames[i.toNat]!
       | none => true

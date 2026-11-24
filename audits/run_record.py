@@ -6,7 +6,7 @@ WHY THIS EXISTS.  The report and the one-page summary used to list every stop, s
 disclosed presentation fault next to the mathematics, and the delivery carried a KNOWN_FAULTS-* notice per
 document. A mathematician reading the report needs what was proved, under which assumptions, what the paper gets
 wrong and what was decided for them; the process record is for maintainers and for anyone auditing the run. It
-moves here, in full, and never disappears: `listing_problems` (run by `--deliver`'s gate, `stops.deliver_gate`)
+moves here, in full, and never disappears: `listing_problems` (run by `--deliver`'s gate, `stops.math_gate`)
 refuses a RUN_RECORD.md that does not name every self-cured or operator-closed stop, every disclosed fault, every
 set-aside and every applied tool patch.
 
@@ -26,9 +26,6 @@ module may be absent: no section text beyond "none"); `tool_patch.applied(cfg)` 
 review_seal_commit, apply_commit)], each of which RUN_RECORD.md must name (listing_problems).
 
   run_record.py [--project P]        print RUN_RECORD.md as it would be generated now (writes nothing)
-  run_record.py --seal-status-check --sha256 HEX --agent-id ID
-                                     seal the status check's last run (it judges hand edits) from its agent's
-                                     STATUS_CHECK_COMPLETION line (run/stage5-delivery.md)
   run_record.py --selftest
 """
 import sys
@@ -62,7 +59,6 @@ ACK_INTRO = ("Release mode: a FAIL of the integrity check that lives in the run'
              "every line bookkeeping that changed no statement, proof, verdict, adjudication, approval or check "
              "(`integrity.py --ack-request`; record: `acknowledgments/`). They are listed here only: none changes what "
              "the summary and the report say about the results.")
-STATUS_DIR = "status-check"         # prompt.STATUS_CHECK: the prompt, FINDINGS.md (the agent), ACTIONS.md (the operator)
 
 
 def _tool_patch():
@@ -297,401 +293,8 @@ def delivery_section(cfg, kept, dropped):
                 "the delivered document if no later reader raised it again."]
     if not later and not drows and not srows and not dropped:
         out += ["", NONE]
-    out += hand_edit_lines(cfg)
     out += dismissed_lines(cfg)
-    out += status_check_lines(cfg)
     return "\n".join(out) + "\n"
-
-
-HAND_EDIT_TITLE = "Hand edits of generated documents"
-
-
-def hand_edit_lines(cfg):
-    """DOC-FIX (approver 2026-10-25): every hand edit of a generated document -- the finding it answers, its commit,
-    the hashes before and after, its diff verbatim -- and, by name, the edits a later prepare erased. Written by
-    --deliver into the delivery copy only (the edits come after the final prepare); integrity.run_record_problems
-    refuses a delivered record that omits a live one."""
-    import readers
-    live, gone = readers.live_hand_edits(cfg), readers.erased_hand_edits(cfg)
-    if not live and not gone:
-        return []
-    rd = os.path.join(project.REPO, cfg["rounds_dir"])
-    out = ["", f"### {HAND_EDIT_TITLE}", "",
-           "A fault an agent (a fresh reader, the status check, a PDF agent) found in a generated document, fixed by the "
-           "operator editing the document after its final preparation, when a change to the generator would have been "
-           "riskier. Each edit is its own commit; a fresh reader read the edited version and the status check judged "
-           "whether it changes a status, a statement, a defect's verdict or a human answer."]
-    for r in live:
-        try:
-            diff = open(os.path.join(rd, readers.HE_DIR, f"{r['he']}.diff"), encoding="utf-8").read().rstrip("\n")
-        except OSError:
-            diff = "(the diff file is missing)"
-        hs = readers._he_commit(rd, r["he"], r.get("doc", ""))
-        out += ["", f"#### {r['he']}: `{r.get('doc')}`", "",
-                f"- finding: {r.get('finding', '')}",
-                f"- commit `{hs[0][:11] if hs else '(none)'}`, {r.get('date', '?')}; sha256 before "
-                f"`{str(r.get('base_sha256'))[:12]}…`, after `{str(r.get('result_sha256'))[:12]}…`; diff sha256 "
-                f"`{r.get('diff_sha256', '?')}`", "", "```diff", diff, "```"]
-    if gone:
-        out += ["", "Erased by a later preparation (the document was regenerated without them): "
-                + ", ".join(f"{r['he']} (`{r.get('doc')}`)" for r in gone) + "."]
-    return out
-
-
-STATUS_TITLE = "Status check"
-
-
-# C1 audit (defect 5): conf1's status check read the 12:45 SUMMARY.md; two later prepares (12:59, 13:04) changed it,
-# and the delivered one was never checked. Each run of the check is recorded with the SUMMARY.md it read
-# (status-check/RUNS.json, written by prompt.py --prompt status-check --write); --deliver refuses (RED[deliver], never a
-# stop) while the last run read an earlier SUMMARY.md, until STATUS_CHECK_CAP runs: past that, the run record says
-# which version the check read.
-STATUS_RUNS = "RUNS.json"
-STATUS_CHECK_CAP = 3
-# DOC-FIX review #2/#3: with a live hand edit the status check is the judge of the edit, so its FINDINGS.md must be
-# the issued agent's (provenance, like a lane's seal): the run's token is printed only in its spawn line (RUNS.json
-# keeps its sha256), the agent writes it into FINDINGS.md and returns the file's sha256, and `run_record.py
-# --seal-status-check` commits FINDINGS.md with SEAL-<n>.json. A run that produced no sealed verdict for every live
-# edit FAILED: a mechanical failure (recorded in RUNS.json and the run record, never a judgement), run again.
-STATUS_TOKEN_RE = re.compile(r"^[ \t]*run-token:[ \t]*([0-9a-f]{64})[ \t]*$", re.M)
-STATUS_SEAL = "SEAL-{n}.json"
-STATUS_SEAL_SUBJECT = "status-check: seal run {n}"
-STATUS_COMPLETION = "STATUS_CHECK_COMPLETION"
-# STATUSRET (C3a, 2026-10-26): Claude Code refused the status-check agent's write of FINDINGS.md ("Subagents should
-# return findings as text, not write report files"), so a run that must be sealed could never be. Like an
-# escalation's answer, the agent may instead return the file's text between these fixed lines with its sha256 and
-# the run token inside; the operator saves the text verbatim with a quoted heredoc as FINDINGS.md, and the seal
-# accepts it only if its sha256 is the digest the agent returned and it carries the run's token (as before).
-RETURNED_BEGIN = "BEGIN RETURNED FILE"
-RETURNED_END = "END RETURNED FILE"
-RETURNED_SAVE = ("if its write was refused and it returned the file's text between `BEGIN RETURNED FILE <path> "
-                 "<delimiter>` and `END RETURNED FILE`, save that text verbatim as status-check/FINDINGS.md with a "
-                 "quoted heredoc ending at that line's own delimiter (cat > <path> <<'<delimiter>', the text, "
-                 "<delimiter>)")
-
-
-def returned_delimiter(token):
-    """The heredoc delimiter of a returned file (review note A): `RETURNED_` and the first 12 hex digits of the run's
-    token, so a line of the text cannot end the heredoc early (a fixed `RETURNED` line would cut the file short and
-    run the rest as shell)."""
-    return "RETURNED_" + str(token)[:12]
-
-
-def _sdir(cfg):
-    return os.path.join(project.REPO, cfg["rounds_dir"], STATUS_DIR)
-
-
-def status_runs(cfg):
-    """[{"prompt", "summary_sha256", "written"}] of the status check's runs, oldest first ([] when none is recorded)."""
-    try:
-        runs = json.load(open(os.path.join(_sdir(cfg), STATUS_RUNS), encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    return [r for r in runs if isinstance(r, dict)] if isinstance(runs, list) else []
-
-
-def _sha(b):
-    import hashlib
-    return hashlib.sha256(b).hexdigest()
-
-
-def status_spawn_line(path, token):
-    """The spawn line of a status-check run that judges hand edits: the prompt's fixed sentence plus the run token
-    (given here only) and the completion rule (the agent returns its file's sha256, the seal's digest)."""
-    return (f"Read the file {path} and carry out the task it describes, exactly. That file is your complete task; this "
-            f"message adds only run authentication. Your run token is {token}: write the line `run-token: {token}` "
-            f"directly under the `## Hand edits` heading of FINDINGS.md (with no hand edit to judge: under `## Trust "
-            f"lines`). When the file is written, run sha256sum on it "
-            f"and end your final message with the line `{STATUS_COMPLETION} <path of FINDINGS.md> <its sha256>`. "
-            f"If your write of FINDINGS.md is refused, return it as the file says, with the delimiter "
-            f"{returned_delimiter(token)} (check that no line of the text equals it): its text between the lines "
-            f"`{RETURNED_BEGIN} <path of FINDINGS.md> {returned_delimiter(token)}` and `{RETURNED_END}`, hashed with "
-            f"`sha256sum <<'{returned_delimiter(token)}'`, ending with the same line.")
-
-
-def _git(d, *a):
-    import subprocess
-    return subprocess.run(["git", "-C", d, *a], capture_output=True, text=True)
-
-
-def _first_committed(d, name):
-    """The text of status-check/`name` as FIRST committed, or None (a seal is compared with its first commit)."""
-    lg = _git(d, "log", "--reverse", "--format=%H%x00%s", "--diff-filter=A", "--", name)
-    first = lg.stdout.splitlines()[0].split("\x00") if lg.returncode == 0 and lg.stdout.strip() else None
-    if not first:
-        return None, None
-    shown = _git(d, "show", f"{first[0]}:./{name}")
-    return (shown.stdout if shown.returncode == 0 else None), first[1]
-
-
-def status_seal(cfg, n):
-    """The committed seal of status-check run `n` (a dict), or (None, why)."""
-    d, name = _sdir(cfg), STATUS_SEAL.format(n=n)
-    txt, subj = _first_committed(d, name)
-    if txt is None:
-        return None, f"run {n} is not sealed (no committed status-check/{name})"
-    try:
-        doc = json.loads(txt)
-        disk = json.load(open(os.path.join(d, name), encoding="utf-8"))
-    except (OSError, ValueError):
-        return None, f"status-check/{name} is unreadable or removed"
-    if disk != doc or subj != STATUS_SEAL_SUBJECT.format(n=n) or not isinstance(doc, dict):
-        return None, f"status-check/{name} changed since its seal commit, or was not committed by the seal"
-    return doc, None
-
-
-# Approver (2026-10-26): "make sure the agent guards those lines". The plain trust lines code writes on SUMMARY page 1
-# and in REPORT (a check that could not run, a status decided by corrected software, ...) are judged by the status
-# check, a fresh agent, like a hand edit: each event (make_report.trust_line_events) is an item of the run, judged
-# `- TL-<...>: OK|MISMATCH` under "## Trust lines"; `- extra: MISMATCH` is such a line with no event
-TRUST_HEAD_RE = re.compile(r"(?ms)^##\s+Trust lines[ \t]*\n(.*?)(?=^##\s|\Z)")
-TRUST_LINE_RE = re.compile(r"^\s*-\s*(TL-[\w.-]+|extra)\s*:\s*(OK|MISMATCH)\b", re.M)
-
-
-def item_verdicts(text):
-    """{item id: OK|MISMATCH} of a FINDINGS.md: the hand edits' lines under "## Hand edits" and the trust lines' under
-    "## Trust lines" (an `extra` MISMATCH is kept under "extra"); a MISMATCH on an item wins over an OK."""
-    import readers
-    out = {}
-    for head, line in ((readers.JUDGE_HEAD_RE, readers.JUDGE_LINE_RE), (TRUST_HEAD_RE, TRUST_LINE_RE)):
-        m = head.search(text or "")
-        for i, v in line.findall(m.group(1) if m else ""):
-            if out.get(i) != "MISMATCH":
-                out[i] = v
-    return out
-
-
-def status_items(cfg):
-    """[item id] the status check must judge now: the live hand edits, then the trust-line events."""
-    import readers, make_report
-    return [r["he"] for r in readers.live_hand_edits(cfg)] + [e.id for e in make_report.trust_line_events(cfg)]
-
-
-def status_run_judged(cfg, live, runs=None):
-    """Why the last status-check run DID judge the live hand edits `live` although its verdict is not sealed, or None
-    (DOC-FIX re-check #3(a): leaving a MISMATCH unsealed, or deleting it, made it a "failed run" and bought another
-    run, without limit). A FINDINGS.md -- on disk, or any committed version since -- that carries this run's token and
-    a verdict line for every live edit is a judgement: it is sealed (run_record.py --seal-status-check), never run
-    again."""
-    import readers
-    runs = status_runs(cfg) if runs is None else runs
-    if not runs or not live or not runs[-1].get("token_sha256"):
-        return None
-    last, d = runs[-1], _sdir(cfg)
-    seal, _why = status_seal(cfg, len(runs))
-    if seal is not None:
-        # review 2: the run is sealed; a FINDINGS.md on disk that is not the sealed one is restored, never re-sealed
-        try:
-            disk = _sha(open(os.path.join(d, "FINDINGS.md"), "rb").read())
-        except OSError:
-            disk = None
-        if disk == seal.get("sha256"):
-            return None
-        sc = _git(d, "log", "-1", "--format=%h", "--", STATUS_SEAL.format(n=len(runs))).stdout.strip()
-        return (f"run {len(runs)} ({last.get('prompt')}) is sealed and its FINDINGS.md was replaced or removed since: "
-                f"restore the sealed version (git -C {d} checkout {sc} -- FINDINGS.md)")
-    texts = []
-    try:
-        texts.append(("on disk", open(os.path.join(d, "FINDINGS.md"), encoding="utf-8").read()))
-    except OSError:
-        pass
-    lg = _git(d, "log", "--format=%H", "--", "FINDINGS.md")
-    for h in (lg.stdout.split() if lg.returncode == 0 else []):
-        shown = _git(d, "show", f"{h}:./FINDINGS.md")
-        if shown.returncode == 0:
-            texts.append((f"committed in {h[:11]}", shown.stdout))
-    for where, t in texts:
-        toks = STATUS_TOKEN_RE.findall(t)
-        said = item_verdicts(t)
-        if len(toks) == 1 and _sha(toks[0].encode()) == last.get("token_sha256") and all(he in said for he in live):
-            return (f"the FINDINGS.md of {last.get('prompt')} ({where}) carries the run's token and a verdict on every "
-                    f"live hand edit ({', '.join(f'{he}: {said[he]}' for he in live)}): it is a judgement, not a failed "
-                    f"run; restore it if it is gone and seal it (python3 audits/run_record.py --seal-status-check)")
-    return None
-
-
-def status_run_failure(cfg, live, runs=None):
-    """Why the last status-check run produced no valid verdict on the live hand edits `live` ([HE id]), or None: it
-    was issued for them and its FINDINGS.md is sealed, unchanged since, and says OK or MISMATCH for each. A failure
-    is mechanical (the agent failed, wrote no file or no verdict line, returned no digest): a run again is allowed."""
-    import readers
-    runs = status_runs(cfg) if runs is None else runs
-    if not runs or not live:
-        return None
-    last, d = runs[-1], _sdir(cfg)
-    fp = os.path.join(d, "FINDINGS.md")
-    try:
-        raw = open(fp, "rb").read()
-    except OSError:
-        return f"the agent of {last.get('prompt')} wrote no FINDINGS.md ({RETURNED_SAVE}, then seal it)"
-    said = item_verdicts(raw.decode("utf-8", "replace"))
-    gap = [he for he in live if he not in said]
-    if gap:
-        return (f"the FINDINGS.md of {last.get('prompt')} has no `- <HE>: OK|MISMATCH` line under \"## Hand edits\" "
-                f"(a trust line's under \"## Trust lines\") for {', '.join(gap)}")
-    seal, why = status_seal(cfg, len(runs))
-    verdicts = "; its unsealed file said " + ", ".join(f"{he}: {said[he]}" for he in live)
-    if seal is None:
-        return why + verdicts
-    if seal.get("sha256") != _sha(raw) or seal.get("token_sha256") != last.get("token_sha256"):
-        return f"the FINDINGS.md of {last.get('prompt')} is not the one its seal names" + verdicts
-    return None
-
-
-def seal_status_run(cfg, digest, agent_id):
-    """run_record.py --seal-status-check: seal the last status-check run from its agent's completion line. Checks
-    that FINDINGS.md hashes to the digest the agent returned and carries the run's token (given only in its spawn
-    line), then commits FINDINGS.md, RUNS.json, the prompt and SEAL-<n>.json by name as "status-check: seal run <n>".
-    Returns the commit; raises ValueError (nothing is written) otherwise."""
-    import datetime
-    runs, d = status_runs(cfg), _sdir(cfg)
-    if not runs or not runs[-1].get("token_sha256"):
-        raise ValueError("the last status-check run was written with no hand edit to judge: it is not sealed (commit "
-                         "status-check/ by name)")
-    if not re.fullmatch(r"[0-9a-f]{64}", digest or "") or not (agent_id or "").strip():
-        raise ValueError("--sha256 must be the 64 hex digits of the agent's own " + STATUS_COMPLETION + " line, "
-                         "--agent-id the id of the agent that ran it")
-    n, last = len(runs), runs[-1]
-    try:
-        raw = open(os.path.join(d, "FINDINGS.md"), "rb").read()
-    except OSError:
-        raise ValueError(f"there is no status-check/FINDINGS.md: {RETURNED_SAVE} and seal again; otherwise the run "
-                         f"of {last.get('prompt')} failed: run the status check again (python3 audits/prompt.py "
-                         f"--prompt status-check --write)")
-    if _sha(raw) != digest:
-        raise ValueError(f"status-check/FINDINGS.md (sha256 {_sha(raw)[:12]}…) is not the file the agent returned "
-                         f"({digest[:12]}…): it changed after the agent wrote it (or was not saved verbatim from "
-                         f"the text it returned), or the digest is not the agent's; restore the agent's file, or "
-                         f"run the status check again")
-    toks = STATUS_TOKEN_RE.findall(raw.decode("utf-8", "replace"))
-    if len(toks) != 1 or _sha(toks[0].encode()) != last.get("token_sha256"):
-        raise ValueError(f"status-check/FINDINGS.md does not carry the token of {last.get('prompt')} (`run-token: "
-                         f"...`, given only in its spawn line): it was not written by the agent issued this run")
-    doc = {"run": n, "prompt": last.get("prompt"), "token_sha256": last["token_sha256"], "sha256": digest,
-           "agent_id": agent_id.strip(), "hand_edits": list(last.get("hand_edits") or []),
-           "sealed": datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")}
-    name = STATUS_SEAL.format(n=n)
-    prior, _w = status_seal(cfg, n)
-    if prior is not None:
-        if prior.get("sha256") == digest:
-            return _git(d, "log", "-1", "--format=%H", "--", name).stdout.strip()
-        raise ValueError(f"run {n} is already sealed with another digest")
-    if _first_committed(d, name)[0] is not None:
-        raise ValueError(f"status-check/{name} was committed already and changed since: a real fault, restore it")
-    json.dump(doc, open(os.path.join(d, name), "w", encoding="utf-8"), indent=1)
-    paths = [x for x in ("FINDINGS.md", STATUS_RUNS, str(last.get("prompt") or ""), name)
-             if x and os.path.isfile(os.path.join(d, x))]
-    r = _git(d, "add", "--", *paths)
-    r = r if r.returncode else _git(d, "commit", "-q", "--only", "-m", STATUS_SEAL_SUBJECT.format(n=n), "--", *paths)
-    if r.returncode:
-        _git(d, "reset", "-q", "--", *paths)
-        os.remove(os.path.join(d, name))
-        raise ValueError(f"the seal could not be committed: {(r.stderr or r.stdout).strip()[:200]}")
-    return _git(d, "rev-parse", "HEAD").stdout.strip()
-
-
-def summary_sha(cfg):
-    """sha256 of the prepared SUMMARY.md, or None."""
-    import hashlib
-    try:
-        return hashlib.sha256(open(os.path.join(project.REPO, cfg["rounds_dir"], "SUMMARY.md"), "rb").read()).hexdigest()
-    except OSError:
-        return None
-
-
-def begin_status_run(cfg):
-    """The file name of the next status-check prompt, its run recorded in RUNS.json: status-check.txt, then
-    status-check-<n>.txt (a prompt is written once). A run after the first archives the previous FINDINGS.md and
-    ACTIONS.md as FINDINGS-<n-1>.md and ACTIONS-<n-1>.md, so the new agent writes its own. Raises ValueError when the
-    last run already read the current SUMMARY.md, or STATUS_CHECK_CAP runs were made -- unless a live hand edit
-    awaits its judgement: one the last run did not see, or one the last run produced no valid verdict on (a failed
-    run, a mechanical failure: recorded as "failed" in its RUNS.json entry, never counted as a judgement; DOC-FIX
-    review #2). With a live hand edit the run gets a token, `begin_status_run.token` (for its spawn line only;
-    RUNS.json keeps its sha256)."""
-    import datetime, secrets
-    d, runs, cur = _sdir(cfg), status_runs(cfg), summary_sha(cfg)
-    if cur is None:
-        raise ValueError("there is no prepared SUMMARY.md: run python3 audits/project.py --prepare-delivery first")
-    if os.path.exists(os.path.join(d, "status-check.txt")) and not runs:
-        # a run written before runs were recorded: which SUMMARY.md it read is unknown
-        runs = [{"prompt": "status-check.txt", "summary_sha256": None, "written": None}]
-    n = len(runs) + 1
-    # DOC-FIX G5: a hand edit (of SUMMARY or REPORT) the last run did not see needs a run to judge it, whatever the
-    # summary's hash and the cap (--deliver refuses the edit until the check judged it OK)
-    import readers
-    live = [r["he"] for r in readers.live_hand_edits(cfg)]
-    trust = [x for x in status_items(cfg) if x not in live]
-    items = live + trust            # what the run judges: the hand edits and the trust lines (approver 2026-10-26)
-    issued = (lambda r_: list(r_.get("hand_edits") or []) + list(r_.get("trust_lines") or []))
-    unjudged = bool(items) and items != issued(runs[-1]) if runs else False
-    same_ = runs and items and not unjudged and issued(runs[-1]) == items
-    live_all = items
-    judged = status_run_judged(cfg, live_all, runs) if same_ else None
-    if judged:
-        raise ValueError(judged + ": it is not run again")
-    if runs and not items and runs[-1].get("summary_sha256") != cur:
-        # re-check R1: with no trust event, a last FINDINGS.md that found a trust line with no event (`extra:
-        # MISMATCH`) is judged again on the fixed SUMMARY.md, whatever the cap (else delivery stays refused)
-        try:
-            said_x = item_verdicts(open(os.path.join(d, "FINDINGS.md"), encoding="utf-8").read())
-        except OSError:
-            said_x = {}
-        if said_x.get("extra") == "MISMATCH":
-            unjudged = True
-    if same_ and trust and runs[-1].get("summary_sha256") != cur and status_seal(cfg, len(runs))[0] is not None:
-        # review 3: a verdict on a trust line is bound to the SUMMARY.md it judged; a new SUMMARY.md (a generator fix
-        # after a MISMATCH, a later prepare after an OK) is judged again, whatever the cap (readers.trust_problems)
-        same_, unjudged = False, True
-    failed = status_run_failure(cfg, live_all, runs) if same_ else None
-    if failed:
-        runs[-1]["failed"] = failed
-        unjudged = True
-    if n > 1 and not unjudged:
-        if runs[-1].get("summary_sha256") == cur:
-            raise ValueError("the status check already read this SUMMARY.md (run "
-                             f"{len(runs)}, {runs[-1].get('prompt')}): nothing to run again")
-    if n > 1:
-        if n > STATUS_CHECK_CAP and not unjudged:
-            raise ValueError(f"the status check ran {n - 1} times (the cap, {STATUS_CHECK_CAP}): it is not run again; "
-                             f"the run record says which SUMMARY.md it read")
-        for f in ("FINDINGS.md", "ACTIONS.md"):
-            if os.path.isfile(os.path.join(d, f)):
-                os.replace(os.path.join(d, f), os.path.join(d, f.replace(".md", f"-{n - 1}.md")))
-    name = "status-check.txt" if n == 1 else f"status-check-{n}.txt"
-    os.makedirs(d, exist_ok=True)
-    token = secrets.token_hex(32) if items else None
-    entry = {"prompt": name, "summary_sha256": cur, "hand_edits": live, "trust_lines": trust,
-             "written": datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")}
-    if token:
-        entry["token_sha256"] = _sha(token.encode())
-    json.dump(runs + [entry], open(os.path.join(d, STATUS_RUNS), "w", encoding="utf-8"), indent=1)
-    begin_status_run.token = token
-    return name
-
-
-def status_check_problems(cfg):
-    """[text] why --deliver refuses on the status check (a precondition, never a stop): its last run read an earlier
-    SUMMARY.md than the prepared one, and the cap leaves a run; or its last run left neither FINDINGS.md nor
-    ACTIONS.md. Nothing when no run is recorded (an absent check is said in the run record, never a failure)."""
-    runs, cur = status_runs(cfg), summary_sha(cfg)
-    if not runs:
-        return []
-    last, d = runs[-1], _sdir(cfg)
-    if last.get("summary_sha256") != cur and len(runs) < STATUS_CHECK_CAP:
-        return [f"the status check read an earlier SUMMARY.md (sha256 {str(last.get('summary_sha256'))[:12]}…; the "
-                f"prepared one is {str(cur)[:12]}…: a prepare after the check changed it): run it again on the prepared "
-                f"one (python3 audits/prompt.py --prompt status-check --write, a fresh agent; then ACTIONS.md, and "
-                f"commit status-check/ by name), then deliver again: never a stop"]
-    if not any(os.path.isfile(os.path.join(d, f)) for f in ("FINDINGS.md", "ACTIONS.md")):
-        return [f"the status check written as {last.get('prompt')} has neither FINDINGS.md nor ACTIONS.md: spawn it "
-                f"with its line ({RETURNED_SAVE}), or write status-check/ACTIONS.md `- not produced: <reason>`; "
-                f"commit status-check/ by "
-                f"name, then deliver again: never a stop"]
-    return []
-
-
-def _seal_of(cfg, k):
-    return status_seal(cfg, k)[0] or {}
 
 
 DISMISSED_TITLE = "Reader findings dismissed"
@@ -717,50 +320,6 @@ def dismissed_lines(cfg):
             "Each finding of a fresh reader that the operator rejected (`dismissed`: not a real problem, with its "
             "evidence, or trivial), with the reason given, from the committed response files. Check any you doubt "
             "against the document."] + ([""] + rows if rows else ["", "None: no reader finding was dismissed."])
-
-
-def status_check_lines(cfg):
-    """The advisory status check (run/stage5-delivery.md; approver 2026-10-24): the fresh agent's FINDINGS.md and the
-    operator's ACTIONS.md (what was done about each mismatch, or why the check was not produced), quoted verbatim.
-    Nothing here judges their content: an absent check is said, never a failure."""
-    d = os.path.join(project.REPO, cfg["rounds_dir"], STATUS_DIR)
-    out = ["", f"### {STATUS_TITLE}", "",
-           "An advisory check by a fresh agent, after the documents were prepared: does each status on the summary match "
-           "what the report and the records say? Its findings and what the operator did about each (a correction "
-           "through the record's route, or none, with the reason) are quoted here. They are advisory and held the "
-           "delivery only where the check judges a hand edit of a generated document (above): there --deliver waited "
-           "until a sealed run of the check said OK for each live edit."]
-    files = [os.path.join(d, f) for f in ("FINDINGS.md", "ACTIONS.md")
-             if os.path.isfile(os.path.join(d, f)) and not os.path.islink(os.path.join(d, f))]
-    if not files:
-        return out + ["", "No status check was recorded for this run (no `status-check/FINDINGS.md` or `ACTIONS.md`)."]
-    # C1 audit: which SUMMARY.md each run read, and whether the last one is the delivered summary
-    runs, cur = status_runs(cfg), summary_sha(cfg)
-    if runs:
-        out += [""] + [f"- run {k}: `{r.get('prompt')}`, written {r.get('written') or '(not recorded)'}, on "
-                       + (f"SUMMARY.md sha256 `{r['summary_sha256'][:12]}…`" if r.get("summary_sha256")
-                          else "a SUMMARY.md not recorded")
-                       + (f"; judging hand edit(s) {', '.join(r['hand_edits'])}" if r.get("hand_edits") else "")
-                       + (f"; sealed (agent `{_seal_of(cfg, k).get('agent_id')}`)" if _seal_of(cfg, k) else "")
-                       + (f"; FAILED, a mechanical failure and not a judgement (run again): {r['failed']}"
-                          if r.get("failed") else "") for k, r in enumerate(runs, 1)]
-        out += ["", "The last run read the delivered SUMMARY.md." if runs[-1].get("summary_sha256") == cur else
-                f"The last run read an EARLIER SUMMARY.md than the one delivered (sha256 `{str(cur)[:12]}…`): the check "
-                f"ran {len(runs)} time(s), the cap, and a later prepare changed the summary; its findings may not "
-                f"hold for the delivered version."]
-    else:
-        out += ["", "Which SUMMARY.md the check read was not recorded (no `status-check/RUNS.json`)."]
-    for p in files:
-        out += ["", _notice_block(p)]
-    if not any(p.endswith("ACTIONS.md") for p in files):
-        out += ["", "The operator recorded no action on these findings (`status-check/ACTIONS.md` is missing)."]
-    earlier = sorted(glob.glob(os.path.join(d, "FINDINGS-*.md")) + glob.glob(os.path.join(d, "ACTIONS-*.md")),
-                     key=lambda p: (int(re.search(r"-(\d+)\.md$", p).group(1)) if re.search(r"-(\d+)\.md$", p) else 0, p))
-    if earlier:
-        out += ["", "Earlier runs (on earlier versions of the summary, or runs that failed and were run again):"]
-        for p in earlier:
-            out += ["", _notice_block(p)]
-    return out
 
 
 def _section(txt, title):
@@ -881,10 +440,6 @@ def selftest():
             @staticmethod
             def links(*_a):     # SWEEP-FIX review B2: the trust-line provider asks for the links (none here)
                 return []
-
-            @staticmethod
-            def raised_statuses(*_a, **_k):
-                return []
         sys.modules["tool_patch"] = TP
         t2 = text(cfg)
         say("the tool-patch hook: tool_patch.record_lines fills section 1; listing_problems requires each applied "
@@ -912,74 +467,6 @@ def selftest():
         n1 = os.path.join(base, "R", "KNOWN_FAULTS-report-x.md")
         open(n1, "w").write("# Known faults\n\n- a table cell is cut NOTICEQZ\n")
         dsec = delivery_section(cfg, [n1], [os.path.join(base, "R", "KNOWN_FAULTS-report-old.md")])
-        sc_d = os.path.join(base, "R", STATUS_DIR)
-        no_sc = "No status check was recorded" in dsec
-        os.makedirs(sc_d)
-        open(os.path.join(sc_d, "FINDINGS.md"), "w").write("# Status check\n\n## Mismatches\n\n### M1. Theorem 4.1 -- FINDQZ\n")
-        open(os.path.join(sc_d, "ACTIONS.md"), "w").write("- M1: corrected through a reader-fix round ACTQZ\n")
-        dsec2 = delivery_section(cfg, [], [])
-        say("approver 2026-10-24: the delivered run record quotes the status check's findings and the operator's "
-            "actions (headings demoted), and says so when none was recorded; never a failure; it says the check held "
-            "the delivery only on a hand edit (review #8)",
-            no_sc and "FINDQZ" in dsec2 and "ACTQZ" in dsec2 and "##### Mismatches" in dsec2
-            # DOC-FIX review #8: with hand edits the check does hold the delivery; the text must not say it never did
-            and "never blocked the delivery" not in dsec2 and "held the delivery only where the check judges a hand edit" in dsec2
-            and not re.search(r"(?m)^## (?!Delivery)", dsec2))
-        # C1 audit (defect 5), with a sample FINDINGS.md and ACTIONS.md: its check read the 12:45 SUMMARY.md, and
-        # two later prepares changed it. Each run records the SUMMARY.md it read; a stale one is a precondition
-        shutil.rmtree(sc_d)
-        smp = os.path.join(base, "R", "SUMMARY.md")
-        # this fixture's applied tool patch is a trust line (make_report.weakened_events); the runs here are about the
-        # SUMMARY.md each read, so no trust line is judged in them (readers' DOC-FIX fixture covers trust lines)
-        keep_tlp = list(mr.TRUST_LINE_PROVIDERS)
-        mr.TRUST_LINE_PROVIDERS[:] = []
-        samples = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", "lane_samples")
-        real_f = open(os.path.join(samples, "status-check-FINDINGS-sample-b.md"), encoding="utf-8").read()
-        real_a = open(os.path.join(samples, "status-check-ACTIONS-sample-b.md"), encoding="utf-8").read()
-        open(smp, "w").write("# Summary (12:45)\n")
-
-        def bsr():
-            try:
-                return begin_status_run(cfg)
-            except ValueError as e_:
-                return "refused: " + str(e_)
-        n1 = bsr()
-        p_none = status_check_problems(cfg)             # written, not yet run
-        open(os.path.join(sc_d, "FINDINGS.md"), "w").write(real_f)
-        open(os.path.join(sc_d, "ACTIONS.md"), "w").write(real_a)
-        p_ok = status_check_problems(cfg)
-        again = bsr()
-        open(smp, "w").write("# Summary (13:04, after a reader fix)\n")
-        p_stale = status_check_problems(cfg)
-        n2 = bsr()
-        archived = (os.path.exists(os.path.join(sc_d, "FINDINGS-1.md")) and os.path.exists(os.path.join(sc_d, "ACTIONS-1.md"))
-                    and not os.path.exists(os.path.join(sc_d, "FINDINGS.md")))
-        open(os.path.join(sc_d, "FINDINGS.md"), "w").write("# Status check\n\n## Mismatches\n\n- none RERUNQZ\n")
-        open(os.path.join(sc_d, "ACTIONS.md"), "w").write("- no mismatches\n")
-        p_ok2 = status_check_problems(cfg)
-        dsec3 = delivery_section(cfg, [], [])
-        open(smp, "w").write("# Summary (later)\n")
-        n3 = bsr()
-        open(os.path.join(sc_d, "FINDINGS.md"), "w").write("# Status check\n\n## Mismatches\n\n- none\n")
-        open(os.path.join(sc_d, "ACTIONS.md"), "w").write("- no mismatches\n")
-        open(smp, "w").write("# Summary (after the cap)\n")
-        p_cap = status_check_problems(cfg)
-        dsec4 = delivery_section(cfg, [], [])
-        capped = bsr()
-        say("C1 audit: each status-check run records the SUMMARY.md it read; --deliver refuses one that read an earlier "
-            "SUMMARY.md (re-run as status-check-2.txt, the earlier findings kept as FINDINGS-1.md and quoted), or one "
-            "with no findings or actions; past the cap of 3 runs the run record says the check read an earlier version",
-            n1 == "status-check.txt" and any("neither FINDINGS.md nor ACTIONS.md" in x for x in p_none) and p_ok == []
-            and again.startswith("refused: ") and "already read this SUMMARY.md" in again
-            and any("read an earlier SUMMARY.md" in x and "never a stop" in x for x in p_stale)
-            and n2 == "status-check-2.txt" and archived and p_ok2 == []
-            and "The last run read the delivered SUMMARY.md." in dsec3 and "RERUNQZ" in dsec3
-            and "`FINDINGS-1.md`" in dsec3 and "18 results" not in dsec3 and "12 results" in dsec3
-            and n3 == "status-check-3.txt" and p_cap == [] and "The last run read an EARLIER SUMMARY.md" in dsec4
-            and capped.startswith("refused: ") and "the cap" in capped)
-        mr.TRUST_LINE_PROVIDERS[:] = keep_tlp
-        shutil.rmtree(sc_d)
-        os.remove(smp)
         say("the delivery section folds the delivered documents' known-fault notices in (their text, headings "
             "demoted) and names superseded notices",
             "NOTICEQZ" in dsec and "### `KNOWN_FAULTS-report-x.md`" in dsec and "#### Known faults" in dsec
@@ -998,23 +485,10 @@ def selftest():
             _t5x = text(cfg)
         finally:
             project.changes_after_last_audit = _cal
-        # DF14, DF30 (their delivery scenarios were removed with the hand-edit route, approver 2026-10-28; an older
-        # run's records still carry hand edits and dismissed findings): the run record lists both
-        import readers as _rd
-        _keep_he = (_rd.live_hand_edits, _rd.erased_hand_edits, _rd._he_commit)
-        try:
-            _rd.live_hand_edits = lambda c_, name=None: [{"he": "HE1", "doc": "SUMMARY.md", "finding": "HEFINDQZ",
-                                                          "date": "2026-10-26"}]
-            _rd.erased_hand_edits = lambda c_: []
-            _rd._he_commit = lambda rd_, he_, doc_: ["abcdef0123456"]
-            _t6 = delivery_section(cfg, [], [])
-        finally:
-            _rd.live_hand_edits, _rd.erased_hand_edits, _rd._he_commit = _keep_he
-        say("DF14/DF30: the run record lists each live hand edit (its finding and commit) and the section of dismissed "
-            "reader findings (saying none when there is none)",
-            f"### {HAND_EDIT_TITLE}" in _t6 and "#### HE1: `SUMMARY.md`" in _t6 and "HEFINDQZ" in _t6
-            and "abcdef01234" in _t6 and f"### {DISMISSED_TITLE}" in _t6
-            and "None: no reader finding was dismissed." in _t6)
+        # DF30 (an older run's records still carry dismissed findings): the run record lists them
+        _t6 = delivery_section(cfg, [], [])
+        say("DF30: the run record lists the section of dismissed reader findings (saying none when there is none)",
+            f"### {DISMISSED_TITLE}" in _t6 and "None: no reader finding was dismissed." in _t6)
         say("DESIGN-M7: RUN_RECORD.md section 5 names the commits accepted as comment-only on the source text and "
             "Lean's comparison (O1's field); none on the compiled basis, for a code change, or when the change "
             "cannot be read",
@@ -1041,11 +515,6 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--project")
     ap.add_argument("--selftest", action="store_true")
-    ap.add_argument("--seal-status-check", action="store_true",
-                    help="seal the last status-check run (one that judges hand edits) from its agent's "
-                         f"{STATUS_COMPLETION} line: --sha256 HEX --agent-id ID")
-    ap.add_argument("--sha256")
-    ap.add_argument("--agent-id")
     a = ap.parse_args()
     if a.selftest:
         return selftest()
@@ -1054,14 +523,6 @@ def main():
     except project.SelectionError as e:
         print(f"FAIL: {e}", file=sys.stderr)
         return 2
-    if a.seal_status_check:
-        try:
-            h = seal_status_run(cfg, a.sha256, a.agent_id)
-        except ValueError as e:
-            print(f"RED[deliver] the status check is not sealed: {e} (never a stop)")
-            return 1
-        print(f"sealed the status check's last run: commit {h[:11]}; write status-check/ACTIONS.md and commit it")
-        return 0
     print(text(cfg), end="")
     return 0
 

@@ -71,7 +71,20 @@ run_cmd do
       | some i => root != Name.anonymous && root.isPrefixOf env.header.moduleNames[i.toNat]!
       | none => true   -- defined in this file (append mode); the three helpers above are excluded
   let mut count : Nat := 0
-  for (n, ci) in env.constants.toList do
+  -- the candidates from the module tables (as dependencies_tail's auditProjectNames); `isOurs` decides
+  let mut cands : Array Name := #[]
+  for i in [0:env.header.moduleNames.size] do
+    let names := env.header.moduleData[i]!.constNames
+    if root != Name.anonymous && root.isPrefixOf env.header.moduleNames[i]! then cands := cands ++ names
+    else for c in names do
+      if ns.isPrefixOf ((privateToUserName? c).getD c) then cands := cands.push c
+  for (c, _) in env.constants.map₂.toList do cands := cands.push c
+  -- a realized constant (an equation lemma made on first use) can be in two modules' tables: once each
+  let mut once : NameSet := {}
+  for n in cands do
+    if once.contains n then continue
+    once := once.insert n
+    let some ci := env.constants.find?' n | throwError m!"fingerprint: candidate {n} is not in the environment"
     if isOurs n then
       -- a def's value is proof-erased BEFORE universes are renamed and mdata stripped; `deps` below are read
       -- from the same erased Exprs as the hash (a proof field citing a new lemma adds no dependency)

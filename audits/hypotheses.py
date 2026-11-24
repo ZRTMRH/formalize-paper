@@ -55,7 +55,6 @@ COLS = ("hypothesis", "stands for", "matches source", "consistency evidence", "t
         "plain english", "supporting verdict")
 TEMPLATE = ("| hypothesis | stands for (source) | matches source | consistency evidence | trivialization | "
             "plain English | supporting verdict |")
-MATCH_WORDS = ("yes", "no", "source unavailable")
 FAITH_LANES = ("paper-faithfulness", "literature-match")
 CITE_RE = re.compile(r"((?:[\w.@-]+/)*[\w.@-]+\.json)")
 _EDGE = re.compile(r"^[\s*_`]+|[\s*_`]+$")
@@ -65,8 +64,7 @@ def clean(c):
     return _EDGE.sub("", str(c))
 
 
-def rounds_dir(cfg):
-    return os.path.join(project.REPO, cfg["rounds_dir"])
+rounds_dir = project.rounds_dir
 
 
 def walk(cfg, rd=None):
@@ -310,11 +308,6 @@ def mt_ruling_history(cfg, rd=None, round_name=None):
     return out
 
 
-def mt_rulings(cfg, rd=None, round_name=None):
-    """{line id: (round, "not" | "decision", name or None)}: the latest ruling of each id (mt_ruling_history)."""
-    return {i_: h_[-1][:3] for i_, h_ in mt_ruling_history(cfg, rd, round_name).items() if h_}
-
-
 def _mt_dissents(cfg, log, rd, hist):
     """{line id: why} of the operator's `- MT DISSENT <id>: <why>` lines that stand AFTER the id's only "decision"
     ruling (absent from RUN_LOG.md as of that ruling's commit; review C-F2). A second "decision" ruling of the same
@@ -510,7 +503,7 @@ def missing_theory(cfg, log=None, doc=None, rd=None, round_name=None):
     not formalize`; either supersedes an earlier `assume` line for the same result, and an `assume` or `build`
     line an earlier `do not formalize`). `form` (DESIGN-MT): a line the check suspects that is not in the
     canonical form, that no later canonical line naming its result or hypothesis cures, and that no adjudicator
-    ruled (mt_rulings, `round_name` as there): the next adjudicator's to rule, never a problem. `problems`
+    ruled (mt_ruling_history, `round_name` as there): the next adjudicator's to rule, never a problem. `problems`
     (FAIL[missing-theory] in the report check): such a line ruled a missing-theory decision for `N` with no
     canonical line for `N` after it; a delegated
     line under `involved` or a human one under `hands-off`; a human line with no committed human answer
@@ -678,7 +671,7 @@ def missing_theory(cfg, log=None, doc=None, rd=None, round_name=None):
                 out["problems"].append(
                     f"RUN_LOG.md: missing theory `{e['hyp']}` is the conclusion of {', '.join(f'`{r}`' for r in conc)} "
                     f"(the walk): assuming it proves nothing. Prove the result, or leave it unproved (`[DELEGATED …] "
-                    f"leave <decl> unproved — <reason>`, RUN.md failure table); never assume a result's own conclusion")
+                    f"leave <decl> unproved — <reason>`, the failure table, run/stops-and-set-asides.md); never assume a result's own conclusion")
             elif rest:
                 out["problems"].append(
                     f"RUN_LOG.md: missing theory `{e['hyp']}` restates {', '.join(sorted({f'`{x}`' for _r, x in rest}))}, "
@@ -951,7 +944,7 @@ def flag_items(cfg, rd=None):
             if flag_question(doc, uses) and not any(same_name(m, n, ns) for m in mtn)}
 
 
-# next batch B17 (CR-1, stop S1 commit-refused): a plain literature hypothesis of the walk had no item, so no sealed
+# next batch B17 (NW-1, stop S1 commit-refused): a plain literature hypothesis of the walk had no item, so no sealed
 # paper-faithfulness verdict named it, `cite_problem` found no verdict to cite and the adjudication commit was refused
 # with no valid row possible. Every assumed name without a valid latest `## Hypotheses` row gets this item (scheduling,
 # not a new check); the item text contains the name, so `cite_problem`'s `_mentions` sees a verdict on it.
@@ -1709,7 +1702,7 @@ def _mt_selftest(say):
           f"- {T} leave `N.lem` unproved — hard, not missing theory",
           f"- {T} keep the hypothesis hk of N.lem — not missing theory, an ordinary hypothesis")
         say("B6: a re-approval's line (`change … — missing theory`), a left-unproved line and a negated mention are "
-            "not missing-theory decisions", probs() == [])
+            "not missing-theory decisions", probs() == [] and missing_theory(cfg)["form"] == [])
         w(f"- {T} missing theory: build the Ramsey number bound R(3,3) = 6 for `N.lem` — {S}; {E}")
         bt = [t for t in trust_rows(cfg) if t[0] == "Missing theory"]
         say("B6: a `build` line needs no quote; page 1 says the theory was built here",
@@ -2073,9 +2066,9 @@ def _mt_ruled_selftest(say):
         commit()
         rnd(f"- MT RULED {i7} | not a missing-theory decision: x", f"- MT RULED {i7} | a missing-theory decision for "
             f"`N.LS`: y", f"- MT RULED {i7} | not a missing-theory decision: z")
-        u7a = mt_rulings(cfg).get(i7, (None, None))[1] == "decision"
+        u7a = (mt_ruling_history(cfg).get(i7) or [(None, None)])[-1][1] == "decision"
         rnd(f"- MT RULED {i7} | not a missing-theory decision: re-ruled")
-        u7b = mt_rulings(cfg).get(i7, (None, None))[1:] == ("not", None) and MT()["problems"] == []
+        u7b = (mt_ruling_history(cfg).get(i7) or [(None, None, None)])[-1][1:3] == ("not", None) and MT()["problems"] == []
         say("MT-u7: a 'decision' and a 'not' ruling in one file: decision; a later round's 'not' overrides an earlier "
             "round's 'decision'", u7a and u7b)
         # review C-F2: the operator's dissent from a decision ruling

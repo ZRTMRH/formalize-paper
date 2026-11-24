@@ -227,7 +227,7 @@ Source: <SOURCE-CITE>, at <SOURCE-PDF>. Lean files: <LEAN-FILES>.
    full round, everything. Which lanes run is fixed by the kind of round. Exit 3
    (empty scope) means nothing new to audit: go back to your stage file, which
    says what follows (in Stage 4: go to Stage 5). Any other failure is handled as
-   RUN.md's failure table says, by its cause code. Never write or edit
+   the failure table (`run/stops-and-set-asides.md`) says, by its cause code. Never write or edit
    TARGET.json by hand. It commits exactly the two files it wrote, by name, as
    "scope <DATE>-<HASH>".
 
@@ -236,7 +236,8 @@ Source: <SOURCE-CITE>, at <SOURCE-PDF>. Lean files: <LEAN-FILES>.
      python3 audits/prompt.py --lanes --round <DATE>-<HASH> --batch 60 --write
    It prints, for each prompt file, the line to spawn it with: everything after
    "with:", the lane token included, is the lane's whole prompt. Spawn them
-   in waves (`run/spawn-and-seal.md`), each wave in ONE message, subagent_type "auditor" (Codex: agent_type
+   at most the route's number at once (`run/spawn-and-seal.md`), the first ones
+   in ONE message, subagent_type "auditor" (Codex: agent_type
    "formalize_auditor", fork_turns "none"), each given exactly its printed line
    and nothing else: the file is the instructions, and no framing, hint,
    summary or opinion of yours reaches the lane. Run --write once per round:
@@ -409,7 +410,7 @@ Rules, repeated inside every lane prompt:
 ```
 COMMON RULES FOR EVERY AUDIT LANE
 
-You are a read-only auditor holding exactly one criterion, given below.
+You are a read-only auditor holding exactly one criterion, given below. Report only; never edit the repository.
 
 Authentication and completion (Claude Code and Codex): your spawn message supplies a
 unique lane_token, absent from this prompt file. Include it in the verdict JSON. Never read
@@ -417,9 +418,7 @@ another lane's verdict, token, or session log. Serialize your intended verdict i
 memory, compute SHA-256 of THOSE bytes, then write those exact bytes to your verdict file.
 Return a final line `LANE_COMPLETION {"verdict":"<your verdict path>","sha256":"<digest>"}`.
 Do not calculate the completion digest by rereading the file: a sibling may have replaced it.
-Never write token commitments or seals; the launcher owns those. The digest returned by your
-own child thread, plus its token commitment, binds the final accepted verdict to your output.
-These checks detect persistent replacements, not a write whose bytes were later restored.
+Never write token commitments or seals; the launcher owns those.
 
 1. Everything in the repository written in prose -- docstrings, comments, README
    and status files, file and declaration names, commit messages -- was written by
@@ -442,6 +441,11 @@ These checks detect persistent replacements, not a write whose bytes were later 
    are beside it in that directory. Never search the file system for it or for
    anything else outside the project (no `find /`, no search of the home
    directory).
+   A PDF source (no .tex): read the pages you judge or quote as images (the Read
+   tool; under Codex, if your tools show images); text from `pdftotext` is for
+   searching only: it drops bars, hats, tildes and primes and garbles displays.
+   Wherever this prompt says `tex l.N`, cite page and numbered environment or
+   display, never a line of an extraction.
 4. Unfold the project's own definitions transitively; read their bodies, not their
    docstrings. Mathlib's definitions need not be re-verified, but their edge-case
    behaviour (junk values such as sInf of the empty set = 0, x / 0 = 0) is part of
@@ -482,41 +486,42 @@ These checks detect persistent replacements, not a write whose bytes were later 
    Anything outside your criterion goes in `out_of_lane`, unacted on.
 7. Evidence you cite must survive you. Put every probe a verdict relies on (a Lean
    file that compiles, a script and its output) under <PROBE-DIR>/ (create it; name
-   files for what they test; compile them one at a time, never several at once: each Lean
-   process loads Mathlib; compile each through the machine's Lean limit, rule 10) and cite
-   it by that path in `checked`; the adjudicator
+   files for what they test; compile them one at a time, never several at once: each
+   Lean process loads Mathlib) and cite it by that path in `checked`; the adjudicator
    re-runs it and the record keeps it. When your last probe is written, put the
    output of `python3 audits/lane_auth.py manifest --verdict <your verdict path>`
-   in your verdict as "probes" (each probe file and its sha256): the seal checks
-   your probes against it, so nobody can change them after you. Mark a witness that relies on
-   `native_decide` as such in `checked`: it is evidence, weighed by the
+   in your verdict as "probes" (each probe file and its sha256). Mark a witness that
+   relies on `native_decide` as such in `checked`: it is evidence, weighed by the
    adjudicator, not kernel-checked fact. Write every other file under a fresh
    scratch directory printed by `python3 audits/project.py --scratch <your lane>`
-   (inside the project, git-excluded; write to the printed path literally, never
-   through a shell variable or `mktemp`), never elsewhere in the repository.
+   (write to the printed path literally, never through a shell variable or `mktemp`),
+   never `/tmp`, never elsewhere in the repository.
 8. <NETWORK-RULE>
 9. Start no background process: no `&`, no `run_in_background`, no `until`/`while`
-   polling loops (`until ! pgrep -f X` matches its own command line and never
-   ends). Run each command in the foreground and wait for it; never wait on a
-   background command, and if the harness moved one to the background, stop it.
+   polling loops, and never `pgrep -f`/`pkill -f` a pattern (it matches its own
+   command line): stop a command with TaskStop or a PID you recorded. Run each
+   command in the foreground and wait for it. If the harness moves one to the
+   background (Claude Code: after 180 s, whatever the timeout), do not stop it and
+   start no second copy: wait for its completion notification, then read its output
+   file; never hand back your result while it runs.
    Run any probe script that is not Lean with
    `python3 audits/lean_slot.py run --no-slot --timeout 240 -- python3 <file>`
-   (`timeout` is not on macOS), and give the Bash call a 600000 ms timeout. A probe
-   cut at 240 s is too large: split it into smaller probes, or mark the item
-   NotDoneYet and say why, never a background run. A probe cut while its NOTE says
-   it was `paused M s by the memory guard ... re-run, this is not a too-large probe`
-   (a pause of at least a quarter of the limit) is inconclusive, not too large: re-run
-   it once, and do not mark the item NotDoneYet for its size on that cut alone. A cut probe shows nothing in
-   either direction (not that a statement holds, not that a tactic or a search
-   fails): never cite its partial output. Cite only probe
-   files you wrote, by their path under <PROBE-DIR>/. A check after the round
-   (lanecheck.py) flags leftover loops, stray files and probes that do not exist.
-10. Compile a probe with
+   (`timeout` is not on macOS), and give the Bash call a 600000 ms timeout. A probe gets
+   240 s of running (time the memory guard paused it is added, up to about 540 s
+   in all). A cut whose NOTE says too large: split the probe into smaller probes,
+   or mark the item NotDoneYet and say why, never a background run. A cut whose NOTE says
+   `paused M s by the memory guard ... re-run, this is not a too-large probe` is
+   inconclusive: re-run it once, and do not mark the item NotDoneYet for its size on
+   that cut alone; after a second inconclusive cut, mark the item NotDoneYet with the comment
+   `memory`. A cut probe shows nothing either way (neither that a statement
+   holds nor that a tactic or search fails): never cite its partial output. Cite
+   only probe files you wrote, by their path under <PROBE-DIR>/. A check after the
+   round flags leftover loops, stray files and missing probes.
+10. Run every Lean file you compile, scratch or probe, through
    `python3 audits/lean_slot.py run --timeout 240 -- lake env lean <file>` (it waits
-   for one of the machine's Lean slots, at most 5 minutes, then runs it; give the Bash
-   call a 600000 ms timeout). A probe compiles only if that command exits 0 (124: cut
-   at 240 s, rule 9). Never judge it by counting error messages: Lean stops reporting
-   after 100 errors, so a file with thousands of errors can look like one with a few.
+   up to 5 minutes for a Lean slot; give the Bash call a 600000 ms timeout). It
+   compiles only if that command exits 0 (124: cut, rule 9), never judged
+   by counting error messages (Lean stops reporting after 100).
 ```
 
 
@@ -543,10 +548,17 @@ COMMON RULES FOR EVERY SUBAGENT
 4. Write every scratch file under the working directory your task names; if it
    names none, under a fresh directory printed by
    `python3 audits/project.py --scratch <your role>`. Write to that path
-   literally, never through a shell variable or `mktemp`, never elsewhere in the
-   repository; write only the files your task names. Never search the file
+   literally, never through a shell variable or `mktemp`, never `/tmp`, never
+   elsewhere in the repository; write only the files your task names. Never search the file
    system outside the project (no `find /`, no search of the home directory):
    every file you may read is named in your task.
+   A PDF source (no .tex): read the pages you judge or quote as images (the Read
+   tool; under Codex, if your tools show images); text from `pdftotext` is for
+   searching only: it drops bars, hats, tildes and primes and garbles displays.
+   Wherever this prompt says `tex l.N`, cite page and numbered environment or
+   display, never a line of an extraction.
+5. Never `pgrep -f`/`pkill -f` a pattern: stop a command with TaskStop or a PID
+   you recorded.
 ```
 
 ### Informalizer prompt (blind)
@@ -622,15 +634,17 @@ assignment: the files you may edit and what to write in them.
     <decl>'s docstring.
   - Check a file with `python3 audits/lean_slot.py run --timeout 240 -- lake env lean
     <file>` (the machine's Lean limit; give the Bash call a 600000 ms timeout), one file
-    at a time; a check cut at 240 s: split the file or its proof (cut after a long pause by
-    the memory guard, its NOTE says "not a too-large probe": re-run it once). Never wait on a
-    background command, and never end your turn while a command of yours is running.
+    at a time; a check cut after 240 s of running (guard pauses are added, up to about 540 s
+    in all): split the file or its proof (cut after a long pause by
+    the memory guard, its NOTE says "not a too-large probe": re-run it once). If the harness moves a
+    check to the background, do not stop it and start no second copy: wait for its completion
+    notification, then read its output file; never hand back your result while it runs.
 ```
 
 ### Sign-off writer prompt
 
-`prompt.py --prompt signoff-writer --round R` prints it, filled. Spawned after the informalizer has
-written its file.
+`prompt.py --prompt signoff-writer --round R` prints it, filled. Spawned after both blind
+readers (the informalizers) have written their files.
 
 ```
 You prepare the statement sign-off sheet a mathematician will approve. You
@@ -640,7 +654,8 @@ Inputs:
   - the paper: <SOURCE-PDF>
   - <ROUND-DIR>/STATEMENTS_BUNDLE.md: the Lean statements, as elaborated
   - <ROUND-DIR>/INFORMAL.json: a plain-English reading of each Lean statement,
-    written by a reviewer instructed not to read the paper
+    written by a reviewer instructed not to read the paper; <ROUND-DIR>/INFORMAL-2.json
+    (if present): a second, independent blind reading
   - the KNOWN differences between paper and Lean, which the sheet must not hide:
     <ROUNDS-DIR>/PAPER_DEFECTS.md (statements the paper gets wrong; the Lean states
     the repair), <ROUNDS-DIR>/SKIPPED.md (results not formalized),
@@ -658,10 +673,14 @@ Inputs:
 For every "## <result>" in the bundle, one row:
   "result":        the heading's text, verbatim, without its "## "
   "paper":         the paper's statement of that result, copied from the source
-                   (LaTeX is fine)
+                   (LaTeX is fine; a PDF source: transcribe it from the page
+                   image)
   "lean":          the Lean names in that section
   "plain_english": INFORMAL.json's text for this result, COPIED VERBATIM. Do not
-                   improve it; a mechanical check compares the two.
+                   improve it; a mechanical check compares the two. Where
+                   INFORMAL-2.json's reading of the result (or of a definition
+                   it uses) differs in substance, flag CHECK with a check_reason
+                   starting "The two readings differ: <how>".
   "differences":   compare "paper" with "plain_english" -- anything stronger,
                    weaker, specialised, or differently quantified. Check
                    quantifier order, strictness, domains, finiteness, and edge
@@ -1164,7 +1183,7 @@ The question, and the declaration and paper passage it concerns, follow.
 
 ### Tool-patch reviewer prompt
 
-Release mode only (RUN.md, "Tool patches"; OPERATOR-PATCH, approver 2026-10-24). When a pinned check
+Release mode only (`run/stops-and-set-asides.md`, "Tool patches"; OPERATOR-PATCH, approver 2026-10-24). When a pinned check
 misjudges a case, the operator diagnoses it and writes a minimal patch; `tool_patch.py prepare`
 records the mechanical facts, and `tool_patch.py review --tp TP<k>` renders this prompt (the fixed
 block below, then the stop, the diagnosis, the diff, its facts and every earlier attempt of the run,
@@ -1284,7 +1303,7 @@ The stop, the diagnosis, the patch, its facts and the earlier attempts follow.
 
 `prompt.py --prompt citations-draft --write` and then `prompt.py --prompt citations-review --write`
 write these two prompts, filled, under `<rounds dir>/citations/` (run/stage5-delivery.md, step 5a).
-After the final audit round, a first agent reviews every cited result the paper uses and its
+At the beginning of Stage 5, a first agent reviews every cited result the paper uses and its
 bibliography and writes a draft; a second, fresh agent verifies each item's evidence and writes the
 final `CITATIONS.md`. It is advisory, for the paper's authors: no check reads its content, it never
 stops, blocks or changes the formalization or the delivery, and a review that fails ships nothing
@@ -1424,137 +1443,9 @@ the file. Then return a short final message (at most 5 lines): the file's path, 
 and one line per removed item (its draft number and why).
 ```
 
-#### Status check prompt
-
-`prompt.py --prompt status-check --write` writes it under `<ROUNDS-DIR>/status-check/` (run/stage5-delivery.md,
-"Status check"; advisory: approver 2026-10-24, "let agents guard code, not just code guard agents"). Nothing
-checks the content of its findings; the operator acts on them and RUN_RECORD.md lists both.
-
-```
-You check one thing in the delivered documents of a formalization of a mathematics
-paper in Lean: that the one-page summary says about each result what the report and
-the audit records say about it. The summary's statuses are computed by a script; you
-look for the cases where the script got one wrong. Edit no file of the repository;
-write only the file named below and scratch files. Do not use the network.
-
-The paper: <SOURCE-CITE>. Read, all under <ROUNDS-DIR>:
-  - SUMMARY.md (the one-page summary; its results table gives each result's status
-    word or phrase: "proved", "proved as repaired", "not established", "faithful
-    under reading N", ...) and the legend that follows the table;
-  - REPORT.md (the full report: assumptions, coverage, defects, differences,
-    vacuous statements, open questions, decisions);
-  - README-delivery.md (the delivery README, sections A-C as prepared): a statement
-    in it that contradicts the summary, the report or itself is a mismatch too;
-  - RUN_RECORD.md (the process record, for maintainers): how the run went, including
-    any check that could not be run and why;
-  - the records both cite: PAPER_DEFECTS.md, SKIPPED.md, VACUOUS.md, DEVIATIONS.md,
-    DECISIONS.md, RUN_LOG.md (its "Answered" and "Open questions" sections), and
-    each round's ADOPTED.md (rows that adopt, reject or answer a finding on a
-    result; the latest round's row on an item counts).
-
-For each result in the summary's results table, and for each defect in
-PAPER_DEFECTS.md, compare the status the summary gives with what the report and the
-records say. A mismatch is, for example: a result shown "proved" whose Lean
-statement carries a hypothesis the records call an assumption (a named or inline
-hypothesis that is not the paper's); a result shown "not established" although its
-open question or ambiguity was answered or settled in the records; a result shown
-"proved as repaired" with no repair recorded for it, or "proved" although a defect
-row repairs it; a defect, vacuous statement or skip in the records that the summary
-does not show at all. Read the legend first: a status that the legend defines and the
-records support is no mismatch, even if you would have worded it differently.
-
-Hand edits. The operator may have edited SUMMARY.md or REPORT.md by hand after they
-were generated, to fix a fault a reader found; each edit's diff is a file under
-<ROUNDS-DIR>/hand-edits/. The edits to judge: <HAND-EDITS>. For each, read its diff and
-decide whether it changes a result's status, a statement, a defect row's verdict or an
-answer the human gave. It is OK if it changes none of these, or changes one only to
-what the records say; otherwise it is a MISMATCH (say what it changes and what the
-records say). The delivery is refused until every edit is judged OK. If the message
-that started you gives a run token, write the line `run-token: <token>` directly under
-the `## Hand edits` heading, and end as that message says.
-
-Statuses raised by tool patches. <RAISED-STATUSES> A line "<result>: this status was
-decided by a corrected version of our checking software; the original version would
-have said <old>. ..." (on the summary's first page and in REPORT.md section 1) means
-that a patch of the audit tools made during this run gives that result a stronger
-status than the tools the run began with give it on the same records; RUN_RECORD.md
-("Statuses raised by tool patches") names the patch TP<k>. For each such line, read the
-patch (<ROUNDS-DIR>/tool-patches/TP<k>/: its
-DIAGNOSIS.md and the applied attempt's patch.diff; RUN_RECORD.md lists it) and the
-records the status rests on, and decide whether the records support the stronger
-status. If they do not, it is a MISMATCH (an item under Mismatches quoting the line).
-
-
-Trust lines. For some events that RUN_RECORD.md records -- a check (that every proof
-is complete, that the proofs use only Lean's standard axioms, that the statements are
-the approved ones, that the record of reviews and approvals is intact) could not be
-run, the checking software was corrected, the run was delivered by hand -- the script
-writes a plain sentence on the summary's first lines (before "## Results") and in the
-report. The events, each with its sentence and what it weakens: <TRUST-LINES>.
-Judge each event against its own entry only:
-  (a) its sentence stands on the summary's first lines (a check that could not be run)
-      or in the report's row the entry names, and in the report;
-  (b) the sentence is true by RUN_RECORD.md, and exactly what the entry says it
-      weakens reads so: if it says every result's status reads "not verified: ...",
-      check that every result does; if it says no result's status changes, a result
-      still shown "faithful" or "proved" is no mismatch;
-then it is OK, otherwise a MISMATCH (say what is missing or wrong, quoting
-RUN_RECORD.md). (c) `extra`: only a sentence of these kinds -- one that begins "Not
-verified:" and ends "(details for maintainers in RUN_RECORD.md).", or the report's
-"Checks weakened" row text -- that matches no event above. Ordinary status words,
-the legend and the rest of the documents are never `extra`. The delivery is refused
-until each event is judged OK. If the message that started you gives a run token and
-there is no hand edit to judge, write the line `run-token: <token>` directly under the
-`## Trust lines` heading instead.
-
-Write <ROUNDS-DIR>/status-check/FINDINGS.md in exactly this form:
-
-  # Status check
-
-  <One sentence: how many results and defects you compared.>
-
-  ## Mismatches
-
-  ### M1. <the result> -- the summary says "<its status>"
-  - **The summary:** "<verbatim line>"
-  - **The records:** "<verbatim>" (<file>, <row or line>); more quotes if needed
-  - **It should read:** <the status the records support, and why, in one or two sentences>
-  - **The status comes from:** <the summary's own computation (a script), or the record <file> row <n>>
-
-  ## Checked and consistent
-
-  - <the result>: <its status> (one line each)
-
-  ## Hand edits
-
-  - HE<k>: OK -- <why> | MISMATCH -- <what it changes; the records say "<verbatim>" (<file>)>
-
-  ## Trust lines
-
-  - TL-<...>: OK -- <why> | MISMATCH -- <what is missing or wrong; RUN_RECORD.md says "<verbatim>">
-  - extra: MISMATCH -- "<the sentence with no event>" (only if there is one)
-
-A section with no item says "- none". An item without its two quotes is not an item.
-Then return a short final message (at most 5 lines): the file's path and the number
-of mismatches.
-
-If your write of FINDINGS.md is refused (some hosts refuse a subagent's report
-file), do not look for another way to write it: return it. Its delimiter is
-`RETURNED_` and the first 12 hex digits of your run token (with no run token: 12
-random hex digits); check that no line of the text equals it. Hash the exact text
-with `sha256sum <<'<delimiter>'`, the text, then a line `<delimiter>` (this writes
-no file), and end your final message with a line
-`BEGIN RETURNED FILE <ROUNDS-DIR>/status-check/FINDINGS.md <delimiter>`, the same
-text, a line `END RETURNED FILE`, and then the line
-`STATUS_CHECK_COMPLETION <the path> <that sha256>`. The operator saves the text
-verbatim as FINDINGS.md; it counts only if its sha256 is the one you returned.
-```
-
 ### Lane A — Substantiveness · *is each statement the right strength?*
 
 ```
-You are a read-only auditor. You must not edit any file in the repository.
-Report only; the session driving the work decides what to adopt.
 
 YOUR SOLE CRITERION IS SUBSTANTIVENESS. Do not check whether the Lean statement
 matches its docstring — that is the correspondence lane. Do not check coverage of
@@ -1601,8 +1492,6 @@ the record; do not repeat it.
 ### Lane B — Correspondence · *does the Lean say what the prose says?*
 
 ```
-You are a read-only auditor. You must not edit any file in the repository.
-Report only.
 
 YOUR SOLE CRITERION IS CORRESPONDENCE. Do not judge whether a statement is the
 right strength, or whether the source is covered. Anything else goes in
@@ -1612,9 +1501,8 @@ A declaration D CORRESPONDS iff its Lean type signature agrees in full and preci
 mathematical meaning with the English claim made about it — its docstring, and any
 sentence in the project's README or status files that describes it.
 
-Verifying this requires understanding every definition D's statement mentions,
-TRANSITIVELY. A docstring is correct only if it is correct after those definitions
-are unfolded. Read the definitions; do not read their docstrings and assume.
+A docstring is correct only if it is correct after every definition D's statement
+mentions is unfolded, TRANSITIVELY.
 
 Check, one at a time:
   - quantifier order and scope;
@@ -1640,14 +1528,19 @@ When a docstring and a statement disagree, the statement is what the kernel chec
 and the docstring is what a reader believes. Report the disagreement; do not
 assume which side is wrong.
 
-REPRESENTATIONS (K3). For each statement, name every place where the Lean encodes
+GOAL RESULTS. On a goal result, a Lean statement that adds a hypothesis the paper
+states nowhere, excluding a case for which a witness in the paper's notation refutes
+the printed statement, is not a reading choice whatever a record calls it: Fail,
+cause `source`, with the witness.
+
+REPRESENTATIONS. For each statement, name every place where the Lean encodes
 one of the paper's objects differently (a quotient for a metric identification, a
 subtype for a set, `Fin n` for [n], ℕ for ℕ⁺, a bundled structure for a family, ...)
 in `checked` (on a Pass) or `evidence` (on a Fail), starting `REPRESENTATION:`, and
 say whether the correspondence is immediate by unfolding the definitions (trivial)
 or needs an argument (nontrivial).
 
-HYPOTHESES (U2 §2). For every hypothesis listed under WHAT THE RESULTS ASSUME
+HYPOTHESES. For every hypothesis listed under WHAT THE RESULTS ASSUME
 below, check its plain-English reading against its Lean type, printed beside it:
 a reading that says more or less than the type is a Fail. For every structure or
 class with a Definition row the scope uses, list each of its Prop fields and match
@@ -1656,9 +1549,7 @@ A project instance listed there that the paper does not have ("instance not in
 paper", F5) is a Fail unless it only computes what the paper's object already is.
 Check the library-only hypotheses written inline in a statement the same way.
 
-WHAT THE RESULTS ASSUME (read off the Lean by the assumption walk; each hypothesis
-that uses a project notion no Definition row covers, its Lean type, what it stands
-for and its plain-English reading as recorded so far):
+WHAT THE RESULTS ASSUME (from the assumption walk: each hypothesis using a project notion no Definition row covers):
 <ASSUMPTIONS>
 
 Known instance in this project, for calibration:
@@ -1683,8 +1574,6 @@ document. With no document there is nothing to compare to, and the honest option
 it (below) or switch it off — not to run it and report that it passed.
 
 ```
-You are a read-only auditor. You must not edit any file in the repository.
-Report only.
 
 YOUR SOLE CRITERION IS FAITHFULNESS TO THE SOURCE. Do not audit individual
 declarations for strength or docstring accuracy; other lanes do that. Anything
@@ -1740,7 +1629,12 @@ reading choice). The list is a floor, not the boundary of what counts.
                       hypothesis, which is not a HIT)
   trivial-stand-in    a definition or field replaced by True, a constant, or sorry
 
-HYPOTHESES (U2 §2). Match EVERY Prop hypothesis of each covering declaration --
+GOAL RESULTS. On a goal result, a Lean statement that adds a hypothesis the paper
+states nowhere, excluding a case for which a witness in the paper's notation refutes
+the printed statement, is not a reading choice whatever a record calls it: Fail,
+cause `source`, with the witness.
+
+HYPOTHESES. Match EVERY Prop hypothesis of each covering declaration --
 each binder and each assumption inside the statement, the ones using only Mathlib
 included -- one to one to the hypotheses of T as the source states them (F4). A
 hypothesis with no counterpart in the source is a Fail unless it is listed under
@@ -1760,7 +1654,7 @@ PRINTS this hypothesis ("if G is planar, then ...", while another result conclud
 that G is planar), assuming it is faithful: Pass. If the paper does not assume it
 there (it proves it, or the Lean added it), Fail. Real papers are often loosely
 written: judge what the paper's statement means, and say in the entry what you read
-and where (tex line or page). Name the hypothesis by its Lean name in the entry.
+and where (tex line or page).
 MISSING THEORY (F13). A hypothesis listed as a "missing-theory hypothesis" stands for
 a result the paper INVOKES WITHOUT PROOF (a citation, "it is well known that") and that
 no library has; the listing quotes the passage the operator says invokes it. Judge it
@@ -1773,15 +1667,11 @@ counts: then it is no missing theory, and the Lean must prove it); the hypothesi
 says MORE than the quoted invocation (a stronger statement, wider range, an
 intermediate step strengthened, a constant made explicit that the paper leaves
 open); or it is not among the hypotheses the listing gives for the result it is
-assumed for. Your scope gives each such hypothesis its own item, "F13: the missing
-theory" followed by its Lean name (listed under MISSING THEORY TO JUDGE): judge it
-there, one verdict per item, named exactly as given. Pass names the quoted passage (`tex l.N`) and says the
+assumed for. Each such hypothesis is its own item (listed under MISSING THEORY TO JUDGE). Pass names the quoted passage (`tex l.N`) and says the
 hypothesis says no more than it. One the listing flags as restating another result or as a
 conclusion is a Fail.
 
-WHAT THE RESULTS ASSUME (read off the Lean by the assumption walk; each hypothesis
-that uses a project notion no Definition row covers, its Lean type, what it stands
-for and its plain-English reading as recorded so far):
+WHAT THE RESULTS ASSUME (from the assumption walk: each hypothesis using a project notion no Definition row covers):
 <ASSUMPTIONS>
 
 A COUNTEREXAMPLE TO CONFIRM (F10): your scope lists, under "REFUTATIONS TO JUDGE",
@@ -1791,8 +1681,7 @@ counterexample off the refutation's statement and proof and judge it against the
 ALONE, in the source's notation: does it satisfy every hypothesis of T AS PRINTED and violate T's
 conclusion? An object or operation that exists only in the Lean encoding --
 natural-number subtraction truncating at 0, division by zero read as 0, an index out
-of range -- is no counterexample to the paper. Report it as an item named "F10: the
-counterexample of <result>". Pass: confirmed. Fail: it is not a counterexample to the
+of range -- is no counterexample to the paper. Pass: confirmed. Fail: it is not a counterexample to the
 source (a Lean encoding error, not a paper defect); say which hypothesis or which step
 of the conclusion it misses.
 
@@ -1805,9 +1694,14 @@ changed part)? (b) does the PAPER'S OWN PROOF prove the corrected statement? Cit
 of that proof where the added hypothesis is used (its tex line, "step ..."). An added
 hypothesis that no step of the paper's proof uses, or one much stronger than the step
 needs (an oversized repair: it excludes far more than the counterexample, or makes the
-conclusion follow without the paper's argument), is Fail. Report it as an item named
+conclusion follow without the paper's argument), is Fail. Exception to the previous
+sentence: if the paper's proof never argues the failing clause, judge minimality by the counterexample alone: Pass when the repair
+excludes only the counterexample's case, and say "no printed step" in place of the step.
+When only some clauses fail, a minimal repair restricts
+those clauses and keeps the others as printed; one that restricts the whole statement must say explicitly that the
+true clauses also lose the excluded case. Report it as an item named
 exactly as listed, "F12: the repair of <result>", the step in its text. Pass: minimal, and
-the step cited.
+the step cited (or "no printed step", as above).
 
 A RESULT FALSE AS PRINTED WITH NO REFUTATION: when you find T false as printed and the
 Lean has no theorem `not_<decl>_as_printed` refuting it (none, or one under another
@@ -1845,8 +1739,6 @@ Keep this lane always, source document or not. It matters *more* on unfamiliar m
 definition you invented this morning is likelier to be unsatisfiable than one you have lived with.
 
 ```
-You are a read-only auditor. You must not edit any file in the repository.
-Report only.
 
 YOUR SOLE CRITERION IS NON-VACUITY. Anything else goes in `out_of_lane`.
 
@@ -1867,15 +1759,20 @@ For each definition, hypothesis bundle and main theorem in scope:
      hypotheses by degenerating — an empty block, a zero weight, an unexercised
      branch — certifies less than it appears to. Say which branches your witness
      leaves cold.
-  4b. TRIVIAL STATEMENTS. For each main theorem and goal result in scope, try to
+  4b. TRIVIAL STATEMENTS. For each index row's theorem and each goal result in scope
+     (never a helper lemma), try to
      close its statement as printed, and again with its hypotheses dropped, by
-     `first | decide | simp | omega | aesop | exact?` under
-     `set_option maxHeartbeats 20000 in` (one probe file per statement). A closure
+     `first | decide | simp | omega | aesop | exact?`: all of the lane's triviality probes in
+     one probe file, one `example` per statement and variant, each with its own
+     `set_option maxHeartbeats 20000 in` (split the file only when a cut's NOTE says it is too large;
+     an inconclusive cut is re-run, rule 9). A closure
      counts only if its proof term uses neither the audited declaration nor anything
      proved from it (check with `show_term`; `exact?` citing the audited name itself,
      or `simp`/`aesop` using it as a lemma, is no closure; when `exact?` cites the
      audited name, try `apply?` for another closure before reporting it as 'not
-     shown trivial'). A statement
+     shown trivial'). A closure only through a verbatim project twin of the audited
+     statement (a declaration stating the same thing) is no closure: probe the twin
+     the same way instead. A statement
      one of these closes (an `n ≤ n + 1`) may say less than the paper's: report it
      Ambiguous, naming the tactic and the probe, and ask whether the paper's
      statement is that weak. Never Pass a statement on such a closure.
@@ -1894,8 +1791,7 @@ For each definition, hypothesis bundle and main theorem in scope:
      "..."), and name the lemma as the Lean
      declares it: a quote not in the source, or an undeclared lemma, is a lane fault.
      The Pass stands only once the
-     adjudicator records the section as vacuous by design (the report check holds
-     it open until then).
+     adjudicator records the section as vacuous by design.
      If the docstrings do not mark it and the bundle looks empty, that is Ambiguous.
   5b. A STATED-ONLY CONJECTURE (a statement the paper leaves open -- a conjecture,
      open problem or question -- stated as a `def ... : Prop` that no theorem
@@ -1919,12 +1815,9 @@ For each definition, hypothesis bundle and main theorem in scope:
      `checked` whether the result follows from it in a few lines, i.e. whether it is
      (nearly) the goal's MAIN STEP ("H is the main step"): that is a Pass when the
      paper's own proof also takes that step from the citation, a Fail when the paper
-     does real work the hypothesis skips; either way the adjudicator copies it into
-     the `trivialization` cell and the summary's missing-theory line shows it.
+     does real work the hypothesis skips.
 
-WHAT THE RESULTS ASSUME (read off the Lean by the assumption walk; each hypothesis
-     that uses a project notion no Definition row covers, its Lean type, what it stands
-     for and its plain-English reading as recorded so far):
+WHAT THE RESULTS ASSUME (from the assumption walk: each hypothesis using a project notion no Definition row covers):
      <ASSUMPTIONS>
 
 
@@ -1946,7 +1839,6 @@ the record; do not repeat it.
 ### Lane E — Prior art *(optional; strongly recommended when contributing to a library)*
 
 ```
-You are a read-only auditor. You must not edit any file. Report only.
 
 YOUR SOLE CRITERION IS PRIOR ART: does Mathlib already have
 this, or something that subsumes it?
@@ -1966,9 +1858,7 @@ Pass only if you can name where you looked.
 For each hypothesis listed under WHAT THE RESULTS ASSUME below, search the same
 way: a hypothesis a configured library (<LIBRARIES>) already proves is a Fail
 naming the library theorem, so the result can be stated without it.
-WHAT THE RESULTS ASSUME (read off the Lean by the assumption walk; each hypothesis
-that uses a project notion no Definition row covers, its Lean type, what it stands
-for and its plain-English reading as recorded so far):
+WHAT THE RESULTS ASSUME (from the assumption walk: each hypothesis using a project notion no Definition row covers):
 <ASSUMPTIONS>
 
 Scope: {{TARGET}}
@@ -2020,7 +1910,8 @@ They now have maintained sources and one generated answer.
 | `<ROUNDS-DIR>/DEVIATIONS.md` | where the Lean proof takes a different route, and of what `kind` | steps 1 and 5 |
 
 `make_report.py` assembles `<ROUNDS-DIR>/SUMMARY.md` and `REPORT.md` from them (their PDFs are made
-from that markdown by agents: "Read the rendered PDF, not the source", below). The summary is delivered first and is one page: the goal result's status, the results grouped by
+from that markdown by agents: "Read the rendered PDF, not the source", below). The summary is delivered first and is one page: the goal result's status (when no goal result was
+named at intake, the line "No goal result was named at intake."), the results grouped by
 status, one line per defect, proof slip, vacuous statement, assumption, stop and disclosure (counted, with
 the report section that holds them, when the page is full), the answers recorded as the human's, and the
 number of matters decided on the reader's behalf (DECISIONS.md). The report opens with a
@@ -2069,8 +1960,8 @@ is now. No script reads a PDF's content.
 **A skip needs a reason that would survive being read by the author.** "Hard" is not one,
 except in one recorded form: under a delegating involvement level, a non-goal result the operator
 could not prove after a serious attempt stays stated, unproved, with a `[DELEGATED …; reversal:
-re-prove] leave <decl> unproved` line, and is disclosed as "stated, not proved" (RUN.md, failure
-table). Under `involved` the human decides.
+re-prove] leave <decl> unproved` line, and is disclosed as "stated, not proved" (run/stops-and-set-asides.md,
+failure table). Under `involved` the human decides.
 `SKIPPED.md`'s columns are *reason* and *what it would take*, and the second is the honest part:
 a claim such as "Mathlib has no X" is checked rather than assumed (search Mathlib and every
 configured library, and say what the search found), and the row says what building it would
@@ -2167,8 +2058,9 @@ The goal of this project is a faithful formalization of the paper, not a library
 and token use matters: every ADOPT that changes the Lean costs another audit round. Not every
 lane guards correctness: paper-faithfulness, correspondence and non-vacuity do; substantiveness
 is mixed: clause 1 (statement strength, false as written) is correctness, clause 2 (repackaging,
-duplication) is quality. A redundant helper is redundant, not unsound. You may DEFER (standing,
-with a revisit condition) a finding that does not affect faithfulness. Judge each finding yourself.
+duplication) is quality. A redundant helper is redundant, not unsound. DEFER (standing, with a revisit condition)
+a clean-up finding (an idle or unused argument, a dead or duplicate helper) instead of adopting it, and never ADOPT
+a clean-up because a round is due anyway; you may DEFER any other finding that does not affect faithfulness. Judge each finding yourself.
 (If the project config's `goal` is `library-contribution` instead, clean-up matters too: ignore this paragraph.)
 
 "Me" below is whoever launched you. If you are a subagent, STOP means: return the
@@ -2185,20 +2077,20 @@ A. BEFORE reading any finding, run these, in order, and show their raw output:
    If `tree_state.py`, `lanecheck.py` or `prompt.py` exits non-zero, STOP. If `integrity.py --check`
    exits non-zero, STOP unless every FAIL line it prints is either (a) `FAIL[<code>]` with `<code>` one
    of tooling, pin, ownership, tool-patch, set-aside-changed, stop-trail, waiver, record-changed,
-   uncommitted-record, gitmeta, resolution-trail, naming no `.lean` file, no round directory
+   uncommitted-record, gitmeta, naming no `.lean` file, no round directory
    (`<DATE>-<HASH>/`), no file of phase0.py, axiom_sweep.py, axiom_sweep.sh, axiom_sweep_tail.lean,
    fingerprint.py, fingerprint_tail.lean, olean_parts.lean, tool_patch.py, integrity.py, lanecheck.py,
    lane_auth.py, and no APPROVED_FINGERPRINTS*, REAPPROVAL*, FINGERPRINTS, SIGNOFF, INFORMAL.json,
-   TARGET.json, STATEMENTS_BUNDLE.md, ADOPTED.md, DEVIATIONS.md, VACUOUS.md, PAPER_DEFECTS.md, SKIPPED.md
+   INFORMAL-2.json, TARGET.json, STATEMENTS_BUNDLE.md, ADOPTED.md, DEVIATIONS.md, VACUOUS.md, PAPER_DEFECTS.md, SKIPPED.md
    or lane verdict, and not an ownership or set-aside-changed line about a record a judgement commit owns
    (a lane's verdict or probe, a re-vote, an adjudication, an approval or sign-off, a scope, a reader or
    record fix, an escalation's answer, the open findings at the round cap, a stop's CLOSED.json): each of
    those is a STOP; or (b) `FAIL[unsettled]` naming a round other than yours. Then go on and copy those lines, verbatim,
    into ADOPTED.md's notes under `Integrity lines seen:` (the operator fixes them; they are not yours).
-   Any `PROBLEM[...]` line: STOP. Run every other command in the foreground; never end your turn
-   while a command of yours is running: a subagent's background tasks are killed when it returns. A finding checked against a tree or an
-   apparatus that something already altered is worthless, and afterwards nobody
-   can tell which.
+   Any `PROBLEM[...]` line: STOP. Run every other command in the foreground; if the harness moves one to
+   the background, do not stop it and start no second copy: wait for its completion notification, then read
+   its output file. Never hand back your result while a command of yours is running: a subagent's background
+   tasks are killed when it returns.
    lanecheck prints a NOTE for every REISSUED lane (its spawn line was lost before it was
    sealed, so the operator issued a new token): read each reason and the earlier verdict it
    names under the round's `.reissued/`. If the earlier verdict Fails an item the reissued lane
@@ -2311,7 +2203,7 @@ B. For every Fail verdict in every lane's JSON, worst first, independently:
      a cut never voids a Fail by itself.
   3. Decide ADOPT / REJECT / DEFER, and say why in one or two sentences. If the
      round is not a statements round, never ADOPT a change to an approved statement
-     or to a definition one uses (approver D2): write a QUESTION row instead (the
+     or to a definition one uses: write a QUESTION row instead (the
      finding, the change that would fix it, `[Lean: (a); recommended: (b)]`).
   4. REJECTING a Fail from correspondence, paper-faithfulness, non-vacuity, or
      substantiveness clause 1 is not yours alone to decide. Get an independent
@@ -2339,8 +2231,7 @@ B'. The previous round's OUTCOMES.md (if any) is the author's account of what it
    rows that round adopted. Do not trust it: for each ADOPT row of the previous round, check the
    current code against the row's `next_step`. An outcome claimed as "implemented as described"
    that the code does not bear out is a finding -- record it as an ADOPT row with lane
-   "outcomes" and say what is missing. (A calibration run caught an author claiming a docstring
-   fix it had not made.)
+   "outcomes" and say what is missing.
 
 B''. For each REPRESENTATION note of the correspondence lane (a place where the Lean
    encodes one of the paper's objects differently) that you judge nontrivial, write a
@@ -2352,8 +2243,9 @@ B''. For each REPRESENTATION note of the correspondence lane (a place where the 
    from this round's notes; without it, each note the lane calls nontrivial counts as an open
    K3 item). A bridge theorem the operator proved
    since (a `<decl>_bridge` or `<name>_iff_paper` declaration naming the item): check it
-   and write the item `met`, naming it; one the operator logged out of reach after a
-   serious attempt: `out of reach` (checked).
+   and write the item `met`, naming it (only a declaration of the project meets it; your own
+   probe does not: write `open` and name the probe as the proof to land); one the operator
+   logged out of reach after a serious attempt: `out of reach` (checked).
 
 C. Every Ambiguous verdict becomes a QUESTION row in ADOPTED.md: the source
    passage, both readings, the one the Lean takes. Say whether one reading implies
@@ -2367,9 +2259,29 @@ C. Every Ambiguous verdict becomes a QUESTION row in ADOPTED.md: the source
    approval"). Do not decide it; the human does (under `involved` the operator asks
    at once; under a delegating level the operator follows RUN.md "How you decide":
    the stronger reading, both, or your recommendation, with an open K item).
+   A 4b Ambiguous on a declaration on no index row is no QUESTION: DEFER it in one line
+   (outside 4b's scope).
    Label the readings (a), (b), ... and end the row's reason cell with exactly
    `[Lean: (a); recommended: (b)]`, one label each (the reading the Lean takes,
    the one you recommend), so the answer can be matched to the Lean.
+   Rule (iii) does not apply to a goal result whose printed statement is refuted: when
+   you can state a witness in the paper's own notation that satisfies the result's
+   hypotheses as printed (with the conventions the paper states, and those AUTHOR_NOTES
+   'Reading choices' records) and violates its printed conclusion, write `GOAL LOOKS
+   FALSE: <witness, in the paper's notation>` in the row, end the row with the token
+   unchanged in form, `[Lean: (y); recommended: (x)]`, (x) the printed reading, and say
+   before it in plain words: "recommended (x): the paper's printed statement, refuted;
+   the human decides at stop 1"; RUN.md release stop 1 applies (a repair is one option).
+   A goal result false as printed only because of an evident misprint is the same: write
+   GOAL LOOKS FALSE; the human decides at stop 1, never a typo fix decided by an agent.
+   A witness that exists only in Lean's encoding (truncated subtraction, division by
+   zero, an index out of range) is an encoding error (rule G), not this. When the words
+   genuinely admit two readings and neither adds a hypothesis the words lack, rule (iii)
+   applies as before. On a goal result, a 'reading' that adds a hypothesis the paper
+   states nowhere and that excludes such a witness's case is a repair, not a reading: say
+   so. On any other result, a reading that adds a hypothesis the paper states nowhere is
+   allowed; say so in the row ('adds a hypothesis the paper states nowhere'), so it is
+   disclosed.
 
 D. Read <ROUNDS-DIR>/AUTHOR_NOTES.md if it exists. It holds the AUTHOR's claims --
    suspected defects in the paper, results the author proposes to skip, route
@@ -2415,10 +2327,16 @@ E. Coverage. List every NotDoneYet entry, every item in a lane's scope but absen
    ADOPTED.md as an UNCOVERED row saying which lane did not reach it. An UNCOVERED
    row that a standing defer explains (for example: non-vacuity cannot exhibit a
    witness for a literature result deliberately taken as a named hypothesis) is
-   marked "UNCOVERED (expected: <defer id>)". Do not leave a NotDoneYet only in the
-   JSON: an item nobody mentions again has silently become a pass. A lane that a
-   statement round does not run by design (substantiveness, prior-art; the roll-up
-   says "by design") is NOT an UNCOVERED row: it first runs on proofs.
+   marked "UNCOVERED (expected: <defer id>)". You may also mark an UNCOVERED row
+   (a NotDoneYet item) "UNCOVERED (expected: <reason>)" when you judge that the
+   unchecked item cannot affect whether any paper result is faithfully stated (e.g. a
+   code-quality or substantiveness check on a helper lemma), giving that reason in the
+   row; an UNCOVERED item on a paper result (an index row, a goal result) is never
+   marked expected on this ground: it still forces the round. Do not leave a
+   NotDoneYet only in the JSON: an item nobody mentions again has silently become a
+   pass. A lane that a statement round does not run by design (substantiveness,
+   prior-art; the roll-up says "by design") is NOT an UNCOVERED row: it first runs
+   on proofs.
 
 F. Read each lane's `out_of_lane` list last, as leads for the next round, not as
    findings.
@@ -2466,7 +2384,9 @@ G. Maintain the records, adding rows and never removing one (the report check ho
         refutation, every round, until one does; an Ambiguous or missing F10
         verdict waits for the next round, or goes to a re-vote like any item;
         a row once `false` is never removed, and changes status only citing a
-        fresh lane's F10 verdict (not the one it cited while false);
+        fresh lane's F10 verdict (not the one it cited while false); a
+        DEVIATIONS.md `reading choice` row for the same restriction is overturned
+        by the defect: mark it `superseded (<your round>)`;
       * A REPAIR (F12): a refuted statement (a compiled `not_<decl>_as_printed`) is
         repaired by re-approval (`signoff.py reapprove --begin --refuted-by`,
         run/reapproval.md). Every `false` row's repair -- whenever the corrected
@@ -2476,7 +2396,9 @@ G. Maintain the records, adding rows and never removing one (the report check ho
         the corrected statement; the dependents' statements are unchanged and
         still proved; and a paper-faithfulness lane confirms that the paper's
         proof proves the corrected statement, citing the step where the added
-        hypothesis is used -- the row cites it, "F12: <round>/<lane file>.json"
+        hypothesis is used (or, when that proof never argues the failing clause,
+        a Pass saying "no printed step": the repair excludes only the
+        counterexample's case) -- the row cites it, "F12: <round>/<lane file>.json"
         (its F12 item Pass; the report check enforces it, PENDING[adj-record]).
         The row's `where` cell begins with the result's label ("Lemma 1.2, tex
         l.40"): the lane's prompt lists each such row every round, with the item
@@ -2561,7 +2483,9 @@ G. Maintain the records, adding rows and never removing one (the report check ho
     needs no row). A step passed on a docstring alone, without the quoted paper
     passage and the negating lemma, is not passed: make it a QUESTION row, as an
     Ambiguous verdict (C). A statement that is vacuous only outside the
-    paper's parameter range does not belong here. Name the statement's Lean
+    paper's parameter range does not belong here. Nor is a case whose instances would refute an open conjecture the
+    paper itself works towards (nonempty only if that conjecture fails) a vacuity question: it needs no row here and
+    no QUESTION row on that ground. Name the statement's Lean
     declaration first in the statement cell, in backticks: Phase 0 then requires
     its docstring to say it is true only vacuously (the word "vacuous"), and an
     ADOPT row tells the operator to add that sentence.
@@ -2581,7 +2505,7 @@ G. Maintain the records, adding rows and never removing one (the report check ho
     mathematics in plain text or Unicode (m ≤ n, n ∈ ℕ), Lean in backticks, no LaTeX
     (the report sets any LaTeX left in these records as code, so it stays readable but
     looks like source), and cite lines as `File.lean:N` or `tex l.N`.
-  - HYPOTHESES (U2 §2). In ADOPTED.md, under a heading `## Hypotheses`, one row
+  - HYPOTHESES. In ADOPTED.md, under a heading `## Hypotheses`, one row
     per hypothesis the assumption walk lists (DEPENDENCIES.json `assumes`; the
     PENDING ADJUDICATION FAULTS name each one that has no row yet) -- in EVERY
     round, a diff round included:
@@ -2628,9 +2552,7 @@ H. Write <ROUNDS-DIR>/<DATE>-<HASH>/ADOPTED.md as a table, one row per finding:
    lane)`, or a declared item of the project: an index row's label or a declaration's full name,
    as an UNCOVERED row of step E names a NotDoneYet entry or a STALE PASS); only surrounding spaces, bold, italics and backticks are ignored. The scripts refuse
    any other row -- no case folding, no `.json` or `-lane` -- and a row settles a REVOTE NEEDED
-   row only when its lane and item are the same. Fields: lane, item,
-   verdict, ADOPT / REJECT / DEFER / QUESTION / UNCOVERED / REVOTE NEEDED, and the
-   reason. Change nothing else; do not edit the library. Then commit your records --
+   row only when its lane and item are the same. Change nothing else; do not edit the library. Then commit your records --
    ADOPTED.md and the top-level records you changed (PAPER_DEFECTS.md, SKIPPED.md,
    VACUOUS.md, DEVIATIONS.md), by name; the lanes' files were committed when each was sealed --
    so they are fixed before anyone acts on it:
@@ -2639,7 +2561,7 @@ H. Write <ROUNDS-DIR>/<DATE>-<HASH>/ADOPTED.md as a table, one row per finding:
    refuses with `PENDING[adjudication]` lines, clear each in your records and run it
    again: a cell citing what is not a declaration (a witness naming `sorry` or a
    probe's lemma: name the declaration that states the defect; if none exists, keep the
-   row and write its witness cell "none: confirmed by argument (<where>)", no backticks --
+   row and write its witness cell as G says --
    never drop a real defect); a
    row whose cell count is wrong (a literal `|` in a cell is written `\|`); a missing-theory
    "decided by" (copy the RUN_LOG.md decision the refusal names; with none, never type one:
@@ -2719,46 +2641,6 @@ again, or restore the records (git -C audits checkout -- <the record>) and retur
 NEEDS A ROUND. End with the commit and the cells you changed.
 ```
 
-### Reader fix (`prompt.py 4 --reader-fix`, a fresh adjudicator)
-
-When a fresh reader of the summary, the report or the decisions document raises a `[content]` finding (a
-line the audit record gives wrongly, or does not give), the record is fixed, never the generated document
-(B10; U2 §6.3, ADDENDUM N4). `prompt.py 4 --round R --reader-fix --write` (R: the newest round) writes
-`adjudicator-readerfix-<n>.txt` and commits it as `reader-fix-prompt R n`: the subagent common rules, this
-block, the findings as `readers.content_findings` computes them (with `--status-findings M<n>[,…]`, also those
-mismatches of the committed `status-check/FINDINGS.md`: a status a record owns, run/stage5-delivery.md), rule G
-and the defect template. At most two
-per run; past that, a content finding is answered `unfixable` ("fix budget reached") and quoted in the notice.
-A reader fix that changes no record cell is a valid outcome: `--commit-reader-fix` records it as an empty
-`reader-fix R n` commit (body `no change`, `rounds: <rounds dir>`), counted toward the two.
-
-```
-THIS IS A READER FIX, not an adjudication. A fresh reader of a document
-generated from the audit record (or the status check of the summary) found the
-content problems listed under THE FINDINGS below. Decide, for each, whether the record is wrong or incomplete; if
-so, correct the record (the document is regenerated from it), under
-<ROUNDS-DIR>:
-  - in PAPER_DEFECTS.md, SKIPPED.md, VACUOUS.md or DEVIATIONS.md, change only
-    cells of existing rows that say WHY or WHAT FOLLOWS (a reason, a
-    consequence, a witness, what it would take, the Lean route, the plain words);
-    never a verdict, status, repair, severity, decision, "decided by", kind,
-    where, statement or parameters cell, and add or remove no row;
-  - in <DATE>-<HASH>/ADOPTED.md, change or add only rows of its
-    `## Hypotheses` and `## Readings` sections (each row cites the lane verdict
-    behind it); every other line stays exactly as it is;
-  - change nothing else: no Lean, no other file.
-A finding that needs more (a status is wrong, a row is missing, a verdict is in
-doubt) is not yours: change nothing for it and list it as "NEEDS A ROUND:
-<finding>: <why>". A finding that is wrong: list it as "NOT A FAULT: <finding>:
-<evidence>". Then commit with
-  python3 audits/integrity.py --commit-reader-fix --round <DATE>-<HASH>
-It refuses any other edit; fix and run it again, or restore the records
-(git -C audits checkout -- <the record>). If no finding is yours to fix, change
-nothing and run the same command: it records this reader fix as "no change"
-(counted like any other). End with the commit, the cells you changed (or "no
-change"), and your NEEDS A ROUND / NOT A FAULT lines.
-```
-
 ### Step 5 — implement (`prompt.py 5`, the operator)
 
 ```
@@ -2788,7 +2670,7 @@ When done, in this order:
   2. python3 audits/phase0.py<PHASE-ZERO-FLAGS>   -- AFTER the commit (it saves the
      next round's tree baseline, which needs a committed tree), and show its
      PHASE 0 RESULT table as printed. If it is RED, handle each RED line as
-     RUN.md's failure table says (your own work: fix it in a new commit and run
+     the failure table (`run/stops-and-set-asides.md`) says (your own work: fix it in a new commit and run
      Phase 0 again); never go on from a RED result.
   3. Write the outcome of each ADOPT row to <ROUNDS-DIR>/<DATE>-<HASH>/OUTCOMES.md
      (never into ADOPTED.md, which is the adjudicator's and fixed) -- one row per
@@ -2802,7 +2684,7 @@ When done, in this order:
      committed one: restore it (`git -C audits checkout -- <path>`). A new one: never
      delete, move or commit it; it is committed by its lane's seal, or, if that will
      never come (an unsettled re-vote, an abandoned round), by `python3 audits/stops.py
-     set-aside` (audits/run/stops-and-set-asides.md). Committing it
+     set-aside` (audits/run/stops-and-set-asides.md, "Recording and closing a stop" item 4). Committing it
      here would fail integrity for the rest of the run, so add your own files by name:
        git -C audits add <ROUNDS-DIR-IN-AUDITS>/<DATE>-<HASH>/OUTCOMES.md <your other changed files> && git -C audits commit -m "implement <DATE>-<HASH>"
 
@@ -2834,14 +2716,10 @@ and fixes what it adopts, every overstatement included (`run/stage5-delivery.md`
 mathematics is verified nothing about them refuses or stops the delivery (approver, 2026-10-28).
 
 **Fixing a generated document** (the sign-off sheet; the summary and report of a run before 2026-10-28). Fix the source it is generated from, or the generator, then
-regenerate. A fault an agent finds in the generated text itself (a fresh reader, the status check, a PDF
-agent; approver 2026-10-25) is answered one of three ways, each recorded: rejected with a reason (not a
-real problem, or trivial: it affects neither faithfulness nor readability); fixed in the generator (the
-tool-patch route, release), then regenerated; or, when a generator patch would be dangerous, a recorded
-hand edit of `SUMMARY.md` or `REPORT.md` after the final prepare (`readers.py --hand-edit`, its own
-commit "hand-edit HE<k> <doc>"), re-read by a fresh reader and judged by the status check, which must
-find that it changes no status, statement, defect verdict or human answer away from the records. No
-other edit of an output is accepted. Who may change what:
+regenerate. A fault an agent finds in the generated text itself (a fresh reader, a PDF agent; approver
+2026-10-25) is answered one of two ways, each recorded: rejected with a reason (not a real problem, or
+trivial: it affects neither faithfulness nor readability); or fixed in the generator (the tool-patch
+route, release), then regenerated. No other edit of an output is accepted. Who may change what:
 
 | source | changed by | when |
 |---|---|---|
@@ -2893,7 +2771,8 @@ text never is.
    is re-checked, not carried over.
 5. **Prominent and detailed where it matters.** The one-page summary (`SUMMARY.md` and its PDF,
    delivered first, written by the main agent from the facts draft and the records; its verifier
-   fails a PDF of more than one page) gives the goal result's status, every result's status in plain words (equal statuses on
+   fails a PDF of more than one page) gives the goal result's status (or, when no goal result was named at
+   intake, says so: "No goal result was named at intake."), every result's status in plain words (equal statuses on
    one row), and every defect, proof slip, vacuous statement, assumption, reading choice, stop, hand
    delivery, self-cure and disclosed fault as one short line, or, when the page is full, counted by
    name on its kind's line with the report section that holds it in full; then the answers recorded
@@ -2901,8 +2780,7 @@ text never is.
    person answered (DECISIONS.md says who decided) is asked of the authors: its one line is a short
    question, "<result>: we read '<phrase>' as <the Lean's reading>; did you mean <the other>?", the
    weaker reading marked as such. Nothing is cut mid-word, dropped or
-   defaulted to faithful (the claims and trust reviewers check it against the records and the Lean;
-   `project.py --deliver` notes what `make_report.py --check --delivery`'s coverage check cannot find). The top of the decisions document carries a highlighted box, placed
+   defaulted to faithful (the claims and trust reviewers check it against the records and the Lean). The top of the decisions document carries a highlighted box, placed
    before rule 1's background: a blockquote starting `> **READ THIS FIRST**`. The summary and the box list:
    - every defect in the source (`PAPER_DEFECTS.md`);
    - every statement true only vacuously (`VACUOUS.md`);
@@ -2930,9 +2808,8 @@ text never is.
    sign-off sheet (its approval-time pass; none under `hands-off`) and the Checkpoint B questions.
    `SUMMARY.md`, `REPORT.md` and `DECISIONS.md` have no fresh reader (approver, 2026-10-28): the
    delivery reviewers apply the criteria below as advice, and the main agent judges
-   (`run/stage5-delivery.md` step 5). The rest of this rule concerns the reader's documents. Each finding is labelled `[content]` (fixed in the record by the adjudicator's
-   reader-fix round, at most two per run) or `[presentation]` (rejected with a reason, fixed in the
-   generator, or hand-edited: "Fixing a generated document"). An
+   (`run/stage5-delivery.md` step 5). The rest of this rule concerns the reader's documents. A finding about a generated document is
+   rejected with a reason or fixed in the generator ("Fixing a generated document"). An
    independent agent with no run context verifies every reference and number against the sources,
    and flags anything an outsider could not follow. Blocking means:
    - a wrong fact;
@@ -2971,8 +2848,7 @@ text never is.
   - `make_report.py`: the facts draft's trust section and summary name the involvement level, quote the
     intake answer, and count and list the [DELEGATED] decisions; `--check --delivery` (run by
     `project.py --deliver`, every finding a note for the main agent, never a refusal): the facts draft
-    is current, the sheet's reader gate passes, the summary's coverage check, and no result named by a
-    defect, vacuity, skip or reading choice reads plain; an agent approval under
+    is current and the sheet's reader gate passes; an agent approval under
     `statements-only`, a missing intake answer or a non-canonical tag fails the report check.
   - `signoff.py render`: under `hands-off` the sheet opens with "Approved by the formalizing agent;
     no person reviewed these statements (hands-off chosen at intake)."
@@ -3003,7 +2879,7 @@ text never is.
 
 Internal pointers inside a record (an `AUTHOR_NOTES` item number, "that round's ADOPTED.md", a
 round name as evidence) are record text: fix them in the record, by its owner. When the generator's own text is at fault, the
-finding is rejected with a reason, fixed in the generator, or hand-edited (audits/run/fresh-reader.md,
+finding is rejected with a reason or fixed in the generator (audits/run/fresh-reader.md,
 step 3), never answered `unfixable`.
 
 ## One-time setup in a new project

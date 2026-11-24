@@ -84,8 +84,12 @@ def selftest():
          all(set(e) == {project.TEST_MODE_ENV, project.TEST_LEVEL_ENV} for _, e in runs)),
         ("step() clears both switches from the inherited environment before a run",
          _step_clears()),
-        ("next batch B10: `selftest_all.py --only lean_slot` runs that one script and says so; an unknown name is a "
-         "coded usage line", _only_runs_one()),
+        ("next batch B10: `selftest_all.py --only unused_args` runs that one script and says so, with the tooling id; "
+         "an unknown name is a coded usage line", _only_runs_one()),
+        ("C-R1: `selftest_all.py --fast` with no --project while another branch's project config exists (Stage 1 "
+         "step 1 of a second paper) runs without a project", _fast_foreign_config()),
+        ("C3b: in a pool (`--jobs 2`) each script's line is printed as it finishes, seconds before the run ends: a "
+         "run cut while a longer one still runs keeps the finished one's `ok` line", _pool_streams()),
     ]
     for name, c in checks:
         print(f"  {'ok  ' if c else 'FAIL'}  {name}")
@@ -97,11 +101,36 @@ def selftest():
 def _only_runs_one():
     import subprocess
     sa = os.path.join(AUDITS, "selftest_all.py")
-    r = subprocess.run([sys.executable, "-B", sa, "--only", "lean_slot"], capture_output=True, text=True, timeout=300)
+    r = subprocess.run([sys.executable, "-B", sa, "--only", "unused_args"], capture_output=True, text=True, timeout=300)
     ran = [l for l in r.stdout.splitlines() if l.startswith(("  ok  ", "  FAIL", "  disc", "  SKIP"))]
     bad = subprocess.run([sys.executable, "-B", sa, "--only", "nosuch"], capture_output=True, text=True, timeout=120)
-    return (r.returncode == 0 and len(ran) == 1 and "lean_slot.py" in ran[0] and "(only: lean_slot)" in r.stdout
+    return (r.returncode == 0 and len(ran) == 1 and "unused_args.py" in ran[0] and "(only: unused_args)" in r.stdout
+            and " [tooling " in r.stdout
             and bad.returncode == 2 and bad.stdout.startswith("FAIL[tool-call] "))
+
+
+def _fast_foreign_config():
+    import subprocess
+    drv = ("import sys; sys.path.insert(0, sys.argv[1]); import project, selftest_all; project.all_projects = lambda: "
+           "{'older': {'name': 'older', 'branch': 'formalize/no-such-branch'}}; "
+           "sys.argv = ['selftest_all.py', '--fast', '--only', 'unused_args']; sys.exit(selftest_all.main())")
+    p = subprocess.run([sys.executable, "-B", "-c", drv, AUDITS], capture_output=True, text=True, timeout=300)
+    return p.returncode == 0 and "ALL SELFTESTS: ok" in p.stdout
+
+
+def _pool_streams():
+    """`--only unused_args,make_report --jobs 2`: the short script's ok line arrives while make_report (~15 s) still
+    runs, seconds before the run ends (a harness's background limit cutting the run there keeps it)."""
+    import subprocess, time
+    sa = os.path.join(AUDITS, "selftest_all.py")
+    p = subprocess.Popen([sys.executable, "-B", sa, "--only", "unused_args,make_report", "--jobs", "2"],
+                         stdout=subprocess.PIPE, text=True)
+    at = None
+    for line in p.stdout:
+        if line.startswith("  ok    unused_args.py") and at is None:
+            at = time.monotonic()
+    p.wait()
+    return at is not None and time.monotonic() - at >= 3 and p.returncode == 0
 
 
 def _step_clears(env=None):

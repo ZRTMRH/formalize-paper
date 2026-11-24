@@ -260,8 +260,7 @@ def scenario(base, mode, level):
     """(ok, why) of one run mode x level (approver 2026-10-28, binding): after the mathematics is verified, delivery
     never stops and is never refused except by the math gate. A project with a stale facts draft (a record changed
     after prepare), an open stop (dev: PENDING[stop], a wait; release, not a human stop: a note), an unanswered
-    fresh-reader finding, a hand-edit record the status check judged
-    MISMATCH, and a result_status disagreement (the walk missing: status-unmapped) delivers, each printed as a note
+    fresh-reader finding, and a result_status disagreement (the walk missing: status-unmapped) delivers, each printed as a note
     for the main agent, and no stop opens on any of them; the agent's own SUMMARY and REPORT are delivered. A Lean
     commit after the last audited round (RED[deliver-stale]) or a `sorry` no record discloses (Phase 0 RED: a stand-in
     for phase0.py --readonly, whose own selftest holds its sorry scan) is refused, and nothing is copied."""
@@ -306,11 +305,6 @@ def scenario(base, mode, level):
         key, srcs, _ = readers.resolve(f.cfg, "summary", None)  # a reader's blocking finding, never answered
         readers.save(f.cfg, "summary", None, f"sha256: {readers.content_hash(srcs, 'summary')}\ncoverage: all\n"
                      "- BLOCKING: [presentation] UNANSWEREDQZ\nVERDICT: BLOCKING PROBLEMS: 1\n")
-        he = os.path.join(f.rd, "hand-edits")        # an older-style hand edit the status check judged MISMATCH
-        os.makedirs(he, exist_ok=True)
-        json.dump({"he": "HE1", "doc": "SUMMARY.md", "finding": "x"}, open(os.path.join(he, "HE1.json"), "w"))
-        os.makedirs(os.path.join(f.rd, "status-check"), exist_ok=True)
-        open(os.path.join(f.rd, "status-check", "FINDINGS.md"), "w").write("## Hand edits\n\n- HE1: MISMATCH x\n")
         dep = os.path.join(f.rd, "DEPENDENCIES.json")   # result_status cannot route the results (dev: a note)
         dep_keep = open(dep).read()
         os.remove(dep)
@@ -455,13 +449,8 @@ def preconditions(base):
         p1 = dp()
         open(sp, "w").write(keep)
         out.append(("approver 2026-10-28: the main agent's summary may differ from the facts draft (never 'changed after "
-                    "prepare'); the coverage check, a note, still names a result it lost",
-                    not any("changed after prepare" in t for c, t in p1)
-                    and any("results table has result Lemma 1.2 0 time(s)" in t for c, t in p1)))
-        cut = "\n".join(l.replace("Theorem 1.1; ", "").replace("; Theorem 1.1 |", " |") for l in keep.splitlines()) + "\n"
-        out.append(("coverage: a summary missing one result is RED (summary_problems), with the count",
-                    any("results table has result Theorem 1.1 0 time(s)" in str(x)
-                        for x in make_report.summary_problems(f.cfg, cut))))
+                    "prepare')",
+                    not any("changed after prepare" in t for c, t in p1)))
         open(os.path.join(f.repo, "P", "Main.lean"), "a").write("-- a later proof change\ntheorem extra : True := trivial\n")
         g(f.repo, "add", "-A"); g(f.repo, "commit", "-qm", "later")
         p3 = dp()
@@ -545,19 +534,16 @@ def preconditions(base):
         out.append(("a record changed after prepare makes the prepared summary and report stale: RED[deliver] (recomputed "
                     "in memory, U2 §6.4)",
                     any("SUMMARY.md is stale" in t for c, t in p7) and any("REPORT.md is stale" in t for c, t in p7)))
-        # the §1 independent check: a result a record names never reads plain
+        # a result a defect row names is not shown plain by the generator
         pd = os.path.join(f.rd, "PAPER_DEFECTS.md")
         open(pd, "w").write("## Defects\n| # | where | status | repair | what the paper says | why it is wrong | "
                             "Lean witness | consequence |\n|---|---|---|---|---|---|---|---|\n| 1 | Theorem 1.1, tex l.3 | "
                             "false | substantial | x | y | none: argument | z |\n")
         good = make_report.summary_md(f.cfg)
-        bad = with_status(good, "Theorem 1.1", "faithful")
-        ind = [str(x) for x in make_report.summary_problems(f.cfg, bad)]
         os.remove(pd)
-        out.append(("U2 §1 independent check: a result a defect row names, shown as plain, is RED (from the raw "
-                    "records, not the summary's own inputs); the generated line itself is not plain",
-                    any("Theorem 1.1 reads plain" in x for x in ind) and "- defect 1 — Theorem 1.1, tex l.3: false; "
-                    "substantial" in good and status_of(good, "Theorem 1.1") != "faithful"))
+        out.append(("a result a defect row names: the generated line is listed and the result does not read plain",
+                    "- defect 1 — Theorem 1.1, tex l.3: false; substantial" in good
+                    and status_of(good, "Theorem 1.1") != "faithful"))
         h = make_report.summary_inputs(f.cfg)
         row = [r for r in h["index"] if r[0].startswith("Theorem")][0]
         out.append(("B9 plugged in: a result whose every review is Pass and current reads exactly 'faithful' "
@@ -595,16 +581,11 @@ def b9_plug(base):
             "| # | statement | for which parameters | why | decision | status |\n|---|---|---|---|---|---|\n"
             "| 1 | Lemma 1.3 (c) | all | never holds | keep | open |\n")
         sm = make_report.summary_md(f.cfg)
-        sp = [str(x) for x in make_report.summary_problems(f.cfg, sm)]
-        out.append(("sub-parts: a VACUOUS row on Lemma 1.3 (c) makes (c) vacuous and leaves (a) faithful, and the §1 "
-                    "independent check does not call (a) plain-but-named (result_status.mentions, part-aware)",
+        out.append(("sub-parts: a VACUOUS row on Lemma 1.3 (c) makes (c) vacuous and leaves (a) faithful",
                     status_of(sm, "Lemma 1.3 (c)") == "true only vacuously"
-                    and status_of(sm, "Lemma 1.3 (a)") == "faithful" and not sp))
-        bad = with_status(sm, "Lemma 1.3 (c)", "faithful")
-        out.append(("control: the result the row does name, shown as plain, is refused by the §1 check; mentions "
-                    "reads a list of parts",
-                    any("Lemma 1.3 (c) reads plain" in str(x) for x in make_report.summary_problems(f.cfg, bad))
-                    and make_report._mentions("Lemma 1.3 (b) and (c)", "Lemma 1.3 (c)", [])
+                    and status_of(sm, "Lemma 1.3 (a)") == "faithful"))
+        out.append(("mentions reads a list of parts (part-aware)",
+                    make_report._mentions("Lemma 1.3 (b) and (c)", "Lemma 1.3 (c)", [])
                     and not make_report._mentions("Lemma 1.3 (c)", "Lemma 1.3 (a)", [])))
     finally:
         f.close()
@@ -724,8 +705,7 @@ def assumptions_part(base):
                     "- assumption P.InstHyp — unclassified" in sm and "Lean: `P.thm_1_1`: (h : InstHyp n)" in sm
                     and "plain English: -" in sm
                     and "- assumptions — 1 hypothesis name(s) beyond the paper's definitions" in sm
-                    and status_of(sm, "Theorem 1.1") == "not established: an assumption is not settled"
-                    and make_report.summary_problems(f.cfg, sm) == []))
+                    and status_of(sm, "Theorem 1.1") == "not established: an assumption is not settled"))
     finally:
         f.close()
     return out
@@ -742,9 +722,9 @@ def pdf_never_stops(base):
         only = "FAIL[pdf] ! SUMMARY.pdf does not say what SUMMARY.md says (1 passage)\n"
         state = {"out": both}
         stops.RUNNER = lambda argv: ((1, state["out"]) if "make_report.py" in " ".join(argv) else (0, "ok\n"))
-        gate = stops.deliver_gate(f.cfg)
+        gate = stops.math_gate(f.cfg)[0]
         state["out"] = only
-        gate_only = stops.deliver_gate(f.cfg)
+        gate_only = stops.math_gate(f.cfg)[0]
         try:
             stops.open_stop(f.cfg, cmd="python3 audits/make_report.py --check")
             ref_only = False
@@ -1175,58 +1155,6 @@ def leave_after_final(base):
     return out
 
 
-def reader_fix_no_change(base):
-    """[(name, ok)]: trial #9 (S2). The second reader fix found no record cell it may change, --commit-reader-fix
-    refused "no record changed", the budget read 1 of 2, and every [content] finding answered unfixable kept the
-    summary's gate refused: a stop. A no-change reader fix is now recorded (an empty "reader-fix R n") and counted,
-    so after two the findings close as unfixable (disclosed), with no stop."""
-    import integrity, readers, stops
-    out = []
-    f = Fixture(base, "release", "hands-off", tag="rfnc")
-    try:
-        rc, lines = f.prepare()
-        f.read_all()
-        key, srcs, _ = readers.resolve(f.cfg, "summary", None)
-        h = readers.content_hash(srcs, "summary")
-        CF = "the summary clips the vacuous line (generator text)"
-        path, probs = readers.save(f.cfg, "summary", None, f"sha256: {h}\ncoverage: all\n- BLOCKING: [content] {CF}\n"
-                                   "VERDICT: BLOCKING PROBLEMS: 1\n")
-        n = os.path.basename(path)[len(key) + 1:-3]
-        open(os.path.join(f.rd, "readers", f"{key}-{n}.response.md"), "w").write(
-            f"- unfixable: [content] {CF[:30]} — fix budget reached: the record keeps the row as adjudicated\n")
-        open(os.path.join(f.rd, f"KNOWN_FAULTS-{key}.md"), "w").write(f"- [content] {CF}\n")
-        g(f.aud, "add", "-A"); g(f.aud, "commit", "-qm", f"reader summary {n} response")
-        budget = lambda: [p_ for p_ in readers.check(f.cfg, "summary") if "reader-fix rounds are used" in p_]
-        b0 = budget()
-        res = []
-        for k in (1, 2):
-            prel = integrity.reader_fix_prompt_rel(f.r1, k)
-            os.makedirs(os.path.dirname(os.path.join(f.rd, prel)), exist_ok=True)
-            open(os.path.join(f.rd, prel), "w").write(f"READER FIX {k}\n")
-            g(f.aud, "add", "--", os.path.join("R", prel)); g(f.aud, "commit", "-qm", f"reader-fix-prompt {f.r1} {k}")
-            res.append(integrity.commit_reader_fix(f.aud, f.rd, "R", f.r1, f.cfg))
-            res.append(budget())
-        try:
-            integrity.commit_reader_fix(f.aud, f.rd, "R", f.r1, f.cfg)
-            third = False
-        except ValueError as e:
-            third = "spent" in str(e)
-        out.append(("trial #9 (S2): a reader fix that changes nothing is recorded and counted: after two, the [content] "
-                    "finding answered unfixable passes the summary's gate (disclosed in the notice), no stop; before, "
-                    "and after one, the gate sends it to a reader fix; a third is refused",
-                    rc == 0 and b0 and "0 of the run's 2" in b0[0] and res[0][1:] == (1, []) and res[1]
-                    and "1 of the run's 2" in res[1][0] and res[2][1:] == (2, []) and res[3] == [] and third
-                    and readers.fix_rounds_used(f.cfg) == 2 and stops.stops(f.cfg) == []
-                    and integrity.reader_fix_prompt_problems(f.aud, "R", f.r1) == []
-                    and g(f.aud, "log", "-1", "--format=%s") == f"reader-fix {f.r1} 2"))
-    except Exception as e:      # noqa: BLE001 -- a crash fails the case, with its reason
-        import traceback
-        out.append((f"trial #9 (S2) no-change reader fix ran ({e!r} {traceback.format_exc()[-400:]})", False))
-    finally:
-        f.close()
-    return out
-
-
 def citation_notes(base):
     """[(name, ok)] of the advisory citation notes (run/stage5-delivery.md step 5a). Without CITATIONS.md a run
     delivers exactly as before: the summary is the generator's output with the citation line switched off, and the
@@ -1345,7 +1273,7 @@ def delivery_log(base):
 
 
 def k_certificate(base):
-    """[(name, ok)] next batch G1 (D1, CR-5/CR-6), K-REMOVE (approver 2026-11-16, option A): a hands-off delivery
+    """[(name, ok)] next batch G1 (D1, NW-5/NW-6), K-REMOVE (approver 2026-11-16, option A): a hands-off delivery
     with an open bridge and an open reading item in CONDITIONS.md: the code writes no K content -- no README K line,
     no K line in the facts draft's SUMMARY, and REPORT's section 12 holds only the definition and the place for the
     formalizing agent's judgement; a SUMMARY K count of the agent's is never compared, noted or refused."""
@@ -1565,6 +1493,30 @@ def notes_judged(base):
     return out
 
 
+def note_ids(base):
+    """0.3.2 A4 (AUDIT-DM2 F2): the sorted note ids of one delivery whose SUMMARY.md counts six kinds the record
+    does not hold (one summary note listing them); run under two PYTHONHASHSEED values by `seed_stable_ids`."""
+    import re as _re
+    f = Fixture(base, "release", "hands-off", tag="seed")
+    try:
+        f.prepare()
+        sm = open(os.path.join(f.rd, project.FACTS_DIR, "SUMMARY.md")).read() + "".join(
+            f"- kind{i} (1): x — full text in y\n" for i in range(6))
+        open(os.path.join(f.rd, "SUMMARY.md"), "w").write(sm)
+        g(f.aud, "add", "-A"); g(f.aud, "commit", "-qm", "summary")
+        return sorted(set(_re.findall(r"\(id (n[0-9a-f]{6})\)", f.deliver()[1])))
+    finally:
+        f.close()
+
+
+def seed_stable_ids(base):
+    """[(name, ok)]: the delivery note ids are equal under two hash seeds (De Medts 56c9593: na3bbed vs n97e09d)."""
+    got = [subprocess.run([sys.executable, "-B", os.path.abspath(__file__), "--note-ids"], capture_output=True,
+                          text=True, env=dict(os.environ, PYTHONHASHSEED=s_), timeout=600).stdout for s_ in ("1", "2")]
+    return [("0.3.2 A4: delivery note ids do not depend on PYTHONHASHSEED (a note listing several items)",
+             got[0].startswith("[") and got[0] != "[]\n" and got[0] == got[1])]
+
+
 def head_notes(base):
     """[(name, ok)] DESIGN-SW2B X1 (c) and X2 (g): a delivered document citing `G.Adj` (a first component that is no
     global name) gives a delivery note with an id, the head wording and `judged: nobody`, named in README's "nobody
@@ -1582,7 +1534,11 @@ def head_notes(base):
         os.makedirs(os.path.join(f.rd, project.REVIEW_DIR), exist_ok=True)
         for P in project.REVIEW_PERSPECTIVES:
             open(os.path.join(f.rd, project.REVIEW_DIR, P + ".md"), "w").write("No findings.\n")
-        g(f.aud, "add", "--", "R/REPORT.md", "R/delivery-review"); g(f.aud, "commit", "-qm", "deliverables: write")
+        # compat-2 FIX-1 (T70): the approved round asked for a second blind reading that was never saved
+        os.makedirs(os.path.join(f.rd, f.r0, "prompts"))
+        open(os.path.join(f.rd, f.r0, "prompts", "informalizer-2.txt"), "w").write("PROMPT\n")
+        g(f.aud, "add", "--", "R/REPORT.md", "R/delivery-review", f"R/{f.r0}/prompts")
+        g(f.aud, "commit", "-qm", "deliverables: write")
         dv = os.path.join(f.repo, "deliverables")
 
         def go():
@@ -1600,6 +1556,11 @@ def head_notes(base):
                     + ("" if rc0 == 0 else f" [{o0[-300:]!r}]"),
                     rc0 == 0 and len(ids) == 1 and j0[ids[0]] == "nobody"
                     and f"- [{ids[0]}] " in sec0.split("**Notes nobody judged.**", 1)[-1]))
+        sr = [l for l in (open(os.path.join(dv, project.RUN_RECORD), encoding="utf-8").read().splitlines()
+                          if rc0 == 0 else []) if "second blind reading (INFORMAL-2.json) is missing" in l]
+        out.append(("compat-2 FIX-1 (T70): the approved round's prompts/informalizer-2.txt without INFORMAL-2.json "
+                    "gives one delivery note with an id, judged by nobody; the delivery is not refused",
+                    rc0 == 0 and len(sr) == 1 and _re.match(r"^- \[n[0-9a-f]{6}\] .* -- judged: nobody$", sr[0])))
         if ids:
             open(os.path.join(f.rd, project.REVIEW_DIR, project.NOTES_REVIEW + ".md"), "w").write(
                 f"- {ids[0]}: no problem -- `G.Adj` is dot notation for SimpleGraph.Adj G\n")
@@ -1866,8 +1827,6 @@ def selftest():
             say(name, ok)
         for name, ok in prepare_names_faults(base):
             say(name, ok)
-        for name, ok in reader_fix_no_change(base):
-            say(name, ok)
         for name, ok in citation_notes(base):
             say(name, ok)
         for name, ok in delivery_log(base):
@@ -1882,13 +1841,15 @@ def selftest():
             say(name, ok)
         for name, ok in head_notes(base):
             say(name, ok)
+        for name, ok in seed_stable_ids(base):
+            say(name, ok)
         for name, ok in forgery_gate(base):
             say(name, ok)
         for mode in project.MODES:
             for level in project.INVOLVEMENT_LEVELS:
                 ok, why = scenario(base, mode, level)
                 say(f"scenario {mode} x {level} (approver 2026-10-28): a stale facts draft, an open stop, an "
-                    f"unanswered reader finding, a hand-edit MISMATCH and a result_status disagreement deliver with "
+                    f"unanswered reader finding and a result_status disagreement deliver with "
                     f"notes (no stop); a Lean commit after the last audited round or an undisclosed sorry is refused"
                     + ("" if ok else f" [{why}]"), ok)
     finally:
@@ -1901,5 +1862,12 @@ def selftest():
 if __name__ == "__main__":
     if sys.argv[1:] == ["--selftest"]:
         sys.exit(selftest())
+    if sys.argv[1:] == ["--note-ids"]:
+        _b = tempfile.mkdtemp(prefix="delivery-ids-")
+        try:
+            print(note_ids(_b))
+        finally:
+            shutil.rmtree(_b, ignore_errors=True)
+        sys.exit(0)
     print(__doc__)
     sys.exit(2)

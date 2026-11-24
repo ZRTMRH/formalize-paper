@@ -65,8 +65,8 @@ Prove the results. Habits that pay:
 proofs in parallel, on separate files. They work FOR the author and are bound by every rule exactly
 as you are; they are never used as reviewers, and nothing they write is a review.
 
-**Bridges (K3; next batch D1).** Prove each open `K3-<n>` item of the adjudicators' `## Conditions`
-rows as a pure addition: a new theorem `<decl>_bridge` or `<name>_iff_paper` whose docstring names the
+**Bridges (K3).** Prove each open `K3-<n>` item of the adjudicators' `## Conditions`
+rows, and each open `bridge` item of `CONDITIONS.md`, as a pure addition: a new theorem `<decl>_bridge` or `<name>_iff_paper` whose docstring names the
 item, exactly like `_unconditional` (RUN.md "How you decide"): no approved statement changes, no re-pin,
 no question, never in the index; the next round audits it as any new declaration. A bridge out of reach
 after a serious attempt: log it under `## Open questions` (`- open K item K3-<n>: out of reach — <why>`),
@@ -87,7 +87,8 @@ definitions frozen (only `sorry` bodies change), auxiliary lemmas in a sub-names
 `native_decide`/`admit`/`axiom`, route changes as rows for `AUTHOR_NOTES.md` "Route changes" (columns
 and kinds as above), a BLOCKED file for statements that look false (never weaken one), and a short
 PROGRESS file kept current (the only way to see a long helper's progress). Before merging, check
-that the diff removes only `sorry`s, then run the freeze check.
+that the diff removes only `sorry`s, then run the freeze check. Build after the merge and commit only on exit 0;
+never delete a tactic to silence a linter without rebuilding.
 
 **Shared lemmas, sweeps and witnesses.**
 - `<Name>/Common.lean` and `<Name>/Examples.lean` exist since Stage 1. `Common.lean` holds facts
@@ -97,10 +98,15 @@ that the diff removes only `sorry`s, then run the freeze check.
   the diff removes only `sorry`s plus pure additions to `Common.lean`. Nothing a statement's
   meaning uses goes there; definitions stay before the statements that use them.
 - After each merge and after each implementation step, run `python3 audits/unused_args.py
-  --write` (Phase 0 also does) and check its header names the current commit. Then, for each
-  HELPER it lists: drop the argument (updating callers) or the dead lemma, then run
+  --write` (Phase 0 also does) and check its header names the current commit. Then, once per merge
+  and in one change (under `goal: faithfulness` never one by one), for each
+  HELPER it lists: drop the argument (updating callers; never by an `omit … in` or `include … in`
+  directly after an approved definition: the freeze reads it as part of that definition, a DRIFT stop;
+  keep the argument and record it in `AUTHOR_NOTES.md`, or let a non-approved declaration come first)
+  or the dead lemma, then run
   `phase0.py --statements`; if the freeze check reports drift, the "helper" was a definition an
-  approved statement uses: revert, and leave it to the adjudicator. Never act on the "Approved
+  approved statement uses: revert, and leave it to the adjudicator. An argument that became unused only
+  through your drop (a cascade) is left to the adjudicator too: no second build and Phase 0 for it. Never act on the "Approved
   statements" section. Idle `[NeZero k]` arguments were reported in every round of a test run until
   this was done.
 - Whoever implements adopted rows lists, in the commit message, every change beyond those rows,
@@ -120,8 +126,8 @@ that the diff removes only `sorry`s, then run the freeze check.
   elaborate, and on an 11 GB machine the verification build was killed for low memory. If a
   build runs out of memory, split the file first (a pure move: the freeze check confirms that no
   statement changed), then retry.
-- Machine: 16 GB RAM is the minimum for a paper of this size (run at most three Lean processes
-  at once); 32 GB is comfortable.
+- Machine: 16 GB RAM is the minimum for a long paper (8 GB runs a short one on the 8 GB route; Lean
+  processes at once: the memory route, RUN.md "Cost"); 32 GB is comfortable.
 
 **Ask the human mid-stage only when blocked** (a QUESTION, never a wait: the run goes on with the rest of the
 work; in `release` only the four stops of RUN.md's "Stops that remain at every level" stop the run):
@@ -158,11 +164,12 @@ an answer yourself, and never re-ask a NEEDS-HUMAN question in other words: the 
 escalation, and under `involved` a later escalation on a declaration whose earlier one was answered
 NEEDS-HUMAN or has no accepted answer is a re-ask, whatever its wording, and is refused (the question
 stays the human's). A refused escalation is no stop and its answer counts for
-nothing: write a new one. Ask the human only if the accepted answer is NEEDS-HUMAN; an accepted
+nothing: write a new one. Under `involved`, ask the human only if the accepted answer is NEEDS-HUMAN;
+under a delegating level decide it (RUN.md, "How you decide"). An accepted
 ANSWERABLE is a written recommendation (cite it as "escalation E<n>").
 Collect everything else under "Open questions" in `RUN_LOG.md`.
 
 Commit at milestones. When nothing in scope is `sorry` (results left unproved as above aside), commit, then run `python3 audits/phase0.py`;
-it must say GREEN, freeze check included. A RED row is handled as RUN.md's failure table says (your
+it must say GREEN, freeze check included. A RED row is handled as the failure table (`run/stops-and-set-asides.md`) says (your
 own build, sorry or index rows are work; freeze, tree and integrity rows are stops: in `dev` the
 human's, in `release` self-cures, `open`, the printed cure, `close --cured`).

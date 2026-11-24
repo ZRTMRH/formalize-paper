@@ -19,8 +19,8 @@ under Codex is in `spawn-and-seal.md` ("Under Codex"), since spawns happen in St
   | Claude Code spawns | Codex `agent_type` | spawned with |
   |---|---|---|
   | lane (`auditor`) | `formalize_auditor` | `prompt.py --lanes ... --write`, re-vote lanes (Stages 2, 4), a reissued lane (`lane_auth.py reissue`) |
-  | adjudicator, re-vote, reader-fix and record-fix adjudicator (general-purpose) | `formalize_adjudicator` | `prompt.py 4 ... --write` |
-  | blind informalizer | `formalize_informalizer` | `prompt.py --prompt informalizer --write` (Stage 2) |
+  | adjudicator, re-vote and record-fix adjudicator (general-purpose) | `formalize_adjudicator` | `prompt.py 4 ... --write` |
+  | blind informalizers (two) | `formalize_informalizer` | `prompt.py --prompt informalizer --write` (Stage 2) |
   | sign-off writer | `formalize_writer` | `prompt.py --prompt signoff-writer --write` (Stage 2) |
   | fresh reader | `formalize_reader` | `prompt.py --prompt fresh-reader ... --write` (`fresh-reader.md`) |
   | escalation check | `formalize_escalation` | `prompt.py --prompt escalate ... --write` (Stage 3); its thread id is the `--agent-id` of `lanecheck.py --escalation` |
@@ -28,7 +28,7 @@ under Codex is in `spawn-and-seal.md` ("Under Codex"), since spawns happen in St
   | citation agents 1 and 2 | `formalize_citations` | `prompt.py --prompt citations-draft\|citations-review --write` (Stage 5 step 5a), two different children |
   | author-side helpers (statements, proofs) | `formalize_helper` | the brief `prompt.py --prompt formalizer` prints, then the assignment (Stages 2, 3) |
   | delivery reviewers (CLAIMS, READABILITY, DECISIONS, TRUST; advisory), and the NOTES reviewer | `formalize_reader` | the "Delivery reviewer prompt" of `stage5-delivery.md`, filled in (step 5, "Review"); four different children; each returns its findings as its final message. After the first `--deliver`, one more child with perspective NOTES (step 5, "Deliver") |
-  | tool-patch reviewer, core-fault reviewer, acknowledgment reviewer (release mode) | `formalize_tool_patch_reviewer` | `tool_patch.py review --tp TP<k>`, `stops.py core-fault --stop S<n> ...`, `integrity.py --ack-request ...` (RUN.md "Tool patches"); sealed with `lane_auth.py seal` |
+  | tool-patch reviewer, core-fault reviewer, acknowledgment reviewer (release mode) | `formalize_tool_patch_reviewer` | `tool_patch.py review --tp TP<k>`, `stops.py core-fault --stop S<n> ...`, `integrity.py --ack-request ...` (`run/stops-and-set-asides.md` "Tool patches"); sealed with `lane_auth.py seal` |
 
   The roles carry no network, sandbox or tool setting of their own: each child inherits the
   parent's sandbox, and its network rule is the one in its generated task (intake 1c). Every role also
@@ -44,14 +44,12 @@ under Codex is in `spawn-and-seal.md` ("Under Codex"), since spawns happen in St
   each child's final message verbatim as `delivery-review/<PERSPECTIVE>.md`; no seal. A child that fails is
   replaced once by a fresh one, then noted in `JUDGEMENT.md`; never a stop. After the first `--deliver`, the
   NOTES reviewer runs the same way (`formalize_reader`, `fork_turns` "none", perspective NOTES); save its message
-  as `delivery-review/NOTES.md` and commit it under the subject `delivery review` (stage5-delivery.md, "Deliver"). (The status check role
-  `formalize_status_check` is no longer used at delivery: approver, 2026-10-28.)
-- **A tool patch's reviewer** (release mode; RUN.md "Tool patches") runs as the generated role
+  as `delivery-review/NOTES.md` and commit it under the subject `delivery review` (stage5-delivery.md, "Deliver").
+- **A tool patch's reviewer** (release mode; `run/stops-and-set-asides.md` "Tool patches") runs as the generated role
   `formalize_tool_patch_reviewer` (`fork_turns` "none"), spawned with the line `tool_patch.py review
   --tp TP<k>` prints (the same role reviews a history-fault acknowledgment, `integrity.py --ack-request`); seal its verdict with `lane_auth.py seal` and the child's thread id as
   `--agent-id`. A run whose first pin has no such role (installed before it existed) cannot patch its
-  tools: `tool_patch.py` refuses, and the fault follows its printed cure. `codex_spawn.py --kind
-  general` with the same line is the process-per-subagent alternative.
+  tools: `tool_patch.py` refuses, and the fault follows its printed cure.
 - **Questions to the human.** The intake is always one plain-text message (Stage 0). After it,
   Claude Code uses the question tool where there are options; Codex uses plain text, numbering the
   options. This applies only to what the involvement level still puts to the human. A question a
@@ -74,19 +72,19 @@ under Codex is in `spawn-and-seal.md` ("Under Codex"), since spawns happen in St
   `lake exe cache get` (Stage 1) cannot run inside the session. Fetch the cache and build once
   BEFORE starting Codex (INSTALL.md); if the cache is missing inside the run, that is an
   environment fault for the person (stop 3), never a reason to turn the network on.
-  The children inherit this: under Codex no agent fetches anything, which is stricter than intake
-  1c asks of a public paper and exactly what it asks of a confidential one. What degrades:
+  The children inherit the sandbox: no agent's shell reaches the network. Web search is Codex's own
+  tool, not a sandbox command: cached (pre-indexed results, no live page) by default, live with
+  `--search`, and every child inherits it (canary-verified). Start a **public** paper's session with
+  `--search` (`install.sh --codex` prints both launch lines; repeat it on `codex resume`), a
+  **confidential** one (intake 1c) without it; the prompts' rule binds every query either way, as
+  under Claude Code, whose agents always have web access. What degrades:
   - the prior-art lane and Loogle lookups work from the local Mathlib and files only (a lookup that
     needs the network fails inside the sandbox; the lane goes on without it);
-  - the citation agents (step 5a) cannot read the cited works. If the person started the session
-    with `--search` (Codex's own web-search tool for the model; it is not a sandbox change and
-    opens no shell network), they search with it under the rule their prompt carries (that children
-    get the tool is untested). Without it,
-    agent 1 records the items it could not reach as "not reachable", or, when it reaches nothing,
-    you log `citation notes not produced: no network` (`stage5-delivery.md`, step 5a) and go on.
-    Either way it is never a question, a stop or a round. Start with `--search` only for a public
-    paper; for a confidential one (intake 1c) leave it off (if it is on anyway, the prompts' rule
-    binds every agent, exactly as under Claude Code, whose agents always have web access).
+  - the citation agents (step 5a): live search reads arXiv pages and PDFs; a publisher page that
+    refuses it (403), or a source not found without `--search`, is "not reachable". When agent 1
+    reaches nothing, you log `citation notes not produced: no network` (`stage5-delivery.md`, step
+    5a) and go on. Either way it is never a question, a stop or a round. A **confidential** paper
+    (no `--search`) gets no citation notes under Codex: the completion message says so.
 - **Steps that would leave the sandbox are left to the person, never approved.** Three operator
   steps need the network or a write outside the project: Stage 1's `git fetch upstream` in a
   Mathlib clone (the person fetches before starting, with the cache), Stage 5's push when the
@@ -115,7 +113,8 @@ under Codex is in `spawn-and-seal.md` ("Under Codex"), since spawns happen in St
   carries `FORMALIZE_PAPER_OPERATOR=1` (RUN.md, rule 9).
 - **Tool-call timeout at least 600 s.** Lanes and helpers compile probes with `python3
   audits/lean_slot.py run --timeout 240 -- lake env lean <file>`, which may first wait up to 300 s
-  for one of the machine's Lean slots: give every such call a timeout of at least 600 s (600000 ms).
+  for one of the machine's Lean slots (the wait plus the probe, guard pauses included, end in about
+  540 s): give every such call a timeout of at least 600 s (600000 ms).
   The slot files are in `/tmp/formalize-paper-lean-slots/`; the workspace-write sandbox normally
   allows /tmp, and if it does not, the wrapper prints one NOTE and runs the probe without a slot.
   The adjudicator's `--own --foreground` checks run Phase 0, the coverage roll-up and `scope.py
@@ -123,19 +122,21 @@ under Codex is in `spawn-and-seal.md` ("Under Codex"), since spawns happen in St
 - **Memory guard.** Codex has no session hooks, so the guard (`lean_slot.py guard`) is started by
   code: `python3 audits/lean_slot.py --show` at Stage 0/1, and every `prompt.py` and `lanecheck.py`
   call (each lane's prompt and return) and every `lean_slot.py run`. A probe started before the
-  first of these is not watched. A probe the guard paused may wait in a tool call (at most 10 minutes
-  per pause): keep the 600 s timeouts above, and do not treat a slow probe as a hang. If the
+  first of these is not watched. A probe the guard paused waits in its tool call (through the wrapper
+  up to about the 540 s above; without it up to 10 minutes per pause): keep the 600 s timeouts above, and do not treat a slow probe as a hang. If the
   sandbox keeps the guard from seeing or signalling the run's `lean` processes, the run behaves as
   before (no protection, nothing refused).
 - **Spawning many children.** Codex's own thread limit (`agents.max_threads`) caps the children open
-  at once; spawn the lanes in waves (`spawn-and-seal.md`) and close each finished child.
+  at once; spawn at most the route's number of lanes at once (`spawn-and-seal.md`), the first ones in one
+  message, and close each finished child.
 - **Sandbox failures and logs.** Do not retry a sandbox failure outside the sandbox. Record the
-  actual `--log-dir` path (or the default printed final-message path) in `RUN_LOG.md`; it
-  overrides the cache location.
+  actual log path (the printed final-message path) in `RUN_LOG.md`.
 - **Start and settings.** The skill is `$formalize-paper` (Claude Code: `/formalize-paper`); Codex
   does not read `.claude/settings.json`: its settings come from `install-codex.sh` (user and project
   `.codex/config.toml`) and the launch command it prints. After a context compaction, re-read RUN.md
-  and the current stage file, as under Claude Code.
+  and the current stage file, as under Claude Code. Read RUN.md and the current stage file whole, in ranged
+  parts under ~10 k tokens (`sed -n 1,150p`, …); a result that says its output was truncated means:
+  read the missing range.
 - **Protection.** Reviewer restrictions are protocol restrictions enforced by detection, the same
   design as Claude Code, **not per-agent filesystem isolation**. Built-in agents inherit the
   parent's sandbox and do not have Claude's per-role tool allowlist.

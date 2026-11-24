@@ -705,23 +705,31 @@ VARIANTS = [
 def evil_module_run(cfg, value):
     """REVIEW-SAFETY-FP F1: a module FpEvilMod (compiled into a fresh temp dir, never the repository) defines
     `auditFpEraseProofs.evil` and `auditFpKey.evil` := `value`; the appended file imports it (module root FpEvilMod)
-    and states `FpT.usesEvil` with them. The fingerprints ({} if a step failed)."""
+    and states `FpT.usesEvil` with them. F-1: a module FpNsMod outside the root defines the private `FpT.nsVal` :=
+    `value`, ours only by the namespace (the tail enumerates the module tables), and FpNsMod2 one of the same name
+    (C-R1: two constants, two keys). The fingerprints ({} if a step failed)."""
     import shutil, tempfile
     d = tempfile.mkdtemp(prefix="fp_evil_mod_")
     try:
-        mod = os.path.join(d, "FpEvilMod.lean")
-        with open(mod, "w", encoding="utf-8") as fh:
-            fh.write(f"def auditFpEraseProofs.evil : Nat := {value}\ndef auditFpKey.evil : Nat := {value}\n")
-        r = subprocess.run(["lake", "env", "lean", "--root=" + d, "-o", os.path.join(d, "FpEvilMod.olean"), mod],
-                           cwd=project.REPO, capture_output=True, text=True)
-        if r.returncode != 0:
-            print("building the temp module FpEvilMod failed:", (r.stdout + r.stderr)[-300:]); return {}
-        body = ("import FpEvilMod\nimport Mathlib.Order.Basic\nnamespace FpT\n"
+        for name, text in (("FpEvilMod", f"def auditFpEraseProofs.evil : Nat := {value}\ndef auditFpKey.evil : Nat := {value}\n"),
+                           ("FpNsMod", f"namespace FpT\nprivate def nsVal : Nat := {value}\nend FpT\n"),
+                           ("FpNsMod2", f"namespace FpT\nprivate def nsVal : Nat := {value}\nend FpT\n")):
+            mod = os.path.join(d, name + ".lean")
+            with open(mod, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            r = subprocess.run(["lake", "env", "lean", "--root=" + d, "-o", os.path.join(d, name + ".olean"), mod],
+                               cwd=project.REPO, capture_output=True, text=True)
+            if r.returncode != 0:
+                print(f"building the temp module {name} failed:", (r.stdout + r.stderr)[-300:]); return {}
+        body = ("import FpEvilMod\nimport FpNsMod\nimport FpNsMod2\nimport Mathlib.Order.Basic\nnamespace FpT\n"
                 "theorem usesEvil : auditFpEraseProofs.evil + auditFpKey.evil ≥ 0 := Nat.zero_le _\nend FpT\n")
         rc, out = project.run_lean(body + "\n" + project.lean_tail(cfg, TAIL, root="FpEvilMod"), lean_path=d)
         if rc != 0:
             print("the FpEvilMod fingerprint run failed:", out[-300:]); return {}
-        return closure_fps(parse(out))
+        try:
+            return closure_fps(parse(out))
+        except RuntimeError as e:      # e.g. two modules' privates under one key (mutant F6): a FAIL, not a crash
+            print("the FpEvilMod fingerprint run failed:", str(e)[-300:]); return {}
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
@@ -810,10 +818,13 @@ def selftest(cfg):
     base_auto = set(_AUTO)
     base_table = dict(compute.table)
     K = lambda t, n: t.get(_key(t, n))
-    say("base fixture fingerprints every declaration",
-        all(_key(base, n) for n in ("FpT.thing", "FpT.other", "FpT.wrap", "FpT.st", "FpT.via_wrap",
-                                     "FpT.pf", "FpT.un", "FpT.hidden", "FpT.uses_hidden",
-                                     "FpT.eq_zero_of_x", "FpT.uses_helper", "FpT.U", "FpT.Col")))
+    every_ = all(_key(base, n) for n in ("FpT.thing", "FpT.other", "FpT.wrap", "FpT.st", "FpT.via_wrap",
+                                         "FpT.pf", "FpT.un", "FpT.hidden", "FpT.uses_hidden",
+                                         "FpT.eq_zero_of_x", "FpT.uses_helper", "FpT.U", "FpT.Col", "FpT.ps"))
+    say("base fixture fingerprints every declaration", every_)
+    if not every_:
+        print("selftest: FAILED (the base fixture's declarations are missing: the checks below would only crash)")
+        return 1
     say("a private declaration's key names it as private",
         _key(base, "FpT.hidden") and "(private in" in _key(base, "FpT.hidden"))
     say("a root-level declaration of the project is fingerprinted", "helperK" in base)
@@ -848,6 +859,10 @@ def selftest(cfg):
         and ev1["auditFpEraseProofs.evil"] != ev2["auditFpEraseProofs.evil"]
         and ev1["FpT.usesEvil"] != ev2["FpT.usesEvil"]
         and not any(k.startswith("auditFp") and not k.endswith(".evil") for k in ev1))
+    nks = ("FpT.nsVal (private in FpNsMod)", "FpT.nsVal (private in FpNsMod2)")
+    say("F-1: a private declaration in the namespace, in an imported module outside the module root, is fingerprinted "
+        "(the module tables' namespace branch) and drifts with its value; one of the same name in a second module too",
+        all(k in ev1 and k in ev2 and ev1[k] != ev2[k] for k in nks))
     for label, f, expect, *deps in VARIANTS:
         try:
             var = compute(cfg, f(BASE))

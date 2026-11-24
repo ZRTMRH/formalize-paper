@@ -62,7 +62,7 @@ ROUND_HASH_RE = re.compile(r"\bround\s+([0-9a-f]{7,40})\b", re.I)
 ROUND_PATH_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2}-(?:full-)?[0-9a-f]{7,40})/")
 RECORD_RE = re.compile(r"\b(ADOPTED\.md|RUN_LOG\.md|TARGET\.json|SIGNOFF\.(?:md|json|pdf|tex)|REPORT\.(?:md|pdf|tex)"
                        r"|SKIPPED\.md|DEVIATIONS\.md|PAPER_DEFECTS\.md|VACUOUS\.md|AUTHOR_NOTES\.md|OUTCOMES\.md"
-                       r"|readers/|resolutions/|stops/)", re.I)
+                       r"|readers/|stops/)", re.I)
 WHOLE_LANE = "(whole lane)"     # the item of a whole-lane re-vote row in ADOPTED.md
 CLEARED_RE = re.compile(r"^\s*(?:[-*]\s*)?CLEARED\s+(\S+?)\s*:\s*(\S.*)$", re.M)
 LEFT_OPEN_RE = re.compile(r"^\s*(?:[-*]\s*)?LEFT OPEN\s+(\S+?)\s*:\s*(\S.*)$", re.M)
@@ -228,7 +228,7 @@ def flag_lane(flag):
 # --- THE reader of ADOPTED.md's decision rows (R3e) -----------------------------------------------
 # Every consumer -- the settle check (adjudication commit, integrity --check, make_report --check),
 # the re-vote rules, the carried-item check (stops.py), the open re-vote list and the question list
-# (decisions.py), and audit_coverage.read_adopted for a current-format record (R3f) -- reads decision
+# (decisions.py), and audit_coverage.read_adopted (R3f; D8: every record) -- reads decision
 # rows through `decision_rows` and nothing else. A row is read
 # STRICTLY: its lane cell is exactly one lane name of the round and its item cell exactly one scope
 # item of the round or declared item of the project (its index rows and declarations, R3f: an UNCOVERED
@@ -242,7 +242,7 @@ def flag_lane(flag):
 # with the seven fields above is unchanged
 Row = collections.namedtuple("Row", "lane item decision verdict reason base problem text", defaults=("",))
 OUTCOMES_LANE = "outcomes"      # AUDIT_PROTOCOL step 4 B': the outcome check's rows
-RECORD_JSON = ("TARGET.json", "FINGERPRINTS.json", "SIGNOFF.json", "INFORMAL.json", "ABANDONED.json")
+RECORD_JSON = ("TARGET.json", "FINGERPRINTS.json", "SIGNOFF.json", "INFORMAL-2.json", "INFORMAL.json", "ABANDONED.json")
 _EDGE_RE = re.compile(r"^[\s*_`]+|[\s*_`]+$")
 
 
@@ -432,6 +432,21 @@ def valid_rows(rd, text=None):
     return [r for r in decision_rows(rd, text) if r.problem is None]
 
 
+def fixture_rows(rd, rows, mode="w"):
+    """Selftest fixtures only: write decision table `rows` to round `rd`'s ADOPTED.md under the decision header
+    (mode "a": appended, the header only when the file has none) and add the lane and item each row names to the
+    round's TARGET.json, as a real round's scope lists them, so that valid_rows reads them (D8)."""
+    ap, tp = os.path.join(rd, "ADOPTED.md"), os.path.join(rd, "TARGET.json")
+    old = open(ap, encoding="utf-8").read() if mode == "a" and os.path.exists(ap) else ""
+    hdr = "" if "| decision |" in old else "| lane | item | verdict | decision | reason |\n|---|---|---|---|---|\n"
+    open(ap, "w", encoding="utf-8").write(old + hdr + rows)
+    t = json.load(open(tp, encoding="utf-8")) if os.path.exists(tp) else {}
+    for r in decision_rows(rd):
+        if r.item not in t.setdefault(r.lane, []):
+            t[r.lane].append(r.item)
+    json.dump(t, open(tp, "w", encoding="utf-8"))
+
+
 DECIDED_RE = re.compile(r"(ADOPT|REJECT|DEFER)\b")
 
 
@@ -552,14 +567,6 @@ def revote_lanes(rd, lane, item):
     return out
 
 
-def revote_lane(rd, lane, item):
-    """(lane file, commit) of THE re-vote of `item` of `lane` (revote_lanes), or None when none ran
-    -- or when more than one did: a second re-vote never settles an item, and the script never picks
-    one (R3d F2, RULINGS A2.3); the item stays open for the human."""
-    rv = revote_lanes(rd, lane, item)
-    return rv[0] if len(rv) == 1 else None
-
-
 def set_aside_revote(rd, lane, item):
     """The re-vote lane file (relative) that would re-judge `item` of `lane` (item re-vote, or a
     whole-lane one covering it) and was set aside, else None (R3c N1; R3e L2: --ALL.k only for its part)."""
@@ -638,7 +645,7 @@ def _versions(repo, ap):
 def revote_decision_problems(rd, revotes=None, only=None):
     """[problem] for every decision (ADOPT, REJECT, DEFER) that follows a REVOTE NEEDED row of its
     item (or its whole lane) in the round's ADOPTED.md without the re-vote having run (ROUND3 H2):
-    the re-vote lane must be sealed (revote_lane; a set-aside one never counts, an unsealed one blocks),
+    the re-vote lane must be sealed (revote_lanes; a set-aside one never counts, an unsealed one blocks),
     and the row must have come in an "adjudicate R revotes" commit after that seal. A decision of the
     `(whole lane)` row itself needs whole_lane_settled. `revotes`: for the adjudication about to be
     committed, True when it is "adjudicate R revotes" (rows not yet committed are judged as part of
@@ -1426,14 +1433,49 @@ def reask_state(prev):
     return f"answered {prev['answer']}" if prev and prev["answer"] else "which has no accepted answer"
 
 
+def _record_line_names(recs, by):
+    """{escalation record line (`"- " + escalation_line(e, by)`): the unaccepted escalations the generator itself
+    names in it} -- e's own name in its NOT ACCEPTED head, the earlier escalation of its RE-ASKS clause -- for every
+    escalation e of the run whose free texts (its question and declaration, its answer, the answer of the escalation it
+    re-asks) name no escalation at all, and whose refusal reasons (generated by this module's acceptance check, e.g.
+    "... run lanecheck.py --escalation E<n> ...") name no escalation but e itself; any other record line exempts
+    nothing (twobites TP3)."""
+    out = {}
+    for e in recs:
+        prev = by.get(e["reask_of"]) if e["reask_of"] else None
+        free = [str(e["inputs"].get("question", "")), str(e["inputs"].get("decl", "")), str(e["answer"] or ""),
+                str((prev or {}).get("answer") or "")]
+        if any(ESC_CITE_RE.search(t) for t in free):
+            continue
+        if any(m.group(1).upper() != e["name"].upper() for x in (e["problems"] or [])
+               for m in ESC_CITE_RE.finditer(str(x))):
+            continue
+        skip = set()
+        if not e["answer"]:
+            skip.add(e["name"].upper())
+        if prev is not None and not prev["answer"]:
+            skip.add(prev["name"].upper())
+        out[("- " + escalation_line(e, by)).strip()] = skip
+    return out
+
+
 def escalation_citations(cfg, text, recs=None):
     """[problem] for every "escalation E<n>" `text` cites (RUN_LOG.md, DECISIONS.md): one never written or
     not accepted, and, under `involved`, one that re-asks an earlier NEEDS-HUMAN or unanswered escalation
     on the same declaration (review 1, re-check 3, V2: that question goes to the human)."""
     recs = escalations(cfg) if recs is None else recs
     by = {e["name"]: e for e in recs}
-    out = []
-    for n in sorted(set(m.group(1).upper() for m in ESC_CITE_RE.finditer(text or "")), key=lambda x: int(x[1:])):
+    out, names, gen = [], set(), None
+    for line in (text or "").splitlines():
+        found = [m.group(1).upper() for m in ESC_CITE_RE.finditer(line)]
+        if found and any(by.get(n_) is not None and not by[n_]["answer"] for n_ in found):
+            if gen is None:
+                gen = _record_line_names(recs, by)
+            # TP3: in exactly an escalation's record line, only the names the generator itself put there
+            skip = gen.get(line.strip(), set())
+            found = [n_ for n_ in found if n_ not in skip]
+        names.update(found)
+    for n in sorted(names, key=lambda x: int(x[1:])):
         e = by.get(n)
         if e is None:
             out.append(f"cites escalation {n}, which was never written (prompt.py --prompt escalate ... --write)")
@@ -1494,10 +1536,29 @@ def _parent(pid):
         return 0
 
 
+def _children(pid):
+    """The direct children of `pid` (/proc; [] when unreadable)."""
+    try:
+        return [int(c) for c in open(f"/proc/{pid}/task/{pid}/children").read().split()]
+    except (OSError, ValueError):
+        pass
+    try:
+        return [int(d) for d in os.listdir("/proc") if d.isdigit() and _parent(int(d)) == pid]
+    except OSError:
+        return []
+
+
+def _cmdline(pid):
+    try:
+        return open(f"/proc/{pid}/cmdline", "rb").read().replace(b"\0", b" ").decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
 def _lane_pids(prompt_dir):
-    """Processes running a lane of this round as a process of their own (the codex_spawn.py
-    fallback runs `codex exec … <round>/prompts/<lane>.txt`); built-in subagents (Claude Code,
-    Codex) are not processes of their own and cannot be traced this way."""
+    """Processes running a lane of this round as a process of their own (a command line naming
+    `<round>/prompts/<lane>.txt`); built-in subagents (Claude Code, Codex) are not processes of their
+    own and cannot be traced this way."""
     if not prompt_dir:
         return set()
     out = set()
@@ -1532,6 +1593,8 @@ def stray_loops(kill=False, since=None, repo=None, prompt_dir=None):
             continue                      # older than the round: not a lane's
         if _environ_has(pid, OPERATOR_TAG):
             continue                      # the operator's own monitor, tagged as RUN.md says
+        if any(_environ_has(c, OPERATOR_TAG) and LOOP_RE.search(_cmdline(c)) for c in _children(pid)):
+            continue                      # W-R4 B4 (T8 F2): the wrapper of a tagged loop (the tag is in its environ)
         chain, q = set(), _parent(pid)
         while q > 1 and q not in chain:
             chain.add(q); q = _parent(q)
@@ -1777,15 +1840,14 @@ def selftest():
         say("A3: a probe deleted after the seal commit is tampering; its citation is also a lane fault",
             any(flag_code(p) == "evidence-after-seal" and "w.lean" in p for p in lane_problems(er, ev))
             and any(flag_code(p) == "lane-fault" and "does not exist" in p for p in lane_problems(er, ev)))
-        say("resolutions/ (other stalls' records) is a record lanes may not read",
-            any("record files" in p for p in lane("x3.json", '{"checked": "see resolutions/S1/STALL.json"}')))
         os.makedirs(os.path.join(wrd, ".abandoned"))
         open(os.path.join(wrd, "revote", "substantiveness--K.thm.json"), "w").write("{}")
         open(os.path.join(wrd, "revote", "substantiveness--L.thm.json"), "w").write("{}")
         open(os.path.join(wrd, ".abandoned", "revote__substantiveness--K.thm.json"), "w").write("{}")
         open(os.path.join(wrd, "ABANDONED.json"), "w").write("{}")
-        say("X7: an abandoned round's ABANDONED.json is not a lane file",
-            "ABANDONED.json" not in [os.path.basename(p) for p in lane_files(wrd)])
+        open(os.path.join(wrd, "INFORMAL-2.json"), "w").write("{}")
+        say("X7: an abandoned round's ABANDONED.json is not a lane file; nor is the second blind reading (0.3.2 A7)",
+            not {"ABANDONED.json", "INFORMAL-2.json"} & {os.path.basename(p) for p in lane_files(wrd)})
         say("a set-aside re-vote lane is not a lane file; another re-vote is",
             [os.path.basename(p) for p in lane_files(wrd) if "revote" in p] == ["substantiveness--L.thm.json"])
         old_repo, old_audits = project.REPO, project.AUDITS
@@ -1852,6 +1914,36 @@ def selftest():
                     pass
             lane_proc.kill(); lane_proc.wait(timeout=5)
             shutil.rmtree(unrelated_dir, ignore_errors=True)
+        # W-R4 B4 (T8 F2): a wrapper shell whose direct child carries the tag is the operator's; an untagged one is not
+        wrap_t = subprocess.Popen(["bash", "-c", "FORMALIZE_PAPER_OPERATOR=1 bash -c 'until false; do sleep 1; done'; true"],
+                                  cwd=d)
+        wrap_u = subprocess.Popen(["bash", "-c", "bash -c 'until false; do sleep 1; done'; true"], cwd=d)
+        time.sleep(0.4)
+        kids = [c for w in (wrap_t, wrap_u) for c in _children(w.pid)]
+        allowed2 = {str(wrap_t.pid), str(wrap_u.pid)} | {str(c) for c in kids}
+        real_run2 = subprocess.run
+
+        def fixture2(cmd, *args, **kwargs):
+            result = real_run2(cmd, *args, **kwargs)
+            if isinstance(cmd, list) and cmd[:2] == ["ps", "-u"]:
+                result.stdout = "\n".join(line for line in result.stdout.splitlines()
+                                          if line.strip().split(None, 1)[0] in allowed2)
+            return result
+        subprocess.run = fixture2
+        try:
+            f2 = stray_loops(kill=False, repo=d)
+        finally:
+            subprocess.run = real_run2
+            for c in kids:
+                try:
+                    os.kill(c, 9)
+                except OSError:
+                    pass
+            for w in (wrap_t, wrap_u):
+                w.kill(); w.wait(timeout=5)
+        say("W-R4 B4 (T8 F2): a loop wrapper whose direct child is tagged FORMALIZE_PAPER_OPERATOR=1 is not listed; a "
+            "wrapper with an untagged child is", len(kids) == 2
+            and not any(f"(pid {wrap_t.pid})" in p for p in f2) and any(f"(pid {wrap_u.pid})" in p for p in f2))
     finally:
         shutil.rmtree(d, ignore_errors=True)
     res += selftest_b7()
@@ -2345,6 +2437,20 @@ def _selftest_escalation(d):
                                                                                               f"{n12}", recs_l))
             and "which has no accepted answer" in escalation_line(recs[n12], recs)
             and recs[n13]["reask_of"] == "E3" and "main_thm" not in recs[n13]["decls"] and recs[n14]["reask_of"] is None)
+        # 0.3.2 A3 (twobites TP3; regression tests/regressions/tp_escalation_record_line.py)
+        q_ = {"question": "Can X be proved?", "decl": "N.thm"}
+        g1 = {"name": "E1", "answer": None, "problems": ["not accepted yet: run lanecheck.py --escalation E1"],
+              "reask_of": None, "inputs": q_}
+        g2 = {"name": "E2", "answer": "ANSWERABLE: No", "problems": [], "reask_of": "E1", "inputs": q_}
+        g2x = dict(g2, answer="ANSWERABLE: Yes, per escalation E1")
+        L_ = lambda rs: ["- " + escalation_line(e, {x["name"]: x for x in rs}) for e in rs]
+        hc = dict(cfg, involvement="hands-off")
+        say("0.3.2 A3 (twobites TP3): an escalation's generated record lines cite none of the unaccepted escalations "
+            "the generator named there; such a line with text added, or one whose free text names an escalation, "
+            "still cites",
+            escalation_citations(hc, "\n".join(L_([g1, g2])), [g1, g2]) == []
+            and escalation_citations(hc, L_([g1, g2])[0] + "; per escalation E1", [g1, g2])
+            and escalation_citations(hc, "\n".join(L_([g1, g2x])), [g1, g2x]))
     finally:
         project.REPO, _mr.REPO = keep
     return res
