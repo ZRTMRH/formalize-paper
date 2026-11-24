@@ -25,7 +25,11 @@ Read this after the human's OK at Checkpoint A. It ends with the pin commit; the
    `bypassPermissions` or `--dangerously-skip-permissions`, and never suggest it to save prompts.
 1. **Branch.** Create the run's branch from the current commit: `git switch -c <branch>` (a resumed
    run whose branch already exists: `git switch <branch>`; never a second `-c`, never a new intake). Then
-   run `lake exe cache get`, which downloads prebuilt Mathlib in minutes.
+   run `lake exe cache get`, which downloads prebuilt Mathlib in minutes, and start the self-test in the
+   background: `python3 audits/selftest_all.py --fast` (RUN.md rule 9; it needs no project; Codex: in
+   the foreground, one call with a long timeout). Read the paper while it runs; draft statements in
+   `work_dir` only after step 3 creates it, and edit no Lean source beyond step 2's scaffold before the
+   scaffold commit (step 5).
    - *In a standalone Lake project* (one that requires Mathlib, the usual setup), branch from its
      main branch.
    - *In a clone of Mathlib itself,* branch from a fresh upstream master instead:
@@ -67,7 +71,7 @@ Read this after the human's OK at Checkpoint A. It ends with the pin commit; the
      (Stage 3 says how both are used). In a test run 35 duplicate helpers came from section
      helpers that could not see each other's work.
    - Create `<Name>/Main.lean`, holding the index table: `| Theorem 1.1 | \`thm_1_1\` |`.
-     **Backticks are for Lean names only; write mathematics as `$…$`** (`index_strict` enforces
+     **Backticks are for Lean names only; write mathematics in Unicode, never `$…$`** (`index_strict` enforces
      it).
    - If the source is `.tex`, compile it once: `python3 audits/project.py --compile-source <file.tex>`
      (xelatex twice, shell escape off, into `.formalization-work/source-build/`). Take result
@@ -75,6 +79,11 @@ Read this after the human's OK at Checkpoint A. It ends with the pin commit; the
 3. **Config.** Write `audits/projects/<name>.json` with every field of `audits/project_template.json`,
    plus `index_strict: true`, `goal_results`, `literature_hypotheses`
    (`[{"lean": "<Name>.ErdosHyp", "paper": "[5, Thm 2]"}]`) and `confidential`.
+   `goal_results` holds the 2b goals' labels as the index table writes them; when 2b's answer was that every
+   result is a goal, the label of every numbered result in the index table, in order; when the human insisted
+   on none, `[]` (no result is a goal).
+   `literature_hypotheses` is frozen at the pin: list every cited result the proofs invoke before pinning; one
+   found later goes through RUN.md "Missing theory", never into the config.
    - `source_pdf` may be the `.tex`.
    - `source_id` and `source_cite`: for an unpublished paper, use authors, title and the file's
      date.
@@ -96,21 +105,22 @@ Read this after the human's OK at Checkpoint A. It ends with the pin commit; the
      revisit_when "never"). Without these, every round reports it UNCOVERED and the loop never
      exits.
    - The probe settings are derived from the computer's memory when left out (`lean_slot.py`,
-     `--show` prints them): a reserve of max(4 GB, a quarter) kept free, 1 to 4 probe slots and a
-     free-memory floor. Write only what question 7 changes: `lean_ram_mb` (MB) if the human named
+     `--show` prints them and the route): a reserve of max(4 GB, a quarter) kept free, 1 to 4 probe
+     slots and a free-memory floor. Write only what question 7 changes: `lean_ram_mb` (MB) if the human named
      the computer's RAM, a lower `lean_slots` if other runs or heavy programs share it
      (`lean_free_mb`, `lean_max_wait` and `lean_reserve_mb` are for operators). The memory guard,
      which the protocol's scripts and Claude Code's SessionStart hook start, pauses the run's own
      probes when free memory falls below the reserve, whatever started them; it never refuses or
      kills anything.
    - **No value may contain `<<`.**
+   - **After every write or edit of the config** run `python3 audits/prompt.py --show` (seconds) and fix every
+     traceback and `#` line about the config now: the pin freezes it.
 4. **Checks.** `python3 audits/lean_slot.py --show` prints the probe limit (and any slots other runs
    hold now) and the memory guard's line; it starts the guard if it is not running (under Codex this
    is the guard's first starter, beside the watchdog). Record its `Memory guard:` line in RUN_LOG.md
    with the Checkpoint A approval.
    `python3 audits/prompt.py --show` lists no unfilled blank, and
-   `python3 audits/selftest_all.py --project <name> --fast` passes (run it in the background, RUN.md
-   rule 9; in `release` mode a
+   the self-test started at step 1 passes (wait for its `ALL SELFTESTS` line; in `release` mode a
    `DISCLOSED[selftest]` line does not fail it: record it with `stops.py disclose --cmd "python3
    audits/selftest_all.py --fast"` once step 5 has created the log). Ask the harness for its longest
    background limit (Claude Code: 1 h by default, 2 h at most); on a slow machine the run can be cut.
@@ -131,6 +141,8 @@ Read this after the human's OK at Checkpoint A. It ends with the pin commit; the
    - Commit the audits repo, naming what you set up: `git -C audits add projects/<name>.json
      <ROUNDS-DIR-IN-AUDITS>/RUN_LOG.md && git -C audits commit -m "setup <name>"` (by name; never
      `git add -A`, here or anywhere in a run).
+   - `python3 audits/selftest_all.py --tooling-id` must print the `[tooling <id>]` of the self-test's
+     `ALL SELFTESTS` line (else the tooling changed while it ran: run it again).
    - Run `python3 audits/integrity.py --pin`, then commit **only** that file, with the message
      it prints (`pin`). The pin also records the Stage 1 snapshot of the git hooks and config
      (`tree_state.py --restore-gitmeta` restores it in release).

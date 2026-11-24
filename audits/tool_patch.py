@@ -10,7 +10,7 @@ about the patch, a FRESH independent reviewer (no lane, no adjudicator of the ru
 refute it, and only a sealed approval of exactly that diff lets it be applied. Python checks facts and
 provenance; agents judge. Dev mode refuses every step (a maintainer fixes tools there).
 
-THE ROUTE (RUN.md "Tool patches"):
+THE ROUTE (run/stops-and-set-asides.md "Tool patches"):
   tool_patch.py begin --stop S<n>                 open TP<k> for an open, non-human stop ("tool-patch TP<k> begin")
      (write <rounds>/tool-patches/TP<k>/A<n>/DIAGNOSIS.md and A<n>/patch.diff, the diff made in a scratch tree)
   tool_patch.py prepare --tp TP<k>                record FACTS.json; commits "tool-patch TP<k> diagnosis <n>"
@@ -120,8 +120,7 @@ def today():
     return datetime.date.today().isoformat()
 
 
-def rounds_dir(cfg):
-    return os.path.join(project.REPO, cfg["rounds_dir"])
+rounds_dir = project.rounds_dir
 
 
 def audit_top(audits):
@@ -664,7 +663,7 @@ def structure_problems(audits, rd, files, reg):
         elif p in core:
             out.append(f"{p} is in the proof-validity core ({', '.join(core)}): immutable to tool patches, no reviewer "
                        f"can approve a change to it (release: withdraw, then a Lean-side workaround, else stops.py close "
-                       f"--core-fault {p} after stops.py core-fault and a fresh reviewer's approval, RUN.md \"Tool patches\"; never a "
+                       f"--core-fault {p} after stops.py core-fault and a fresh reviewer's approval, run/stops-and-set-asides.md \"Tool patches\"; never a "
                        f"wait for a maintainer)")
         elif kind == "new" and shadow_problem(p, tree):
             out.append(f"{shadow_problem(p, tree)}: name the file otherwise")
@@ -716,24 +715,30 @@ def manifest_problems(audits, rd):
 
 # --- extracting an apparatus (T34's pattern) --------------------------------------------------------------------
 def extract(audits, commit, dest):
-    """Write the tooling of the audits directory at `commit` into `dest` (a fresh directory); return dest."""
+    """Write the tooling of the audits directory at `commit` into `dest` (a fresh directory); return dest. One `git
+    cat-file --batch` over the blob ids `git ls-tree` lists (C7b; it was one `git show` per file): each file's stored
+    blob bytes, whatever attributes, filters or core.autocrlf say (a symlink's target as its text, modes not carried)."""
     import integrity
-    pre = prefix(audits)
-    names = [n[len(pre):] for n in git(audits, "ls-tree", "-r", "--name-only", "--full-tree", commit).splitlines()
-             if n.startswith(pre)]
+    pre, keep = prefix(audits), []
+    for row in git(audits, "ls-tree", "-r", "-z", "--full-tree", commit, binary=True).split(b"\0"):
+        meta, _, n = row.decode("utf-8", "surrogateescape").partition("\t")
+        n = n[len(pre):] if n.startswith(pre) else ""
+        if meta.split(" ")[1:2] == ["blob"] and (n == "project_template.json"
+                                                 or (integrity.is_tooling(n) and n.split("/")[0] != "projects")):
+            keep.append((n, meta.split(" ")[2]))
     os.makedirs(dest, exist_ok=True)
-    for n in names:
-        if not integrity.is_tooling(n) or n.split("/")[0] in ("projects",):
-            continue
-        b = show(audits, commit, n, binary=True)
-        if b is None:
-            continue
+    r = subprocess.run(["git", "-C", audits, "cat-file", "--batch"], input="".join(o + "\n" for _, o in keep).encode(),
+                       capture_output=True)
+    if r.returncode:
+        raise Refused(f"git cat-file --batch failed: {r.stderr[:200]}")
+    i = 0
+    for n, o in keep:
+        j = r.stdout.index(b"\n", i)
+        size = int(r.stdout[i:j].split()[2])
         p = os.path.join(dest, n)
         os.makedirs(os.path.dirname(p), exist_ok=True)
-        open(p, "wb").write(b)
-    tmpl = show(audits, commit, "project_template.json", binary=True)
-    if tmpl is not None:
-        open(os.path.join(dest, "project_template.json"), "wb").write(tmpl)
+        open(p, "wb").write(r.stdout[j + 1:j + 1 + size])
+        i = j + 2 + size
     return dest
 
 
@@ -1083,6 +1088,18 @@ def run_floor_mutant(code_dir, m, mutate=True):
 NESTED = "FORMALIZE_TP_SELFTEST"     # set by tool_patch.py --selftest for every process it starts
 
 
+def tooling_digest(d):
+    """C2a: sha256 over `relpath NUL sha256 LF`, sorted, of every file of the apparatus directory `d` (unambiguous: a
+    path holds no NUL and the hash is 64 hex). Taken right after scratch_tree extracted `d` from git objects (and
+    applied the patch), before anything runs in it: FACTS (d) at prepare, the delivered tooling at --deliver."""
+    rows = []
+    for root, dirs, files in os.walk(d):
+        for f in files:
+            p = os.path.join(root, f)
+            rows.append(f"{os.path.relpath(p, d)}\0{sha_bytes(open(p, 'rb').read())}\n")
+    return sha_bytes("".join(sorted(rows)).encode("utf-8", "surrogateescape"))
+
+
 def floor(audits, rd, code_dir):
     """FACTS (d): the floor on the apparatus in `code_dir`: [(id, why)] hits (pattern missing, not killed, or its
     selftest failing unmutated). Inside a --selftest process (or one it started, NESTED) the floor mutants of the
@@ -1161,6 +1178,9 @@ def compute_facts(cfg, tp, n, diagnosis, patch, audits=None):
     qr, qd = None, None
     try:
         qr, qd = scratch_tree(audits, pin, patch)
+        facts["tooling_digest"] = tooling_digest(qd)        # C2a: before (b)-(d) run in qd
+        if "--selftest" in sys.argv or os.environ.get(NESTED) == "1":
+            facts["floor_nested"] = True     # floor_judge judged tool_patch.py's mutants by pattern: never reused
         facts["regression"] = regression(pd, qd, reg)
         if not facts["regression"]["passes"]:
             refuse.append(f"fact (a): the regression test must fail with the pinned apparatus and pass with the patched "
@@ -1691,8 +1711,10 @@ def withdraw(cfg, tp, reason):
         raise Refused("--reason is required (e.g. the reviewers showed the check was right; a reviewer never returned)")
     p = os.path.join(tp_dir(rd, tp), "WITHDRAWN.json")
     json.dump({"tp": tp, "reason": r, "date": today()}, open(p, "w", encoding="utf-8"), indent=1, sort_keys=True)
-    commit_paths(audits, [p], f"tool-patch {tp} withdraw")
-    # TODO(B): a stop-trail/RUN_LOG event class for "patch withdrawn" if builder B wants one; the record is here
+    # pisani S2: the TP's uncommitted drafts (an attempt never prepared) go into the same commit
+    dr = [os.path.join(tp_dir(rd, tp), f) for f in git(tp_dir(rd, tp), "ls-files", "-mo", "--exclude-standard",
+                                                      check=False).splitlines()]
+    commit_paths(audits, [p, *dr], f"tool-patch {tp} withdraw")
     return p
 
 
@@ -2003,11 +2025,12 @@ def record_lines(cfg, rd=None, audits=None):
     return out
 
 
-def verify_delivery(cfg, rd, audits):
+def verify_delivery(cfg, rd, audits, info=None):
     """[problem] the FIRST pin's apparatus finds at --deliver (design §2, R1 ii, approver: RUN_RECORD.md): RUN_RECORD.md
     lists every applied tool patch by id, patch_sha256 and apply commit; the floor still holds on the delivered
     tooling, or each hit is one an applied patch was approved for with two approvals; SUMMARY.md and REPORT.md carry
-    every status a patch raised and the "Checks weakened" row (documents_problems, SWEEP-FIX D4)."""
+    every status a patch raised and the "Checks weakened" row (documents_problems, SWEEP-FIX D4). `info` (a list)
+    gets which floor path ran when it was reused (W-R1: a note at --deliver, never a problem)."""
     out = []
     p = os.path.join(rd, "RUN_RECORD.md")
     txt = open(p, encoding="utf-8").read() if os.path.isfile(p) else None
@@ -2021,7 +2044,22 @@ def verify_delivery(cfg, rd, audits):
         head = git(audits, "rev-parse", "HEAD")
         root, d = scratch_tree(audits, head)
         try:
-            fl = floor(audits, rd, d)
+            # C2a (approver C-D1): the floor the last applied patch's FACTS judged is reused when FACTS recorded the
+            # digest of exactly this tooling and judged it in full (not floor_nested); its pattern half is recomputed
+            # here. Any byte of difference, no digest or a nested floor: the floor runs again
+            le = (links(audits, rd) or [None])[-1]
+            lf = (load(os.path.join(tp_dir(rd, le[1]), f"A{le[4].get('attempt')}", "FACTS.json")) or {}) if le else {}
+            if lf.get("tooling_digest") == tooling_digest(d) and not lf.get("floor_nested"):
+                rd_ = lambda f: (open(os.path.join(d, f), encoding="utf-8").read()
+                                 if os.path.isfile(os.path.join(d, f)) else None)
+                hs = [(str(h.get("id")), str(h.get("why"))) for h in (lf.get("floor") or {}).get("hits") or []]
+                hs += floor_pattern_hits(floor_mutants(audits, rd), rd_)
+                fl = {"hits": [{"id": i, "why": w} for i, w in dict.fromkeys(hs)]}
+                if info is not None:
+                    info.append(f"floor reused: tooling digest {lf['tooling_digest'][:12]} matched (C-D1: the last "
+                                f"applied patch's FACTS floor, its pattern half recomputed; no floor run)")
+            else:
+                fl = floor(audits, rd, d)
         finally:
             shutil.rmtree(root, ignore_errors=True)
         ok = set()
@@ -2326,7 +2364,9 @@ def delivery_problems(cfg):
     probs, note = _run_verifier(audits, rd, fp or "", ["verify-delivery"], "the first pin's verifier")
     if probs is None:
         out.append(f"note: {note}; the current apparatus verified the delivery instead")
-        probs = verify_delivery(cfg, rd, audits)
+        info = []
+        probs = verify_delivery(cfg, rd, audits, info)
+        probs = info + probs
     return out + [p for p in probs]
 
 
@@ -2385,7 +2425,13 @@ def main(argv=None):
             if a.command == "verify-link":
                 res = verify_link(cfg, project.AUDITS, rd, a.tp, a.pin)
             elif a.command == "verify-delivery":
-                res = verify_delivery(cfg, rd, project.AUDITS)
+                info = []
+                res = verify_delivery(cfg, rd, project.AUDITS, info)
+                if a.json:      # --deliver's caller (delivery_problems): every line a note there
+                    res = info + res
+                else:
+                    for i_ in info:
+                        print(f"  note: {i_}")
             else:
                 rep = chain_report(cfg, rd, project.AUDITS, first=a.first_pin)
                 for tp, probs in rep:
@@ -2548,6 +2594,31 @@ def selftest():
                     for l in reps[0][0]["pinned"]["tail"])
             and reps[0][1] == {"boom.py": ["FAIL[tooling] in <scratch>/audits at <object object at 0x…>"]}
             and reps[0][2] == {"exit": 1, "lines": ["RED[build] <scratch>/proj/a.lean"]})
+        # C-R1 (REVIEW-COMPAT-C032-1 FIX-3, REVIEW-CORE-C032 FIX-4): extract writes every tooling file's committed
+        # bytes whatever export-ignore/export-subst/eol attributes and core.autocrlf say; the digest hashes a tracked
+        # __pycache__ file too
+        xr, xf = os.path.join(base, "xr"), {".gitattributes": b"x.py export-ignore\ny.py export-subst\n*.sh text eol=crlf\n",
+                                            "x.py": b"x = 1\n", "y.py": b"# $Format:%H$\n", "s.sh": b"echo ok\n",
+                                            "tests/__pycache__/t.pyc": b"\0pyc"}
+        for n, b_ in xf.items():
+            os.makedirs(os.path.dirname(os.path.join(xr, n)), exist_ok=True)
+            open(os.path.join(xr, n), "wb").write(b_)
+        for a_ in (["init", "-q"], ["-c", "core.autocrlf=false", "add", "-A"], ["-c", "user.email=t@t", "-c", "user.name=t",
+                                                                               "commit", "-qm", "x"]):
+            subprocess.run(["git", "-C", xr, *a_], capture_output=True)
+        keep_env = os.environ.get("GIT_CONFIG_PARAMETERS")
+        os.environ["GIT_CONFIG_PARAMETERS"] = "'core.autocrlf=true'"
+        try:
+            xo = extract(xr, "HEAD", os.path.join(base, "xo"))
+        finally:
+            os.environ.pop("GIT_CONFIG_PARAMETERS") if keep_env is None else os.environ.update(GIT_CONFIG_PARAMETERS=keep_env)
+        got = {os.path.relpath(os.path.join(r_, f_), xo): open(os.path.join(r_, f_), "rb").read()
+               for r_, _, fs_ in os.walk(xo) for f_ in fs_}
+        dg_ = tooling_digest(xo)
+        os.remove(os.path.join(xo, "tests", "__pycache__", "t.pyc"))
+        say("C-R1: extract writes the committed bytes of every tooling file (export-ignore, export-subst, eol=crlf and "
+            "core.autocrlf=true change nothing), and the tooling digest covers a tracked __pycache__ file",
+            got == xf and dg_ != tooling_digest(xo) or print(f"    extract: {sorted(got)}"))
         for n in os.listdir(here):
             src = os.path.join(here, n)
             if n in ("projects", "__pycache__") or not (integrity.is_tooling(n) or n == "project_template.json"):
@@ -2564,6 +2635,11 @@ def selftest():
         open(rsr, "w").write(_t.replace(BUG[0], '        if emb or kind[:len("unclassified")] == "unclassified":', 1)
                              .replace("        emb = any(", "        emb = any (", 1))
         rewritten = BUG[0] not in open(rsr).read() and "        emb = any(" not in open(rsr).read()
+        # C2b (P3 #2): the fixture's first pin carries a FLOOR of the mutants the scenarios below judge for real (TPC2,
+        # LA1, LA8). The delivery scenarios run the first pin's verify-delivery in a subprocess, where this selftest's
+        # stand-in does not reach: there a real floor ran every FLOOR mutant (34.6 of the fast selftest's 49 minutes)
+        with open(os.path.join(d, "tests", "mutant_list.py"), "a", encoding="utf-8") as f_:
+            f_.write('\nFLOOR = ("TPC2", "LA1", "LA8")\n')
         open(os.path.join(d, ".gitignore"), "w").write("__pycache__/\n")
         open(os.path.join(rd, "RUN_LOG.md"), "w").write("# Run log\n\n## Stops\n")
         G("init", "-q"); G("config", "user.email", "t@t"); G("config", "user.name", "t")
@@ -2806,6 +2882,62 @@ def selftest():
             any("TP1" in l and h_app in l and f1["patch_sha256"] in l for l in rl) and any("verify-chain --first-pin" in l for l in rl)
             and any("approve (agent reviewer-1)" in l for l in rl) and not vd and vd_bad and vd_none
             and applied(cfg) == [(tp, f1["patch_sha256"], pind["repins"][-1]["review_seals"][0], h_app)])
+        # ---- C2a (approver C-D1): the last applied patch's FACTS floor is reused when its tooling digest is the
+        # delivered tree's (no floor run, its pattern half recomputed); a digest that differs, none, or a nested
+        # (pattern-only) floor runs the floor again
+        open(rr, "w").write("\n".join(rl) + "\n")
+        fpath_ = os.path.join(tp_dir(rd, tp), "A1", "FACTS.json")
+        fkeep_, st_, calls_ = open(fpath_).read(), RUNNER, []
+        RUNNER = lambda kind, *a: (calls_.append(kind), st_(kind, *a))[1]
+
+        def vd_with(**kw):
+            fx_ = json.loads(fkeep_)
+            fx_.pop("floor_nested", None)
+            fx_.pop("tooling_digest", None)
+            fx_.update(kw)
+            open(fpath_, "w").write(json.dumps(fx_))
+            calls_.clear()
+            inf_ = []
+            return verify_delivery(cfg, rd, d, inf_), calls_.count("floor"), inf_
+
+        def head_digest():
+            r_, d_ = scratch_tree(d, G("rev-parse", "HEAD"))
+            try:
+                return tooling_digest(d_)
+            finally:
+                shutil.rmtree(r_, ignore_errors=True)
+        dig_ = head_digest()
+        eq_, ne_, no_, nest_ = (vd_with(tooling_digest=dig_), vd_with(tooling_digest="0" * 64), vd_with(),
+                                vd_with(tooling_digest=dig_, floor_nested=True))
+        # W-R1: --deliver's own path says it too -- the first pin's verify-delivery --json, and the fallback verifier
+        vd_with(tooling_digest=dig_)
+        dp_sub, rv_ = delivery_problems(cfg), _run_verifier
+        globals()["_run_verifier"] = lambda *a_: (None, "stand-in: the first pin's verifier cannot run")
+        try:
+            dp_fb = delivery_problems(cfg)
+        finally:
+            globals()["_run_verifier"] = rv_
+        # FACTS edited to claim no hit, on a delivered tree whose project.py lost TPC2's pattern: the pattern half sees it
+        h_c2a = G("rev-parse", "HEAD")
+        pj_ = os.path.join(d, "project.py")
+        open(pj_, "w").write(open(pj_).read().replace("    tpd = tool_patch.delivery_problems(cfg)", "    tpd = []", 1))
+        G("add", "--", pj_); G("commit", "-qm", "c2a: TPC2's pattern gone")
+        pat_ = vd_with(tooling_digest=head_digest(), floor={"ids": ["TPC2"], "hits": []})
+        G("reset", "-q", "--hard", h_c2a)
+        open(fpath_, "w").write(fkeep_)
+        RUNNER = st_
+        say("C2a (approver C-D1): prepare records the digest of the patched tooling, equal to the delivered tooling's "
+            "after apply; --deliver reuses that FACTS floor with no floor run when the digest is equal (one note line says "
+            "so), and runs the "
+            "floor again when it differs, is missing or the FACTS floor was judged nested (by pattern only); the "
+            "pattern half is recomputed (a FACTS edited to claim no hit does not hide a missing pattern)",
+            f1.get("tooling_digest") == dig_ and eq_[:2] == ([], 0) and ne_[1] == 1 and no_[1] == 1 and nest_[1] == 1
+            and eq_[2] == [x for x in eq_[2] if x.startswith(f"floor reused: tooling digest {dig_[:12]} matched")] != []
+            and ne_[2] == no_[2] == nest_[2] == []
+            and all(any(x.startswith(f"floor reused: tooling digest {dig_[:12]} matched") for x in y) for y in (dp_sub, dp_fb))
+            and pat_[1] == 0 and any("TPC2" in x for x in pat_[0])
+            or print(f"    c2a: f1={f1.get('tooling_digest', '')[:12]} head={dig_[:12]} eq={eq_} ne={ne_} no={no_} "
+                     f"nest={nest_} pat={pat_} dp_sub={dp_sub} dp_fb={dp_fb}"))
         # ---- SWEEP-FIX D4 (RELEASE-SWEEP Task A, HIGH 6): bench1 S2's patch turns Lemma 2.4 from "not established"
         # into "faithful"; the documents must say so, recomputed at --deliver by the FIRST pin's copy of this file
         open(rr, "w").write("\n".join(rl) + "\n")
@@ -2909,13 +3041,13 @@ def selftest():
             and pass_to_fail([_row(["RED[deliver] a"], ["RED[deliver] b"], 1, 1)]) == []
             and pass_to_fail([_row([], ["FAIL[ownership] x"], 0, 1)]) != [])
         # DOC-FIX replay (conf1): a stop opened with no --check (a generator fault a reader found) is closed by the
-        # patch's regression command; deliver_gate re-runs it although it is no FORMS check (stops.tool_patch_checks)
+        # patch's regression command; math_gate re-runs it although it is no FORMS check (stops.tool_patch_checks)
         _sd = os.path.join(rd, "stops", "S99")
         os.makedirs(_sd)
         json.dump({"by": "cure", "tool_patch": tp, "check": info["regression_cmd"]}, open(os.path.join(_sd, "CLOSED.json"), "w"))
         json.dump({"stop": "S99"}, open(os.path.join(_sd, "STOP.json"), "w"))
         _tc1 = stops.tool_patch_checks(cfg)
-        _dg1 = [x for x in stops.deliver_gate(cfg) if "tp_inline_binder" in x]
+        _dg1 = [x for x in stops.math_gate(cfg)[0] if "tp_inline_binder" in x]
         json.dump({"by": "cure", "tool_patch": tp, "check": "python3 audits/tests/regressions/other.py --apparatus audits"},
                   open(os.path.join(_sd, "CLOSED.json"), "w"))
         _tc2 = stops.tool_patch_checks(cfg)
@@ -3016,8 +3148,11 @@ def selftest():
         _p, ln = review(cfg, tp_)                          # the reviewer never returns
         stuck = refused(review, cfg, tp_)
         reiss = refused(lane_auth.reissue, os.path.join(tp_dir(rd, tp_), "review-1-1.json"), "lost")
+        os.makedirs(os.path.join(tp_dir(rd, tp_), "A2"))
+        open(os.path.join(tp_dir(rd, tp_), "A2", "DIAGNOSIS.md"), "w").write("draft\n")     # pisani S2
         withdraw(cfg, tp_, "the reviewer never returned")
         wd = refused(apply, cfg, tp_)
+        drafts_in = not G("status", "--porcelain", "--untracked-files=all", "--", tp_dir(rd, tp_))
         tp2, _m = begin(cfg, s1)
         n_ok = []
         for n in range(1, 5):
@@ -3051,8 +3186,10 @@ def selftest():
         rl8 = "\n".join(record_lines(cfg))
         say("withdraw: an unsealed review blocks the next review; the TP is withdrawn (recorded) and cannot be applied; "
             "a new TP on the same stop shows the never-sealed review; M8: three rejections then an approval, each "
-            "attempt reviewed by a fresh reviewer, no stop opened, every attempt in the record",
+            "attempt reviewed by a fresh reviewer, no stop opened, every attempt in the record; the withdraw commit takes "
+            "the TP's uncommitted drafts (pisani S2)",
             "not sealed" in stuck and "never reissued" in reiss and "withdrawn" in wd and tp_state(rd, tp_) == "withdrawn"
+            and drafts_in
             and "issued, never sealed" in bm8 and "finding 3" in bm8 and h8 and stops.open_name(cfg) == s1
             and all(f"#### {tp2} attempt {n}" in rl8 for n in range(1, 5)) and "withdrawn: the reviewer never returned" in rl8)
         # ---- safety review 2026-10-25 (HIGH 2): reviewer shopping through an unsealed reject. The reviewer rejects,

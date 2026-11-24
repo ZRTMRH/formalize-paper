@@ -36,17 +36,58 @@ MUTANTS += [
   "      | none => true   -- defined in this file", "      | none => false   -- defined in this file", "fingerprint.py", PROJ, "lean"),
  ("F9 universe names not canonicalised", "fingerprint_tail.lean",
   "e.instantiateLevelParams lps canon", "e", "fingerprint.py", PROJ, "lean"),
- ("F10 proofs hashed", "fingerprint_tail.lean", '| .thmInfo v => ("theorem", #[v.type])',
-  '| .thmInfo v => ("theorem", #[v.type, v.value])', "fingerprint.py", PROJ, "lean"),
+ ("F10 proofs hashed", "fingerprint_tail.lean", '| .thmInfo v => pure ("theorem", #[v.type])',
+  '| .thmInfo v => pure ("theorem", #[v.type, v.value])', "fingerprint.py", PROJ, "lean"),
  ("F11 no transitive closure", "fingerprint.py", "            stack.extend(table[m][2])", "            pass", "fingerprint.py", PROJ, "lean"),
- ("F12 def bodies ignored", "fingerprint_tail.lean", '| .defnInfo v => ("def", #[v.type, v.value])',
-  '| .defnInfo v => ("def", #[v.type])', "fingerprint.py", PROJ, "lean"),
+ ("F12 def bodies ignored", "fingerprint_tail.lean",
+  '| .defnInfo v => do pure ("def", #[v.type, ← Elab.Command.liftTermElabM (auditFpEraseProofs v.value)])',
+  '| .defnInfo v => pure ("def", #[v.type])', "fingerprint.py", PROJ, "lean"),
  ("F13 check ignores changes", "fingerprint.py", "        elif cur != fp:", "        elif False:", "fingerprint.py", PROJ, "lean"),
  ("F14 check ignores vanished", "fingerprint.py", "        if cur is None:\n            bad.append",
   "        if False:\n            bad.append", "fingerprint.py", PROJ, "lean"),
  ("F15 helper defs of the program fingerprinted", "fingerprint_tail.lean",
-  "    if u.isInternal || (`auditFpStripMData).isPrefixOf u || (`auditFpKey).isPrefixOf u then false",
+  "    if u.isInternal || ((env.getModuleIdxFor? n).isNone && ((`auditFpStripMData).isPrefixOf u\n"
+  "        || (`auditFpKey).isPrefixOf u || (`auditFpEraseProofs).isPrefixOf u)) then false",
   "    if u.isInternal then false", "fingerprint.py", PROJ, "lean"),
+ # DESIGN-FP (approver 2026-11-16): proof subterms of a definition's value erased before hashing. FP-M3 of the
+ # design (`catch _ => pure true`) is not listed: no well-typed fixture subterm makes `isProof` throw.
+ ("FP-M1 proofs in a definition's value not erased (filling a proof field drifts)", "fingerprint_tail.lean",
+  '      return .done (.lit (.strVal "auditFpProof"))', "      return .continue", "fingerprint.py", PROJ, "lean"),
+ ("FP-M2 every subterm erased, not only proofs (data built by a tactic, a data field, a Decidable value)",
+  "fingerprint_tail.lean", "    if (← try Meta.isProof s catch _ => pure false) then",
+  "    if (← try pure true catch _ => pure false) then", "fingerprint.py", PROJ, "lean"),
+ ("FP-M4 deps read from the unerased value (a lemma cited in a proof field becomes a dependency)",
+  "fingerprint_tail.lean", "      let deps := (es.foldl (fun acc e => acc ++ e.getUsedConstants) #[]).filter",
+  "      let deps := ((es.push (match ci with | .defnInfo v => v.value | _ => es[0]!)).foldl "
+  "(fun acc e => acc ++ e.getUsedConstants) #[]).filter", "fingerprint.py", PROJ, "lean"),
+ ("FP-M5 proofs inside a theorem's statement erased too (types are never erased)", "fingerprint_tail.lean",
+  '| .thmInfo v => pure ("theorem", #[v.type])',
+  '| .thmInfo v => do pure ("theorem", #[← Elab.Command.liftTermElabM (auditFpEraseProofs v.type)])', "fingerprint.py", PROJ, "lean"),
+ ("FP-M6 the erasure helper itself fingerprinted (not excluded from the project's constants)",
+  "fingerprint_tail.lean", " || (`auditFpEraseProofs).isPrefixOf u)) then false", ")) then false",
+  "fingerprint.py", PROJ, "lean"),
+ ("FP-M8 the helper names excluded by prefix alone: a project module's `auditFpEraseProofs.evil` is not "
+  "fingerprinted (REVIEW-SAFETY-FP F1)", "fingerprint_tail.lean",
+  "((env.getModuleIdxFor? n).isNone && ((`auditFpStripMData)", "(true && ((`auditFpStripMData)",
+  "fingerprint.py", PROJ, "lean"),
+ ("FP-M7 default recursion limit: a definition nested deeper than 512 fails the whole fingerprint run "
+  "(REVIEW-DESIGN-FP R1)", "fingerprint_tail.lean", "set_option maxRecDepth 1000000 in\n", "",
+  "fingerprint.py", PROJ, "lean"),
+ # F-1 (DESIGN-C032 C4-F1, approver C-D2): the module-table enumeration
+ ("LT-5 fingerprint candidates: a module under the root not enumerated", "fingerprint_tail.lean",
+  "    if root != Name.anonymous && root.isPrefixOf env.header.moduleNames[i]! then cands := cands ++ names", "    if root != Name.anonymous && root.isPrefixOf env.header.moduleNames[i]! then cands := cands", "fingerprint.py", PROJ, "lean"),
+ ("LT-6 fingerprint candidates: a namespaced declaration of another module not enumerated", "fingerprint_tail.lean",
+  "      if ns.isPrefixOf ((privateToUserName? c).getD c) then cands := cands.push c",
+  "      if false then cands := cands.push c", "fingerprint.py", PROJ, "lean"),
+ ("LT-7 fingerprint candidates: a private namespaced declaration of another module not enumerated",
+  "fingerprint_tail.lean", "      if ns.isPrefixOf ((privateToUserName? c).getD c) then", "      if ns.isPrefixOf c then",
+  "fingerprint.py", PROJ, "lean"),
+ ("LT-8 fingerprint candidates: this file's declarations not enumerated", "fingerprint_tail.lean",
+  "  for (c, _) in env.constants.map₂.toList do cands := cands.push c\n", "", "fingerprint.py", PROJ, "lean"),
+ ("LT-9 fingerprint candidates: deduplicated by user name (a second module's private of one name dropped)",
+  "fingerprint_tail.lean",
+  "    if once.contains n then continue\n    once := once.insert n\n",
+  "    let u0 := (privateToUserName? n).getD n\n    if once.contains u0 then continue\n    once := once.insert u0\n", "fingerprint.py", PROJ, "lean"),
 ]
 
 # --- B7, B8 (U2 §7, §5/§8): contradiction steps, trivial goals, readings, escalation hash, rule 4 ------------
@@ -113,8 +154,8 @@ MUTANTS += [
   "Write that one line, and nothing else, to <ANSWER-FILE>; edit nothing else.",
   "Write that one line to <ANSWER-FILE>.", "prompt.py", [], "plain"),
  ("b8-1 rule 4 is generated without one owner group", "integrity.py",
-  "        if pre is None:\n            continue\n        key = ",
-  "        if pre is None or pat == PIN:\n            continue\n        key = ", "tests/doclint.py", [], "plain"),
+  "        if not pre:\n            continue\n        key = ",
+  "        if not pre or pat == PIN:\n            continue\n        key = ", "tests/doclint.py", [], "plain"),
  ("b8-2 doclint does not compare RUN.md's rule 4 with the generator", "tests/doclint.py",
   "r4 is not None and r4.group(1) == integrity.rule4_text()", "r4 is not None", "tests/doclint.py", [], "plain"),
  ("b8-3 RUN.md's rule 4 edited by hand (an owned record dropped)", "RUN.md",
@@ -226,6 +267,14 @@ MUTANTS += [
   'CONTRA_MARK = re.compile(r"CONTRADICTION STEP\\b")', "lanecheck.py", [], "plain"),
 ]
 
+# --- selftest_all.py (C3b: the pool) --------------------------------------------------------
+MUTANTS += [
+ ("SA1 a pool's lines are held back to the end (a run cut by a harness loses its finished ok lines)",
+  "selftest_all.py",
+  '            report(futs[f], "" if res[futs[f]][0] else f"  (in a pool of {jobs}: run again alone below)")',
+  "            pass", "tests/tier.py", [], "plain"),
+]
+
 # --- axiom_sweep.py ---------------------------------------------------------------------------
 MUTANTS += [
  ("X1 one sorry tolerated", "axiom_sweep_tail.lean", "if holes > 0 then", "if holes > 1 then", "axiom_sweep.py", PROJ, "lean"),
@@ -260,6 +309,21 @@ MUTANTS += [
  ("X15 imported project modules not swept", "axiom_sweep_tail.lean",
   "      | some i => root != Name.anonymous && root.isPrefixOf env.header.moduleNames[i.toNat]!",
   "      | some _ => false", "axiom_sweep.py", PROJ, "lean"),
+ # F-1 (DESIGN-C032 C4-F1, approver C-D2): both tails enumerate the project's constants from the module tables
+ ("LT-1 sweep candidates: a module under the root not enumerated", "axiom_sweep_tail.lean",
+  "    if root != Name.anonymous && root.isPrefixOf env.header.moduleNames[i]! then cands := cands ++ names", "    if root != Name.anonymous && root.isPrefixOf env.header.moduleNames[i]! then cands := cands", "axiom_sweep.py", PROJ, "lean"),
+ ("LT-2 sweep candidates: a namespaced declaration of another module not enumerated", "axiom_sweep_tail.lean",
+  "      if nsp.isPrefixOf ((privateToUserName? c).getD c) then cands := cands.push c",
+  "      if false then cands := cands.push c", "axiom_sweep.py", PROJ, "lean"),
+ ("LT-3 sweep candidates: a private namespaced declaration of another module not enumerated", "axiom_sweep_tail.lean",
+  "      if nsp.isPrefixOf ((privateToUserName? c).getD c) then", "      if nsp.isPrefixOf c then",
+  "axiom_sweep.py", PROJ, "lean"),
+ ("LT-4 sweep candidates: this file's declarations not enumerated", "axiom_sweep_tail.lean",
+  "  for (c, _) in env.constants.map₂.toList do cands := cands.push c\n", "", "axiom_sweep.py", PROJ, "lean"),
+ ("LT-10 sweep candidates: deduplicated by user name (a second module's private of one name dropped)",
+  "axiom_sweep_tail.lean",
+  "    if once.contains n then continue\n    once := once.insert n\n",
+  "    let u0 := (privateToUserName? n).getD n\n    if once.contains u0 then continue\n    once := once.insert u0\n", "axiom_sweep.py", PROJ, "lean"),
 ]
 
 # --- phase0.py --------------------------------------------------------------------------------
@@ -356,7 +420,6 @@ MUTANTS += [
  ("A12 stale meaning change ignored", "audit_coverage.py", "            elif current[item] != snaps[r][item]:", "            elif False:", "audit_coverage.py", [], "plain"),
  ("A13 batched parts not merged", "audit_coverage.py", '                   + glob.glob(os.path.join(d, glob.escape(lane) + "@*.json")))', ')', "audit_coverage.py", [], "plain"),
  ("A14 omission not NotDoneYet", "audit_coverage.py", '                verdicts.setdefault(item, "NotDoneYet")', '                pass', "audit_coverage.py", [], "plain"),
- ("A15 read_adopted multi-lane rows", "audit_coverage.py", '        for lane in re.split(r"\\s*[+,/&]\\s*", lane_cell.strip("`* ")):', '        for lane in [lane_cell.strip("`* ")]:', "audit_coverage.py", [], "plain"),
 ]
 
 # --- signoff.py -------------------------------------------------------------------------------
@@ -435,12 +498,11 @@ MUTANTS += [
  ('M56 index and config not scanned', 'make_report.py', '               ("index", list(index)),\n', '', 'make_report.py', PROJ, "plain"),
  ('M58 md lacks assumptions', 'make_report.py', '    body += "\\n## 2. What the formalization assumes\\n" + blocks_md(assume_blocks(asm))', '    body += ""', 'make_report.py', PROJ, "plain"),
  ('A22 UNCOVERED counted as a repeated decision', 'audit_coverage.py', '            if v in ("ADOPT", "REJECT", "DEFER"):     # QUESTION/UNCOVERED are not repeated decisions', '            if True:', 'audit_coverage.py', [], "plain"),
- ('A23 unbolded QUESTION not read', 'audit_coverage.py', '                m = re.search(r"\\b(ADOPT|REJECT|DEFER|QUESTION|UNCOVERED)\\b", c)', '                m = re.search(r"\\b(ADOPT|REJECT|DEFER)\\b", c)', 'audit_coverage.py', [], "plain"),
  ('M60 box pointers missing', 'make_report.py', '        box.append(bl + (f" (details: section {sec})" if sec else "")\n', '        box.append(bl\n', 'make_report.py', PROJ, "plain"),
  ('M61 agent approval not in the box', 'make_report.py', '    elif project.approval_file_by(appr_p, appr)[0] != "human":', '    elif False:', 'make_report.py', PROJ, "plain"),
  ("M62 REPORT.md's pointer to the summary after the generated note", 'make_report.py',
-  '    head += "\\n" + SUMMARY_POINTER + "\\n"',
-  '    head += "\\n**Generated x**\\n" + SUMMARY_POINTER + "\\n"',
+  '    head += "\\n" + (SUMMARY_POINTER if goal_names(cfg) else SUMMARY_POINTER_NO_GOAL) + "\\n"',
+  '    head += "\\n**Generated x**\\n" + (SUMMARY_POINTER if goal_names(cfg) else SUMMARY_POINTER_NO_GOAL) + "\\n"',
   'make_report.py', ['--project', ''], 'plain'),
  # M64 (unknown columns dropped) retired 2026-10-24: make_report.entry_fields had no caller since the
  # generators stopped rendering records (f81823b, PDF-AGENTS 2); the dead function and its LABELS were removed.
@@ -449,13 +511,9 @@ MUTANTS += [
  ('D91 summary cut at abbreviations', 'decisions.py', '            if not (word and word.group(1).rstrip(".") in ABBREV):', '            if True:', 'decisions.py', [], "plain"),
  ('M67 QUESTION worded as unanswered', 'make_report.py', '                  "QUESTION": "put to the human as questions",', '                  "QUESTION": "put to the human, not yet answered",', 'make_report.py', PROJ, "plain"),
  ('M71 name in another file passes', 'make_report.py', '                                if elsewhere:\n', '                                if False:\n', 'make_report.py', PROJ, "plain"),
- ('A24 UNCOVERED replaces a decision within a file', 'audit_coverage.py', '                if dec != "UNCOVERED" or k not in out:', '                if True:', 'audit_coverage.py', [], "plain"),
  ('M84 missing-theory skips unchecked', 'make_report.py', '    problems += missing_theory_problems(cfg, heads["skipped"], skipped)\n', '', 'make_report.py', PROJ, "plain"),
  ('M85 library search not required', 'make_report.py', '        if unsearched:\n', '        if False:\n', 'make_report.py', PROJ, "plain"),
  ('M86 human decision not required', 'make_report.py', '        if bound:\n', '        if True:\n', 'make_report.py', PROJ, "plain"),
- ("A19 lane instances not mapped to their lane", "audit_coverage.py", '            lane = re.sub(r"@\\d+$", "", lane)\n', '', "audit_coverage.py", [], "plain"),
- ("A20 QUESTION not a decision", "audit_coverage.py", 'VERDICT_RE = re.compile(r"\\*\\*(ADOPT|REJECT|DEFER|QUESTION|UNCOVERED)\\b", re.I)', 'VERDICT_RE = re.compile(r"\\*\\*(ADOPT|REJECT|DEFER)\\b", re.I)', "audit_coverage.py", [], "plain"),
- ("A21 ADOPTED rows split on escaped bars", "audit_coverage.py", '        cells = project.split_row(line)\n        if all(set(c) <= set("-: ") for c in cells):', '        cells = [c.strip() for c in line.strip().strip("|").split("|")]\n        if all(set(c) <= set("-: ") for c in cells):', "audit_coverage.py", [], "plain"),
  ("T1 HEAD move does not fail", "tree_state.py", "        if moved:\n            # every non-zero exit", "        if False:\n            # every non-zero exit", "tree_state.py", [], "plain"),
  ("T2 content of dirty files not hashed", "tree_state.py", '        "porcelain": [f"{l}  #{digest(l)}" for l in lines],', '        "porcelain": list(lines),', "tree_state.py", [], "plain"),
  ("T3 untracked dirs not expanded", "tree_state.py", 'git("status", "--porcelain", "--untracked-files=all")', 'git("status", "--porcelain")', "tree_state.py", [], "plain"),
@@ -465,7 +523,7 @@ MUTANTS += [
 # --- decisions.py (Checkpoint C skeleton) ---------------------------------------------------
 MUTANTS += [
  ('D1 QUESTION rows from the newest round only', 'decisions.py', '    for d in rounds:\n        # THE reader (lanecheck.decision_rows, R3e)', '    for d in rounds[-1:]:\n        # THE reader (lanecheck.decision_rows, R3e)', 'decisions.py', [], 'plain'),
- ('D2 unfilled placeholders accepted', "decisions.py", '    if FILL in text:\n', '    if False:\n', "decisions.py", [], "plain"),
+ ('D2 unfilled placeholders accepted', "decisions.py", '    if unfilled:\n', '    if False:\n', "decisions.py", [], "plain"),
  ('D3 dropped items accepted', "decisions.py", '        if a not in placed:\n', '        if False:\n', "decisions.py", [], "plain"),
  ('D4 [PROXY] decisions not listed', "decisions.py", '        if PROXY_RE.search(b) and "(answered" not in b:', '        if False:', "decisions.py", [], "plain"),
  ('D5 CHECK rows not listed', "decisions.py", '        if str(r.get("flag", "")).upper().startswith("CHECK"):', '        if False:', "decisions.py", [], "plain"),
@@ -553,8 +611,8 @@ MUTANTS += [
 MUTANTS += [
  ('RD1 changed document accepted', "readers.py", '    if newest["sha"] != cur:\n', '    if False:\n', "readers.py", [], "plain"),
  ('RD2 unanswered blocking findings accepted', 'readers.py',
-  '            hit = [kind for kind, ids in answers if i in ids]\n            last = max(',
-  '            hit = [kind for kind, ids in answers if i in ids] or ["dismissed"]\n            last = max(',
+  '            hit = [kind for kind, ids in answers if i in ids]\n            if not hit:',
+  '            hit = [kind for kind, ids in answers if i in ids] or ["dismissed"]\n            if not hit:',
   'readers.py', [], 'plain'),
  ("RD3 malformed reports' findings ignored", "readers.py", '    for n, p, r in parsed:\n        # identical findings', '    for n, p, r in good:\n        # identical findings', "readers.py", [], "plain"),
  ("RD4 'fixed' accepted on the version it was raised on", "readers.py", '            elif hit[-1] == "fixed" and (r["sha"] is None or r["sha"] == cur):', '            elif False:', "readers.py", [], "plain"),
@@ -563,7 +621,7 @@ MUTANTS += [
  ('RD7 verdict count not checked', "readers.py", '    if v and nb != out["blocking"]:', '    if False:', "readers.py", [], "plain"),
  ('RD8 no pass accepted', "readers.py", '    if not files:\n        return [R(f"no fresh-reader pass', '    if not files:\n        return []\n        return [R(f"no fresh-reader pass', "readers.py", [], "plain"),
  ('RD9 malformed newest pass not flagged', "readers.py", '    if parsed[-1][0] != newest_n:', '    if False:', "readers.py", [], "plain"),
- ('RD10 missing notice treated as an empty one', "readers.py", '        notice = open(kf, encoding="utf-8").read() if os.path.exists(kf) else None', '        notice = open(kf, encoding="utf-8").read() if os.path.exists(kf) else ""', "readers.py", [], "plain"),
+ ('RD10 missing notice treated as an empty one', "readers.py", '        notice = open(kf, encoding="utf-8", errors="replace").read() if os.path.exists(kf) else None', '        notice = open(kf, encoding="utf-8", errors="replace").read() if os.path.exists(kf) else ""', "readers.py", [], "plain"),
  ('RD11 notice need not quote', 'readers.py', '                if _norm(f)[:60] not in _norm(notice):', '                if False:', 'readers.py', [], "plain"),
  ('RD12 uncommitted records accepted', "readers.py", '    return [f"reader record or notice not committed (or changed since): {l[3:]}"\n            for l in st.stdout.splitlines()]', '    return []', "readers.py", [], "plain"),
  ('RD13 records read from disk, not as first committed', "readers.py", '    for path, c in added.items():\n        sh = git(', '    for path, c in []:\n        sh = git(', "readers.py", [], "plain"),
@@ -662,7 +720,8 @@ MUTANTS += [
  ('LC7 loops older than the round killed', 'lanecheck.py', '        if since is not None and now - age < since - 60:', '        if False:', 'lanecheck.py', [], "plain"),
  ('U1 linter arguments dropped', 'unused_args.py', '            cur[1].append(f"argument {a.group(1)}: {a.group(2).strip()}")', '            pass', 'unused_args.py', [], "plain"),
  ('U2 approved statements not set apart', 'unused_args.py', '    stmt = [(n, a) for n, a in found if n in approved]\n    helper = [(n, a) for n, a in found if n not in approved]', '    stmt = []\n    helper = list(found)', 'unused_args.py', [], "plain"),
- ('Z1 unused arguments fail the gate', 'phase0.py', '        f"{PY} audits/unused_args.py --project {P}" + ("" if readonly else " --write"), results,\n        waived=True, runner=runner)', '        f"{PY} audits/unused_args.py --project {P}" + ("" if readonly else " --write"), results,\n        waived=False, runner=runner)', 'phase0.py', [], "plain"),
+ ('Z1 unused arguments fail the gate', 'phase0.py', '            f"{PY} audits/unused_args.py --project {P} --write", results, waived=True, runner=runner)', '            f"{PY} audits/unused_args.py --project {P} --write", results, waived=False, runner=runner)', 'phase0.py', [], "plain"),
+ ('Z1b read-only Phase 0 runs the unused-argument lint again', 'phase0.py', '    if not readonly:\n        run("unused arguments', '    if True:\n        run("unused arguments', 'phase0.py', [], "plain"),
  ('U3 non-@ entries dropped', 'unused_args.py', 'CHECK_RE = re.compile(r"^#check @?(\\S+) /- (\\d+) unused arguments?:\\s*$")', 'CHECK_RE = re.compile(r"^#check @(\\S+) /- (\\d+) unused arguments?:\\s*$")', 'unused_args.py', [], "plain"),
  ('Z2 docstring problems do not fail', 'phase0.py', '    results.append(("docstrings: no placeholders, tex lines within the source", 1 if docs else 0, dsc))', '    results.append(("docstrings: no placeholders, tex lines within the source", 0, dsc))', 'phase0.py', [], "plain"),
  ('Z3 placeholders not found', 'phase0.py', '            for p in PLACEHOLDER_RE.finditer(body):', '            for p in []:', 'phase0.py', [], "plain"),
@@ -689,7 +748,7 @@ MUTANTS += [
 MUTANTS += [
  ("R1 <PREV> = oldest round", "prompt.py", '        prev = os.path.basename(rounds[-1]).split("-")[-1] if rounds else None', '        prev = os.path.basename(rounds[0]).split("-")[-1] if rounds else None', "prompt.py", [], "plain"),
  ("R2 existing-round warning removed", "prompt.py", '            if cfg is not None and os.path.isdir(os.path.join(project.REPO, cfg["rounds_dir"], new)):', '            if False:', "prompt.py", [], "plain"),
- ("R3 subagent prompts lose the common rules", "prompt.py", '    body, notes = fill_project(common + "\\n\\n" + body, cfg)\n    if name == STATUS_CHECK and "<HAND-EDITS>" in body:', '    body, notes = fill_project(body, cfg)\n    if name == STATUS_CHECK and "<HAND-EDITS>" in body:', "prompt.py", [], "plain"),
+ ("R3 subagent prompts lose the common rules", "prompt.py", '    body, notes = fill_project(common + "\\n\\n" + body, cfg)\n    for k, v in (subs or {}).items():', '    body, notes = fill_project(body, cfg)\n    for k, v in (subs or {}).items():', "prompt.py", [], "plain"),
  ("R4 lane prompts lose the common rules", "prompt.py", '        body, notes = fill_project(common + "\\n\\n" + body, cfg, lane)', '        body, notes = fill_project(body, cfg, lane)', "prompt.py", [], "plain"),
  ("R5 network rule not filled", "prompt.py", '        "<NETWORK-RULE>": (', '        "<NETWORK-RULE-X>": (', "prompt.py", [], "plain"),
  ("R6 goal results not filled", "prompt.py", '        "<GOAL-RESULTS>": (", ".join', '        "<GOAL-RESULTS-X>": (", ".join', "prompt.py", [], "plain"),
@@ -703,8 +762,8 @@ MUTANTS += [
  ("PV3 trailing blank lines count as a prompt difference", "prompt.py",
   "        elif _trim(cur) != _trim(body):", "        elif cur != body:", "prompt.py", [], "plain"),
  ("SV1 --verify recomputes the scope from today's records (a release run's S1: an F10 item its own lane decided later)",
-  "scope.py", "        res = make_target(dict(cfg, rounds_dir=fr), round_name, kind, repo, fps)",
-  "        res = make_target(cfg, round_name, kind, repo, fps)", "scope.py", [], "plain"),
+  "scope.py", "        res = make_target(dict(cfg, rounds_dir=fr), round_name, kind, repo, fps, rule=rule)",
+  "        res = make_target(cfg, round_name, kind, repo, fps, rule=rule)", "scope.py", [], "plain"),
  ("SV2 TARGET.json is not compared with its scope commit (an edit compare() tolerates passes)", "scope.py",
   "        if json.loads(committed or \"\") != recorded:", "        if False:", "scope.py", [], "plain"),
  ("SV3 a TARGET.json never committed is not compared at all", "scope.py",
@@ -765,6 +824,10 @@ FLOOR = ("P1", "P2", "P6", "P17", "P19", "LA1", "LA2", "LA3", "LA8", "I9", "I10"
          # the reason column, `rows 9-11` unchecked, a label found anywhere in the cell); fix round R1's F2/F3 analogues
          # (a name only in a comment passes, the label not the cell's first, the identifier case-folded)
          "SW2B-M10", "SW2B-M14", "SW2B-M16", "SW2B-M18", "SW2B-M21", "SW2B-M22", "SW2B-M23",
+         # 0.3.2 D3 (approver 2026-11-17): a blind-reading name reaches no judge; a writer's wrong name passes
+         "D3-M1", "D3-M4",
+         # 0.3.2 AB-R2 (compat-2 FIX-1, approver: every flag judged): the second-reading notes reach no judge
+         "AR2-M1",
          # macOS lin-2026 TP1 (2026-11-16): a live git process skipped by repair-lock; a persistent EIO of a live pid
          # read as no process
          "MAC-TP1a", "MAC-TP1b")
@@ -773,6 +836,45 @@ MUTANTS += [
   "    out += tool_patch.chain_problems(audits, rounds_dir, cfg)", "    out += []", "tool_patch.py", [], "plain"),
  ("TPC2 --deliver does not run the first pin's tool-patch verifier", "project.py",
   "    tpd = tool_patch.delivery_problems(cfg)", "    tpd = []", "tool_patch.py", [], "plain"),
+ # C2a (DESIGN-C032, approver C-D1): the FACTS floor reused at --deliver only for the same tooling, judged in full
+ ("FT1 the FACTS floor reused whatever the delivered tooling's digest", "tool_patch.py",
+  '            if lf.get("tooling_digest") == tooling_digest(d) and not lf.get("floor_nested"):',
+  # T001: a FACTS with any recorded digest is reused (without one, W-R1c's "floor reused" line would raise KeyError)
+  '            if "tooling_digest" in lf and not lf.get("floor_nested"):', "tool_patch.py", [], "plain"),
+ ("FT2 FACTS records the digest of the pinned tooling, not the patched one", "tool_patch.py",
+  "        facts[\"tooling_digest\"] = tooling_digest(qd)", "        facts[\"tooling_digest\"] = tooling_digest(pd)",
+  "tool_patch.py", [], "plain"),
+ ("FT3 the reused floor's pattern half not recomputed (an edited FACTS hides a missing pattern)", "tool_patch.py",
+  "                hs += floor_pattern_hits(floor_mutants(audits, rd), rd_)\n", "", "tool_patch.py", [], "plain"),
+ ("FT4 a nested (pattern-only) FACTS floor reused", "tool_patch.py",
+  ' == tooling_digest(d) and not lf.get("floor_nested"):', " == tooling_digest(d):", "tool_patch.py", [], "plain"),
+ # C-R1 (REVIEW-CORE-C032 FIX-4, REVIEW-COMPAT-C032-1 FIX-3)
+ ("FT5 the tooling digest skips __pycache__ directories (a tracked .pyc is not hashed)", "tool_patch.py",
+  "    rows = []\n    for root, dirs, files in os.walk(d):\n",
+  "    rows = []\n    for root, dirs, files in os.walk(d):\n        dirs[:] = [x for x in dirs if x != \"__pycache__\"]\n",
+  "tool_patch.py", [], "plain"),
+ ("EX1 extract by git archive (attributes, filters and core.autocrlf rewrite or drop files)", "tool_patch.py",
+  """    r = subprocess.run(["git", "-C", audits, "cat-file", "--batch"], input="".join(o + "\\n" for _, o in keep).encode(),
+                       capture_output=True)
+    if r.returncode:
+        raise Refused(f"git cat-file --batch failed: {r.stderr[:200]}")
+    i = 0
+    for n, o in keep:
+        j = r.stdout.index(b"\\n", i)
+        size = int(r.stdout[i:j].split()[2])
+        p = os.path.join(dest, n)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        open(p, "wb").write(r.stdout[j + 1:j + 1 + size])
+        i = j + 2 + size
+""", """    import io, tarfile
+    raw = git(audits, "archive", "--format=tar", commit, "--", *[":(literal)" + n for n, _ in keep], binary=True)
+    with tarfile.open(fileobj=io.BytesIO(raw)) as tf:
+        for m in tf.getmembers():
+            if m.isfile():
+                p = os.path.join(dest, m.name)
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                open(p, "wb").write(tf.extractfile(m).read())
+""", "tool_patch.py", [], "plain"),
  ("TPC3 a plain release re-pin may change the tooling", "integrity.py",
   "    out += release_repin_problems(audits, rounds_dir, rounds_rel)", "    out += []", "tool_patch.py", [], "plain"),
  ("TP4 the apply's tooling diff need not equal the reviewed one", "tool_patch.py",
@@ -927,7 +1029,6 @@ MUTANTS += [
  ("I26 a lane's probe bytecode fails the round", "project.py", '                  and (os.path.dirname(os.path.relpath(p, audits)).split(os.sep)[0] in ("", "__pycache__", "tests",', '                  and (True or os.path.dirname(os.path.relpath(p, audits)).split(os.sep)[0] in ("", "__pycache__", "tests",', "integrity.py", [], "plain"),
  ("G29 multi-line definitions cut after the first line", "signoff.py", "            cur, d = [t], depth(t)", "            cur, d = [t], 0", "signoff.py", [], "plain"),
  ("G30 escaped braces counted", "signoff.py", '        t = re.sub(r"\\\\[{}]", "", re.sub(r"(?<!\\\\)%.*", "", t))', '        t = re.sub(r"(?<!\\\\)%.*", "", t)', "signoff.py", [], "plain"),
- ("G31 \\cref loses its kind", "signoff.py", '            elif cmd in ("cref", "Cref") and kind:', '            elif False:', "signoff.py", [], "plain"),
  ("G32 recorded paper defects may be shown as no difference", "signoff.py", "    for label in defect_results(os.path.dirname(round_dir)):", "    for label in []:", "signoff.py", [], "plain"),
  ("G33 sheet silent about results not formalized", "signoff.py", '            if "`" not in rest]', '            if False]', "signoff.py", [], "plain"),
  ("G34 GLOBAL rows may carry their own differences", "signoff.py", 'GLOBAL_REF = re.compile(r"^Global: (G\\d+(?:, G\\d+)*)\\.?$")', 'GLOBAL_REF = re.compile(r"^Global: (G\\d+(?:, G\\d+)*)")', "signoff.py", [], "plain"),
@@ -943,7 +1044,6 @@ MUTANTS += [
  ("P60 leftover config blanks not caught in a filled prompt", "prompt.py", "    if BLANK_RE.search(body):", "    if False:", "prompt.py", [], "plain"),
  ("RS1 --save accepts a record of another version", "readers.py", '    if rec["sha"] and rec["sha"] != want:', '    if False:', "readers.py", [], "plain"),
  ("RS2 --save accepts a malformed record", "readers.py", '    probs = list(rec["problems"])', '    probs = []', "readers.py", [], "plain"),
- ("G39 theorem wrappers kept in the paper text", "signoff.py", "    text = re.sub(r\"\\\\end\\{(?:\" + alt + r\")\\*?\\}\", \"\", text)", "    pass", "signoff.py", [], "plain"),
 ]
 
 # --- involvement levels (hands-off mode): [DELEGATED] decisions and their disclosure ------------
@@ -1020,14 +1120,6 @@ MUTANTS += [
  ("M111 trust row says reversible instead of the cost", "make_report.py", "and its reversal cost (none, \"\n                       f\"re-prove, re-approve or new round) and how to reverse it", "and each reversible; how to \"\n                       f\"reverse it", "make_report.py", PROJ, "plain"),
  ("PJ1 project.py selftest misses an unknown level", "project.py", "    if lvl not in INVOLVEMENT_LEVELS:", "    if False:", "project.py", [], "plain"),
  ("PJ2 project.py selftest misses a missing intake answer", "project.py", '    elif lvl != "involved" and not str(cfg.get("involvement_answer") or "").strip():', '    elif False:', "project.py", [], "plain"),
-]
-
-# Codex fallback startup/result integrity and rendering regression controls (2026-10-18).
-MUTANTS += [
-    ("CX1 medium reasoning removed", "codex_spawn.py", '\'model_reasoning_effort="medium"\',', '\'model_reasoning_effort="none"\',', "codex_spawn.py", [], "plain"),
-    ("CX2 missing final accepted", "codex_spawn.py", '0 if final_ok and not startup_error else 1', '0 if not startup_error else 1', "codex_spawn.py", [], "plain"),
-    ("CX3 sandbox failure accepted", "codex_spawn.py", '0 if final_ok and not startup_error else 1', '0 if final_ok else 1', "codex_spawn.py", [], "plain"),
-    ("CX4 stale final accepted", "codex_spawn.py", '    if os.path.exists(log):\n        os.unlink(log)', '    if False:\n        os.unlink(log)', "codex_spawn.py", [], "plain"),
 ]
 
 # Parallel lane attribution and owner-returned seals.
@@ -1221,14 +1313,14 @@ MUTANTS += [
     ("PJ13 --stage does not name the stage file to read", "project.py", '        return f"read now: audits/{f} (and RUN.md', '        return f"read now: RUN.md (and RUN.md', "project.py", [], "plain"),
     ("PJ14 Stage 0 maps to no stage file", "project.py", 'm = re.search(r"\\bStage\\s+([0-5])\\b"', 'm = re.search(r"\\bStage\\s+([1-5])\\b"', "project.py", [], "plain"),
     ("PJ15 a sorry becomes a stop again (B3)", "project.py", '"sorry": ("proof-wip",', '"sorry": ("proof",', "project.py", [], "plain"),
-    ("CS24 reader responses and Checkpoint B questions still prompt", "claude_settings.py", "                \"QUESTIONS-B-*.md\", \"readers/*.response*.md\", \"status-check/*.md\"]", "                \"status-check/*.md\"]", "claude_settings.py", [], "plain"),
+    ("CS24 reader responses and Checkpoint B questions still prompt", "claude_settings.py", "                \"QUESTIONS-B-*.md\", \"readers/*.response*.md\"]", "                \"QUESTIONS-B-*.md\"]", "claude_settings.py", [], "plain"),
     ("CS25 the shell sweep script editable", "claude_settings.py", "\"Edit(/audits/*.json)\", \"Edit(/audits/*.sh)\",", "\"Edit(/audits/*.json)\",", "claude_settings.py", [], "plain"),
     ("P73 readers given an absolute script path (it asks for permission)", "prompt.py", "    hash_cmd = (f\"python3 audits/readers.py --project", "    hash_cmd = (f\"python3 /x/audits/readers.py --project", "prompt.py", [], "plain"),
     # B1/B3 (chunk 2): the always-read core and its stage files
     ("P74 RUN.md's stage map loses a stage file", "RUN.md", "| 3 proofs | `run/stage3-proofs.md` |", "| 3 proofs | stage 3 |", "tests/doclint.py", [], "plain"),
     ("P75 RUN.md loses log-before-edit for a hands-off statement change", "RUN.md", "**Log before the edit:** before the Lean", "Before the Lean", "tests/doclint.py", [], "plain"),
     ("P76 RUN.md loses the missing-theory level rule", "RUN.md", "3. otherwise take the missing theorem as a **named hypothesis** (option (2))", "3. otherwise take the missing theorem as a hypothesis", "tests/doclint.py", [], "plain"),
-    ("P77 RUN.md's failure table loses a cause class", "RUN.md", "| mechanical, proof-wip, document |", "| mechanical, document |", "tests/doclint.py", [], "plain"),
+    ("P77 the failure table loses a cause class", "run/stops-and-set-asides.md", "| mechanical, proof-wip, document |", "| mechanical, document |", "tests/doclint.py", [], "plain"),
     ("P78 a file under audits/run/ the stage map does not know", "project.py", '"run/stops-and-set-asides.md", "run/codex.md"]', '"run/stops-and-set-asides.md"]', "tests/doclint.py", [], "plain"),
     ("P79 the mechanical retry budget becomes a count", "run/spawn-and-seal.md", "**Retry budget (time, not count).**", "**Retry at most twice.**", "tests/doclint.py", [], "plain"),
     ("P80 RUN.md tells the operator to read AUDIT_PROTOCOL.md", "RUN.md", "Do not read `AUDIT_PROTOCOL.md`: it holds", "Read `AUDIT_PROTOCOL.md` in full: it holds", "tests/doclint.py", [], "plain"),
@@ -1260,20 +1352,17 @@ MUTANTS += [
  ("SR-LC1 a mention flag is a PROBLEM again", "lanecheck.py", '        probs.append(f"NOTE[independence] {rel}: mentions "', '        probs.append(f"PROBLEM[independence] {rel}: mentions "', "lanecheck.py", [], "plain"),
  ("SR-LC2 a PROBLEM does not count", "lanecheck.py", "def counts(p):\n    return not p.startswith(NOTE)", "def counts(p):\n    return not p.startswith((NOTE, 'PROBLEM'))", "lanecheck.py", [], "plain"),
  ("SR-LC3 S3: re-vote probes looked for in the round dir only", "lanecheck.py", "        if all(glob.glob(os.path.join(base, x)) for x in pats):", "        if all(glob.glob(os.path.join(round_dir, x)) for x in pats):", "lanecheck.py", [], "plain"),
- ("SR-LC6 review L8: resolutions/ not a record", "lanecheck.py", '                       r"|readers/|resolutions/|stops/)", re.I)', '                       r"|readers/|stops/)", re.I)', "lanecheck.py", [], "plain"),
  ("SR-LC7 review M4: an abandoned re-vote still a lane file", "lanecheck.py", "        if is_abandoned_lane(round_dir, os.path.relpath(p, round_dir)):\n            continue", "        if False:\n            continue", "lanecheck.py", [], "plain"),
  ("SR-LC8 X7: ABANDONED.json read as a lane verdict", "lanecheck.py", '"INFORMAL.json", "ABANDONED.json")', '"INFORMAL.json")', "lanecheck.py", [], "plain"),
  ("SR-IN1 an abandon commit covers ADOPTED.md", "integrity.py", "                              and os.path.basename(rel) not in NEVER_ABANDONED)", ")", "integrity.py", [], "plain"),
  ("SR-IN2 S2: abandon commits not accepted", "integrity.py", "            abandoned_file = (ab and ab[2](rel)", "            abandoned_file = (False and ab[2](rel)", "integrity.py", [], "plain"),
  ("SR-IN3 an abandoned round may change later", "integrity.py", "        if ab:\n            frozen +=", "        if False:\n            frozen +=", "integrity.py", [], "plain"),
- ("SR-IN5 stall records not owned by resolve", "integrity.py", '    ("resolutions/*", "resolve ", ()),\n    # the stop', '    # the stop', "integrity.py", [], "plain"),
- ("SR-IN6 superseded evidence not owned by its supersede", "integrity.py", '    ("*/.superseded/*", "scope ", ()),', '', "integrity.py", [], "plain"),
  ("SR-IN8 X11: an abandoned re-vote lane may change later", "integrity.py", '                       else [(f, subject) for f in files if f.startswith(ab[0] + "/")])', '                       else [])', "integrity.py", [], "plain"),
  ("SR-PJ1 abandoned rounds still listed as rounds", "project.py", "                         if is_round(p) and (include_abandoned or not is_abandoned(p))], repo or REPO)", "                         if is_round(p)], repo or REPO)", "project.py", [], "plain"),
  ("SR-PJ2 a new log section goes to the end", "project.py", '        if cs and section != "Current stage":', '        if False:', "project.py", [], "plain"),
  ("SR-PJ3 review L1: log sections matched by prefix", "project.py", '    m = re.search(rf"^## {re.escape(section)}[ \\t]*(?:\\([^)\\n]*\\))?[ \\t]*\\n", log, re.M)', '    m = re.search(rf"^## {re.escape(section)}\\b[^\\n]*\\n", log, re.M)', "project.py", [], "plain"),
  ("SR-PJ4 review L2: a heading injected through --log", "project.py", '    if re.search(r"^\\s*#", body, re.M):\n        raise ValueError("a log entry', '    if False:\n        raise ValueError("a log entry', "project.py", [], "plain"),
- ("SR-PJ6 X9: the --log CLI ignores stdin", "project.py", "                p = log_append(cfg, argv[1], sys.stdin.read())", "                p = log_append(cfg, argv[1], 'x')", "project.py", [], "plain"),
+ ("SR-PJ6 X9: the --log CLI ignores stdin", "project.py", "                p = log_append(cfg, argv[1], text)", "                p = log_append(cfg, argv[1], 'x')", "project.py", [], "plain"),
  ("SR-AC1 abandoned rounds counted for coverage", "audit_coverage.py", '    return [d for d in glob.glob(os.path.join(audits_dir, "*")) if not project.is_abandoned(d)]', '    return glob.glob(os.path.join(audits_dir, "*"))', "audit_coverage.py", [], "plain"),
  ("SR-DC1 review H2: the stall resolver not a valid source", "decisions.py", "            \"cause table\")", "            )", "decisions.py", [], "plain"),
  ('SR-DC3 a settled re-vote listed as open', 'decisions.py', '                pending.pop(key)', '                pass', 'tests/round3.py', [], 'plain'),
@@ -1284,7 +1373,6 @@ MUTANTS += [
  ("SR-MR5 test run: the human's decisions at stops not listed", "make_report.py", '             + ("".join(f"- {h}\\n" for h in hd) if hd else f"- {NONE_RECORDED}\\n")', '             + f"- {NONE_RECORDED}\\n"', "make_report.py", PROJ, "plain"),
  ("SR-MR6 test run: 'no human decided' despite a human answer", "make_report.py", "    if n:\n        return (f\"{base}. The record attributes", "    if False:\n        return (f\"{base}. The record attributes", "make_report.py", PROJ, "plain"),
  ("SR-MR7 test run: unsettled re-votes not in the report", "make_report.py", "    if revotes:\n        body += \"| round | lane | item | status", "    if False:\n        body += \"| round | lane | item | status", "make_report.py", PROJ, "plain"),
- ("SR-MR8 review M4: an abandoned round's sealed Fails not named", "make_report.py", '    items = [f"{r[0]} SET ASIDE ({r[1]}, {r[2]}): {r[3]}" for r in set_asides(cfg)]', '    items = []', "make_report.py", PROJ, "plain"),
  ("SR-MR9 test run: a record's '##' printed as such", "make_report.py", '    return re.sub(r"^\\s*#{1,6}\\s+(.+?)\\s*#*\\s*$", r"**\\1**", md, flags=re.M)', '    return md', "make_report.py", PROJ, "plain"),
  ("SR-MR12 a dependency walk at another commit not flagged", "make_report.py", '    stale = "" if same else f" (computed at commit {d.get(\'commit\')}" + (f", not at {head})" if head else ")")', '    stale = ""', "make_report.py", PROJ, "plain"),
  ("SR-MR13 test run: G1/G2 never defined", "make_report.py", '    return [(str(g.get("id")), f"{g.get(\'title\', \'\')} -- {\' \'.join(str(g.get(\'text\', \'\')).split())}")', '    return [] and [(str(g.get("id")), f"{g.get(\'title\', \'\')} -- {\' \'.join(str(g.get(\'text\', \'\')).split())}")', "make_report.py", PROJ, "plain"),
@@ -1353,7 +1441,7 @@ MUTANTS += [
   '            h = project.commit_only(paths, f"approve {a.round}")',
   '            h = project.commit_only(paths + [snap_p], f"approve {a.round}")', "signoff.py", [], "plain"),
  ("K1-SG2 A5: the blind reading is saved twice", "signoff.py",
-  '    if st and name == "INFORMAL.json":', "    if False:", "signoff.py", [], "plain"),
+  '    if st and name in ("INFORMAL.json", "INFORMAL-2.json"):', "    if False:", "signoff.py", [], "plain"),
  ("K1-SG3 A5: a re-written sheet is saved without a reason", "signoff.py",
   "    if st and not why:", "    if False:", "signoff.py", [], "plain"),
 ]
@@ -1562,9 +1650,6 @@ MUTANTS += [
 ]
 MUTANTS += [
  ('R3-5a the carry/settle parser strips only bold again', 'lanecheck.py', '        dec = project.decision_of(cell("decision")) or "?" + cell("decision").strip()', '        dec = cell("decision").strip("* ").upper()', 'tests/round3.py', [], 'plain'),
- ("R3-5b the report reads a decision column with its own heuristics", "audit_coverage.py",
-  "        structured = \"decision\" in header and \"item\" in header and len(cells) >= len(header)",
-  "        structured = False", "tests/round3.py", [], "plain"),
  ("R3-5c struck-through text counts", "project.py", "    t = re.sub(r\"~~.*?~~\", \" \", str(cell))",
   "    t = str(cell)", "tests/round3.py", [], "plain"),
  ("R3-5d an unreadable decision cell is not refused", "lanecheck.py",
@@ -1695,10 +1780,16 @@ MUTANTS += [
   "    hits = sorted(n for n in names if clean_cell(n) == clean_cell(cell))",
   "    hits = sorted(n for n in names if ' '.join(clean_cell(n).split()) == ' '.join(clean_cell(cell).split()))",
   "tests/round3.py", [], "plain"),
- ("R3f-2a audit_coverage reads a current-format record best-effort, not through the shared reader", "audit_coverage.py",
-  "    if strict_rows(os.path.dirname(rd)):", "    if False:", "tests/round3.py", [], "plain"),
- ("R3f-2b a record pinned before strict rows (ownership 1) is read strictly", "audit_coverage.py",
-  "integrity.pinned_version(rounds_dir) >= 2", "integrity.pinned_version(rounds_dir) >= 1", "tests/round3.py", [], "plain"),
+ # D8 (0.3.2): read_adopted reads only through the strict reader (the 0.2 best-effort reader and its mutants are gone)
+ ("D8-1 a refused row is read", "audit_coverage.py", "    for r in lanecheck.valid_rows(", "    for r in lanecheck.decision_rows(",
+  "audit_coverage.py", [], "plain"),
+ ("D8-2 a lane instance is keyed by its own name", "audit_coverage.py", '        k = f"{r.base} :: {norm_item(r.item)}"',
+  '        k = f"{r.lane} :: {norm_item(r.item)}"', "audit_coverage.py", [], "plain"),
+ ("D8-3 a cell recording no decision decides", "audit_coverage.py",
+  '        if r.decision.startswith("?") or r.decision == "REVOTE NEEDED":', '        if r.decision == "REVOTE NEEDED":',
+  "audit_coverage.py", [], "plain"),
+ ("D8-4 UNCOVERED replaces a decision within a file", "audit_coverage.py",
+  '        if r.decision != "UNCOVERED" or k not in out:', "        if True:", "audit_coverage.py", [], "plain"),
 ]
 
 # --- R3g: lanecheck validates every lane verdict file's schema (narrow X4 "with junk entries") -----
@@ -2029,7 +2120,8 @@ MUTANTS += [
 
 MUTANTS += [
  ("RC2-1 a round dir with a planted ADOPTED.md and no TARGET.json becomes the next diff round's base", "scope.py",
-  '              and os.path.exists(os.path.join(r, "TARGET.json"))]', "              ]", "scope.py", [], "plain"),
+  '              and os.path.exists(os.path.join(r, "TARGET.json"))\n              and (rule < 2',
+  "              and (rule < 2", "scope.py", [], "plain"),
 ]
 MUTANTS += [
  ("RC3-1 a QUESTION line on another item counts for the VACUOUS row", "make_report.py",
@@ -2078,7 +2170,7 @@ MUTANTS += [
   '            some = (not whole and len(hit) > 1',
   '            some = (len(hit) > 1 or True', "signoff.py", [], "plain"),
  ("RM-14 an uncommitted reader record is disclosed (record integrity)", "readers.py",
-  '    return probs\n\n\n# --- hand edits of a generated document', '    return [project.Finding(p_, "reader") for p_ in probs]\n\n\n# --- hand edits of a generated document', "readers.py", [], "plain"),
+  '    return probs\n\n\ndef save(', '    return [project.Finding(p_, "reader") for p_ in probs]\n\n\ndef save(', "readers.py", [], "plain"),
  ("RM-15 disclose records a check that still fails", "stops.py",
   '        if rc != 0:\n            raise Refused(f"`{cmd}` fails',
   '        if False:\n            raise Refused(f"`{cmd}` fails', "stops.py", [], "plain"),
@@ -2088,10 +2180,9 @@ MUTANTS += [
  ("RM-16 disclose records a DISCLOSED line with a blocking code", "stops.py",
   '        wrong = sorted({f["code"] for f in faults if project.release_class(f["code"]) != "N"})',
   '        wrong = []', "stops.py", [], "plain"),
- # RM-17 re-pointed at the integration (attack 7 added project.TOOL_FAULT_SCRIPTS to the same condition)
  ("RM-17 a crash of prompt.py (blocking job) is disclosed as tool-fault", "stops.py",
-  '        if (script not in project.SCRIPT_RELEASE or project.SCRIPT_RELEASE[script] is not None) and \\',
-  '        if (script not in project.SCRIPT_RELEASE) and \\', "stops.py", [], "plain"),
+  '        if script not in project.SCRIPT_RELEASE or project.SCRIPT_RELEASE[script] is not None:',
+  '        if script not in project.SCRIPT_RELEASE:', "stops.py", [], "plain"),
  ("RM-18 disclose works in dev mode", "stops.py",
   '    if project.mode(cfg) != "release":\n        raise Refused(f"the run mode is',
   '    if False:\n        raise Refused(f"the run mode is', "stops.py", [], "plain"),
@@ -2222,7 +2313,9 @@ MUTANTS += [
   '                doc = re.search(r"/--((?:(?!/-|-/).)*)-/$", pre, re.S)',
   '                doc = re.search(r"/--(.*)-/$", pre, re.S)', "phase0.py", [], "plain"),
  ("rv-H2a a record's matter is read from its anchor's Lean name (`lemma_2_1_c` -> Lemma 2)", "decisions.py",
-  '            return exact_label(label)', '            return result_of(ident.replace("_", " ")) or exact_label(label)',
+  '            return exact_label(label)',
+  '            return (lambda m_: f"{m_.group(1).capitalize()} {m_.group(2)}" if m_ else None)(re.search('
+  'rf"\\b({project.RESULT_KINDS_RE})s?[\\s_]+(\\d+(?:\\.\\d+)*)", ident.replace("_", " "), re.I)) or exact_label(label)',
   "decisions.py", [], "plain"),
  ("rv-H2b a plural label ('Lemmas 3.5 and 3.6') is read as its first result", "decisions.py",
   '        if m.group(2):\n            return None', '        if False:\n            return None', "decisions.py", [], "plain"),
@@ -3175,7 +3268,7 @@ MUTANTS += [
  ("b4-15 Lean: the refutation's type is not checked", "signoff.py",
   'try (isDefEq v.type (mkNot (mkConst asp)))', 'try (pure true)', "signoff.py", ["--lean"], "lean"),
  ("b4-16 Lean: `_as_printed` is not compared with the approved statement", "signoff.py",
-  'try (isDefEq a.value d.type)', 'try (pure true)', "signoff.py", ["--lean"], "lean"),
+  'try (isDefEq a.value dty)', 'try (pure true)', "signoff.py", ["--lean"], "lean"),
  ("b2-4 the axiom sweep ignores the pending state", "axiom_sweep_tail.lean",
   '  let pending : List Name := (__PENDING__ : List String).map resolve', '  let pending : List Name := []',
   "axiom_sweep.py", PROJ, "lean"),
@@ -3716,7 +3809,7 @@ MUTANTS += [
   "        counted, cap, what = [r for r in stm if after(r)], REAPPROVAL_CAP,",
   "        counted, cap, what = stm, REAPPROVAL_CAP,", "scope.py", [], "plain"),
  ("b13-20 round-cap is not a stop in dev (the dev route of the cap lost)", "project.py",
-  '    return "stop" if mode(cfg) != "release" or ROUND_CAP_ROUTE == "stop" else "judge"',
+  '    return "stop" if mode(cfg) != "release" else "judge"',
   '    return "judge"', "scope.py", [], "plain"),
  ("fs-1 the ambiguity stop is not a human stop in release (self-cured: hands-off would never ask)", "project.py",
   '                 4: ("ambiguity",)}', '                 4: ()}', "stops.py", [], "plain"),
@@ -3829,18 +3922,6 @@ MUTANTS += [
   '    if ar and project.involvement(cfg) != "hands-off":\n        gates.append(("signoff", "approved"))',
   '    if ar:\n        gates.append(("signoff", "approved"))',
   'tests/delivery.py', [], 'plain'),
- ('b10-7 deliver_checks gates the hands-off sheet on a reader (L4)', 'stops.py',
-  '        if project.involvement(cfg) != "hands-off":\n            cmds.append(py + "readers.py --doc signoff --round approved --check")',
-  '        if True:\n            cmds.append(py + "readers.py --doc signoff --round approved --check")',
-  'stops.py', [], 'plain'),
- ("b10-8 the summary's coverage check is off", 'make_report.py',
-  '            elif have < want[i]:',
-  '            elif False:',
-  'make_report.py', [], 'plain'),
- ('b10-9 the §1 independent check is off', 'make_report.py',
-  '        if plain and named:',
-  '        if False:',
-  'tests/delivery.py', [], 'plain'),
  # b10-10 re-pointed at the integration (B9's result_status replaced the stub): the summary's status is B9's
  ('b10-10 a result with no finding defaults to faithful', 'make_report.py',
   '    return _rs.result_status(cfg, row, inp)',
@@ -3864,14 +3945,6 @@ MUTANTS += [
   '        if not _phase_ok(phase, delivery_phase([x.get("code") for x in d.get("causes") or []], stop=True)):\n            continue',
   '        if False:\n            continue',
   'tests/delivery.py', [], 'plain'),
- ('b10-16 a content finding may be left unfixable before the reader-fix budget is spent (N4)', 'readers.py',
-  '                if p in flow and label(f) == "content" and used < FIX_BUDGET:',
-  '                if False:',
-  'readers.py', [], 'plain'),
- ('b10-17 a single-pass document accepts two passes on one version', 'readers.py',
-  '        if len(on_cur) > 1:',
-  '        if False:',
-  'readers.py', [], 'plain'),
  ('b10-18 three reader-fix rounds per run', 'integrity.py',
   'READER_FIX_BUDGET = 2',
   'READER_FIX_BUDGET = 3',
@@ -3903,18 +3976,12 @@ MUTANTS += [
   '    return text if key.startswith(("signoff", "summary")) else project.Finding(text, "reader")',
   '    return text if key.startswith("signoff") else project.Finding(text, "reader")',
   'readers.py', [], 'plain'),
- ("b10-27 the older run's passes follow the delivery rules (honest path false alarm)", 'readers.py',
-  '        if c is None or git("merge-base", "--is-ancestor", first, c).returncode == 0:',
-  '        if True:',
-  'readers.py', [], 'plain'),
  ('b10-28 the reader-fix route takes a status edit (DEVIATIONS kind)', 'integrity.py',
   '            if x != y and (col == "#" or col.startswith("result") or col.startswith("kind")):',
   '            if x != y and col == "#":',
   'integrity.py', [], 'plain'),
- ('b10-29 the reader-fix commit takes another owned record', 'integrity.py',
-  '        elif owner(rel) is not None and not line.startswith("??"):\n            raise ValueError(f"{rel} changed: a reader fix changes only',
-  '        elif False:\n            raise ValueError(f"{rel} changed: a reader fix changes only',
-  'integrity.py', [], 'plain'),
+ # b10-29 (the reader-fix commit takes another owned record) retired in 0.3.2 W-R6: integrity.commit_reader_fix,
+ # the writer, was removed (C-1: it refused without a prompt commit no current step writes); the verifier stays.
  ('b10-30 the summary drops the stops', 'make_report.py',
   '    for s in page_stops(inp["stops"]):\n        opn = s["by"] == "nobody yet"',
   '    for s in []:\n        opn = s["by"] == "nobody yet"',
@@ -4206,23 +4273,19 @@ MUTANTS += [
 # --- trial #9 delivery fixes: a no-change reader fix is recorded and counted; no generated line is clipped;
 # the proof slips reach the summary and the box ---------------------------------------------------------------
 MUTANTS += [
- ("t9d-1 a reader fix that changes nothing is refused again (the run is stuck: trial #9 S2)", "integrity.py",
-  "    if not changed:\n        # Trial #9:", "    if not changed:\n        raise ValueError('no record changed: nothing to commit')\n        # Trial #9:",
-  "integrity.py", [], "plain"),
+ # t9d-1 and t9d-4 (the writer refused a no-change reader fix; its empty commit swept in staged work) retired in
+ # 0.3.2 W-R6 with integrity.commit_reader_fix (C-1); t9d-2 and t9d-3 hold the verifier's counting.
  ("t9d-2 a no-change reader fix is not counted toward the budget", "integrity.py",
   "    empty = no_change_commits(audits, rounds_rel)\n", "    empty = set()\n", "integrity.py", [], "plain"),
  ("t9d-3 another project's no-change reader fix is counted (no rounds-dir match)", "integrity.py",
   '        elif cur and line.strip() == f"rounds: {rounds_rel}":', '        elif cur and line.strip().startswith("rounds: "):',
   "integrity.py", [], "plain"),
- ("t9d-4 the no-change commit sweeps in whatever else is staged", "integrity.py",
-  '"commit", "-q", "--allow-empty", "--only", "-m", msg)', '"commit", "-q", "--allow-empty", "-m", msg)',
-  "integrity.py", [], "plain"),
  ("t9d-5 a decision decided since is clipped again", "make_report.py",
   'return ("decided since by the operator (RUN_LOG.md): " + project.full(found[-1])',
   'return ("decided since by the operator (RUN_LOG.md): " + project.clip(found[-1], 260)', "make_report.py", [], "plain"),
  ("t9d-6 a stop's note is clipped again", "stops.py",
-  "else f\"a failed tool call (operator's note: {project.full(d.get('note', ''))})\")",
-  "else f\"a failed tool call (operator's note: {project.clip(d.get('note', ''), 160)})\")", "make_report.py", [], "plain"),
+  "else f\"{note_label(cfg, d)} (operator's note: {project.full(d.get('note', ''))})\")",
+  "else f\"{note_label(cfg, d)} (operator's note: {project.clip(d.get('note', ''), 160)})\")", "make_report.py", [], "plain"),
  ("t9d-7 Checkpoint A clipped again", "make_report.py", '+ project.full(ca) + ")")', '+ project.clip(ca, 300) + ")")',
   "make_report.py", [], "plain"),
  ("t9d-8 a record quoted in the decisions document clipped again", "decisions.py",
@@ -4284,10 +4347,6 @@ MUTANTS += [
   "PAGE_LINES = 62 ", "PAGE_LINES = 620 ", "make_report.py", [], "plain"),
  ("os-4 a counted line drops the first name it counts", "make_report.py",
   '"; ".join(k.ident or "-" for k in ks)', '"; ".join(k.ident or "-" for k in ks[1:])', "make_report.py", [], "plain"),
- ("os-5 the raw count of defects, slips, vacuous rows and stops is off", "make_report.py",
-  "        if on != n:", "        if False:", "make_report.py", [], "plain"),
- ("os-6 a listed item the record does not hold passes", "make_report.py",
-  "        if (p_, i_) not in want_all:", "        if False:", "make_report.py", [], "plain"),
  ("os-7 a hand delivery gets no line of its own", "make_report.py",
   "        if hand:        # its own line", "        if False:        # its own line", "make_report.py", [], "plain"),
  ("os-8 the goal line is left out", "make_report.py",
@@ -4295,10 +4354,6 @@ MUTANTS += [
  ("os-9 a vacuous result's status keeps its row number (equal statuses do not collapse)", "make_report.py",
   '            p = None if vac else "true only vacuously"', '            p = None if vac else s',
   "tests/delivery.py", [], "plain"),
- ("os-11 a results row's status is not compared with the record's", "make_report.py",
-  '        elif k.prefix == "result" and st[k.ident] != k.short and not hand_edited:', '        elif False:', "make_report.py", [], "plain"),
- ("os-12 the decisions line is not compared with the record's", "make_report.py",
-  "    if dl not in lines:", "    if False:", "make_report.py", [], "plain"),
  ("os-13 the decisions line counts the [DELEGATED] lines, not the matters", "make_report.py",
   '    txt = (f"- Decisions: {m} matter(s)', '    txt = (f"- Decisions: {inp.get(\'n_delegated\')} matter(s)',
   "make_report.py", [], "plain"),
@@ -4309,14 +4364,8 @@ MUTANTS += [
  ("os-16 a stop is not on the page", "make_report.py",
   '    for s in page_stops(inp["stops"]):\n        opn = s["by"] == "nobody yet"', '    for s in []:\n        opn = s["by"] == "nobody yet"',
   "make_report.py", [], "plain"),
- ("os-17 the coverage check lets a line be changed", "make_report.py",
-  '            if heads[i] > lst[i] and not hand_edited:', '            if False:', "make_report.py", [], "plain"),
  ("os-18 a long text is cut mid-word instead of at its first sentence with a pointer", "make_report.py",
   "            return t[:m.start()], True", "            return t[:limit], True", "make_report.py", [], "plain"),
- ("os-19 the coverage check counts only the last of several items sharing one ident (mini4's two assumption notes "
-  "refused)", "make_report.py",
-  "            lst[k.ident] += sum(1 for l in lines", "            lst[k.ident] = sum(1 for l in lines",
-  "make_report.py", [], "plain"),
  # trial #10 audit fixes (builder t10b)
  ("t10a-1 sheet: a Lean entry in code spans is looked up whole (no File.lean:N)", "signoff.py",
   '    lloc = lambda x: (re.sub(r"`([^`\\n]+)`", lambda m: one(m.group(1)), str(x)) if "`" in str(x) else one(x))',
@@ -4333,8 +4382,8 @@ MUTANTS += [
  ("t10a-6 report: delegated lines not grouped by DECISIONS.md section", "decisions.py",
   '        key = (sec(pre, t) or ', '        key = (None or ', "decisions.py", [], "plain"),
  ("t10a-7 names: a missing Lean name is not reported", "make_report.py",
-  '            for d_, ns_ in cites.items() for n in ns_ if n in missing]',
-  '            for d_, ns_ in cites.items() for n in ns_ if n in missing and False]', "make_report.py", [], "plain"),
+  '            for d_, ns_ in cites.items() if d_ not in soft for n in ns_ if n in missing]',
+  '            for d_, ns_ in cites.items() if d_ not in soft for n in ns_ if n in missing and False]', "make_report.py", [], "plain"),
  ("t10a-8 names: a failed Lean run passes", "make_report.py",
   '    if rc != 0:\n        return None, " ".join(out.split())[-400:]',
   '    if rc != 0:\n        return [], None', "make_report.py", [], "plain"),
@@ -4555,27 +4604,27 @@ MUTANTS += [
   '    if False:\n        return None\n    try:\n        import make_report, stops',
   'scope.py', [], "plain"),
  ('t11b-16 a code change skips the Stage 5 round', 'scope.py',
-  '        if changed and not c.get("comment_only"):\n            return None\n        last =',
-  '        if False:\n            return None\n        last =',
+  '        if changed and not c.get("comment_only"):\n            return _no(',
+  '        if False:\n            return _no(',
   'scope.py', [], "plain"),
  ('t11b-17 a full round is skipped after a diff round', 'scope.py',
   '        if kind == "full" and not (project.is_full_round(c["round"]) and project.round_kind(last) == "full"',
   '        if kind == "full" and False and not (project.is_full_round(c["round"]) and project.round_kind(last) == "full"',
   'scope.py', [], "plain"),
  ('t11b-18 a round is skipped while the delivery would refuse or an item is pending', 'scope.py',
-  '        if make_report.stale_problems(cfg) or make_report.pending_adjudication(cfg) \\',
-  '        if False and make_report.stale_problems(cfg) or make_report.pending_adjudication(cfg) \\',
+  '            if f_(cfg):\n                return _no(w_)',
+  '            if False:\n                return _no(w_)',
   'scope.py', [], "plain"),
  ("t11b-19 a set-aside's redo round is skipped", 'scope.py',
-  '        if stops.redo_target(cfg):\n            return None     # a set-aside',
-  '        if False:\n            return None     # a set-aside',
+  '        if stops.redo_target(cfg):\n            return _no(',
+  '        if False:\n            return _no(',
   'scope.py', [], "plain"),
  ("t11b-20 a REVOTE NEEDED row is settled by another item's decision", 'scope.py',
   '                (q.lane, q.item) == (r.lane, r.item) and q.decision in',
   '                q.decision in',
   'scope.py', [], "plain"),
  ('t11b-21 an unexpected UNCOVERED row counts as settled', 'scope.py',
-  '        if r.decision == "UNCOVERED" and "(expected" not in (r.reason or "") + (r.verdict or ""):',
+  '        if r.decision == "UNCOVERED" and "(expected" not in (r.reason or "") + (r.verdict or "") + (r.text or ""):',
   '        if False:',
   'scope.py', [], "plain"),
  ('t11b-22 stage 5 again sends a docstring-only ADOPT fix to a diff round', 'run/stage5-delivery.md',
@@ -4625,14 +4674,11 @@ MUTANTS += [
   "'\\nmodel = '+json.dumps(model)+'\\nmodel_reasoning_effort = \"medium\"\\n'+", "'\\nmodel = '+json.dumps(model)+'\\nmodel_reasoning_effort = \"medium\"\\nweb_search = \"live\"\\n'+",
   "codex_agents.py", [], "plain"),
  ("cu-4 the citation prompts' spawn line names no Codex role", "prompt.py",
-  '"citations-review": "formalize_citations", STATUS_CHECK', 'STATUS_CHECK',
+  '"citations-review": "formalize_citations"}', '}',
   "prompt.py", [], "plain"),
  ("cu-5 a spawn line names a Codex role that is not generated", "prompt.py",
   '"fresh-reader": "formalize_reader", "formalizer": "formalize_helper",', '"fresh-reader": "formalize_fresh_reader", "formalizer": "formalize_helper",',
   "prompt.py", [], "plain"),
- ("cu-6 the status check's spawn line names no Codex role (CODEX-PORT)", "prompt.py",
-  ', STATUS_CHECK: "formalize_status_check"}', '}',
-  "codex_agents.py", [], "plain"),
  ("cu-7 a reissued lane's spawn line names no Codex role (CODEX-PORT)", "lane_auth.py",
   "spawn ONE fresh lane (subagent_type auditor; Codex: agent_type formalize_auditor, fork_turns none) with exactly: ",
   "spawn ONE fresh lane with exactly: ",
@@ -4693,11 +4739,6 @@ MUTANTS += [
   "    return False", "make_report.py", [], "plain"),
  ("RUNREC9 --check-delivered ignores a swapped RUN_RECORD.md", "project.py",
   "        if _rr.sha_file(rr_p) != rr_fp[0]:", "        if False:", "project.py", [], "plain"),
- ("RUNREC12 the delivered run record omits the status check", "run_record.py",
-  "    out += status_check_lines(cfg)\n", "", "run_record.py", [], "plain"),
- ("RUNREC13 the status check prompt is written under no rounds-dir folder", "prompt.py",
-  '    if name == "status-check":\n        return os.path.join(project.REPO, cfg["rounds_dir"], STATUS_CHECK)',
-  '    if False:\n        return None', "prompt.py", [], "plain"),
  ("RUNREC11 the report keeps a numbered section for the reader notes", "make_report.py",
   '        body = body[:i_] + "\\n### Notes for the reader\\n\\n"', '        body = body[:i_] + "\\n## 1a. Notes for the reader\\n\\n"',
   "make_report.py", [], "plain"),
@@ -4759,14 +4800,6 @@ MUTANTS += [
   '            pass', "tests/delivery.py", [], "plain"),
 ]
 MUTANTS += [
- ("c1-11 --deliver accepts a status check of an earlier SUMMARY.md", "run_record.py",
-  "    if last.get(\"summary_sha256\") != cur and len(runs) < STATUS_CHECK_CAP:",
-  "    if False:", "run_record.py", [], "plain"),
- ("c1-12 a status-check run on an unchanged summary is written again", "run_record.py",
-  "        if runs[-1].get(\"summary_sha256\") == cur:", "        if False:", "run_record.py", [], "plain"),
- ("c1-13 a re-run leaves the earlier FINDINGS.md for the new agent to overwrite", "run_record.py",
-  '                os.replace(os.path.join(d, f), os.path.join(d, f.replace(".md", f"-{n - 1}.md")))',
-  '                pass', "run_record.py", [], "plain"),
 ]
 MUTANTS += [
  ("c1-15 --deliver leaves its RUN_LOG.md line uncommitted", "project.py",
@@ -4780,35 +4813,8 @@ MUTANTS += [
 # --- DOC-FIX (approver 2026-10-25): a fault an agent finds in a generated document is rejected, fixed in the generator,
 # or hand-edited after the final prepare (recorded, chained, re-read, judged by the status check) ----
 MUTANTS += [
- ("DF1 a fixed answer naming an erased hand edit is accepted", "readers.py",
-  "                    if he not in live:", "                    if False:", "readers.py", [], "plain"),
- ("DF2 'unfixable: generator fault' accepted on a generated document", "readers.py",
-  '                    and (label(f) == "presentation" or GENERATOR_BLAME_RE.search(why)):',
-  "                    and False:", "readers.py", [], "plain"),
- ("DF3 an unfixable content finding blaming the generator accepted", "readers.py",
-  '(label(f) == "presentation" or GENERATOR_BLAME_RE.search(why))', '(label(f) == "presentation")',
-  "readers.py", [], "plain"),
- ("DF4 a commit outside the hand edits changes the document unnoticed", "readers.py",
-  "            if h not in seen:", "            if False:", "readers.py", [], "plain"),
- ("DF5 an uncommitted change on top of the last hand edit accepted", "readers.py",
-  "    if disk != want:\n        out.append(f\"{name} on disk", "    if False:\n        out.append(f\"{name} on disk",
-  "readers.py", [], "plain"),
- ("DF6 a hand edit's diff record not compared with its commit", "readers.py",
-  "        if diff_rec is None or doc_diff(rd, name, c) != diff_rec:", "        if False:", "readers.py", [], "plain"),
- ("DF7 the status check's MISMATCH on a hand edit ignored", "readers.py",
-  '        if "MISMATCH" in v:', "        if False:", "readers.py", [], "plain"),
- ("DF8 a status check committed before the hand edit counts as its judgement", "readers.py",
-  '            or _rgit(rd, "merge-base", "--is-ancestor", newest, fc).returncode != 0:',
-  "            or False:", "readers.py", [], "plain"),
- ("DF9 a hand edit recorded for a finding no agent wrote", "readers.py",
-  "    probs = finding_problems(rd, finding)\n", "    probs = []\n", "readers.py", [], "plain"),
- ("DF13 the delivered run record need not list a live hand edit", "integrity.py",
-  "    if live and delivered:", "    if False:", "integrity.py", [], "plain"),
- ("DF14 the delivered run record omits the hand edits", "run_record.py",
-  "    out += hand_edit_lines(cfg)\n", "", "run_record.py", [], "plain"),   # E2E-FIX2: its delivery scenario is gone
- ("DF16 a status-check run to judge a hand edit is refused (SUMMARY unchanged, or past the cap)", "run_record.py",
-  '    unjudged = bool(items) and items != issued(runs[-1]) if runs else False',
-  '    unjudged = False', "readers.py", [], "plain"),     # integration: tests/delivery.py no longer exercises it
+   # E2E-FIX2: its delivery scenario is gone
+     # integration: tests/delivery.py no longer exercises it
 ]
 
 MUTANTS += [
@@ -4881,31 +4887,7 @@ MUTANTS += [
  ("DF23 a selftest fixture reads the run's applied tool patches", "integrity.py",
   "        applied_tool_patches = lambda a, rd: real(self.empty if os.path.realpath(a) == self.audits else a, rd)",
   "        applied_tool_patches = lambda a, rd: real(a, rd)", "integrity.py", [], "plain"),
- ("DF24 a failed status-check run on hand edits is not run again (SUMMARY unchanged, or past the cap)", "run_record.py",
-  "    if failed:\n        runs[-1][\"failed\"] = failed\n        unjudged = True\n",
-  "    if False:\n        runs[-1][\"failed\"] = failed\n        unjudged = True\n", "readers.py", [], "plain"),
- ("DF25 a verdict line outside the issued agent's sealed FINDINGS.md is accepted", "readers.py",
-  "    if failed:\n        return [f\"the status check's last run gave no sealed verdict",
-  "    if False:\n        return [f\"the status check's last run gave no sealed verdict", "readers.py", [], "plain"),
- ("DF26 the seal accepts a FINDINGS.md without its run's token", "run_record.py",
-  "    if len(toks) != 1 or _sha(toks[0].encode()) != last.get(\"token_sha256\"):", "    if False:",
-  "readers.py", [], "plain"),
- ("DF27 the seal accepts a digest that is not the file's", "run_record.py",
-  "    if _sha(raw) != digest:", "    if False:", "readers.py", [], "plain"),
- ("DF28 a FINDINGS.md changed after its seal is accepted", "run_record.py",
-  "    if seal.get(\"sha256\") != _sha(raw) or seal.get(\"token_sha256\") != last.get(\"token_sha256\"):",
-  "    if False:", "readers.py", [], "plain"),
- ("DF29 an unsealed run's verdicts count as a judgement", "run_record.py",
-  "    if seal is None:\n        return why + verdicts", "    if seal is None:\n        return None", "readers.py", [],
-  "plain"),
- ("STATUSRET1 the seal accepts a returned FINDINGS.md saved with one character changed (C3a)", "run_record.py",
-  "    if _sha(raw) != digest:", "    if False:", "readers.py", [], "plain"),   # B15: readers.py's G5 seal checks kill it
- ("STATUSRET3 the status-check spawn line does not say a refused FINDINGS.md may be returned", "run_record.py",
-  '            f"`sha256sum <<\'{returned_delimiter(token)}\'`, ending with the same line.")',
-  '            f"`sha256sum <<\'RETURNED\'`, ending with the same line.")', "prompt.py", [], "plain"),
- ("STATUSRET4 the status-check prompt does not say a refused FINDINGS.md may be returned", "AUDIT_PROTOCOL.md",
-  "`BEGIN RETURNED FILE <ROUNDS-DIR>/status-check/FINDINGS.md <delimiter>`, the same",
-  "`BEGIN RETURNED FILE <ROUNDS-DIR>/status-check/FINDINGS.md`, the same", "prompt.py", [], "plain"),
+   # B15: readers.py's G5 seal checks kill it
  ("STATUSRET5 the tool-patch reviewer is not told it may return a refused verdict file", "AUDIT_PROTOCOL.md",
   "Hash the object with `sha256sum <<'<delimiter>'`, the", "Hash the object with `sha256sum <<'RETURNED'`, the",
   "prompt.py", [], "plain"),
@@ -4921,9 +4903,7 @@ MUTANTS += [
   "the LANE_COMPLETION line.\n\"\"\"\n\n\ndef core_fault_request", "prompt.py", [], "plain"),
  ("DF30 the delivered run record omits the dismissed reader findings", "run_record.py",
   "    out += dismissed_lines(cfg)\n", "", "run_record.py", [], "plain"),   # E2E-FIX2: its delivery scenario is gone
- ("DF31 the MISMATCH refusal offers a restoring hand edit again (it loops)", "readers.py",
-  "undo it by preparing again \"", "undo it (prepare again, or a hand edit restoring the generated text) \"",
-  "readers.py", [], "plain"),   # E2E-FIX2: its delivery scenario is gone; readers.py's own selftest holds the refusal
+   # E2E-FIX2: its delivery scenario is gone; readers.py's own selftest holds the refusal
 ]
 
 
@@ -4970,10 +4950,6 @@ MUTANTS += [
   "    if fpc and cur and fpc != cur and owned:", "    if fpc and cur and fpc != cur:", "tool_patch.py", [], "plain"),
 ]
 MUTANTS += [
- ("c2-29 an unsealed, tokened, complete status-check MISMATCH counts as a failed run (verdict shopping)", "run_record.py",
-  "    judged = status_run_judged(cfg, live_all, runs) if same_ else None", "    judged = None", "readers.py", [], "plain"),
- ("c2-30 deleting a committed tokened FINDINGS.md makes the run a failed one", "run_record.py",
-  '    for h in (lg.stdout.split() if lg.returncode == 0 else []):', "    for h in []:", "readers.py", [], "plain"),
 ]
 # --- RELEASE-SWEEP BLOCKING 2-4 (SWEEP-FIX D2): the reviewed acknowledgment of a history fault; stops.py bookkeeping
 MUTANTS += [
@@ -5051,8 +5027,6 @@ MUTANTS += [
  ("sw-d4-7 the Checks weakened row ignores the parts the first pin requires", "make_report.py",
   "    parts += [p_ for p_ in tool_patch.weakened_parts(cfg) if p_ not in parts]", "    parts += []",
   "make_report.py", [], "plain"),
- ("sw-d4-8 the status check is not shown the raised statuses", "prompt.py",
-  "            rl_ = tool_patch.raised_lines(cfg)", "            rl_ = []", "prompt.py", [], "plain"),
  ("sw-d4-9 the first pin's statuses are not the reference (the current ones are)", "tool_patch.py",
   "    if stats[0] is None or cur is None or tables[0] is None or cur_t is None:",
   "    stats[0] = cur\n    if stats[0] is None or cur is None or tables[0] is None or cur_t is None:",
@@ -5076,12 +5050,6 @@ MUTANTS += [
   '    return " ".join(str(line).split())', "stops.py", [], "plain"),
  ("c2-32 a check failing with no failure line (a timeout) is recorded as an empty set", "stops.py",
   "    if empty:\n        # review 2", "    if False:\n        # review 2", "stops.py", [], "plain"),
- ("c2-33 a trust line judged MISMATCH by the status check is accepted", "readers.py",
-  '           for i in ids if said.get(i) == "MISMATCH"]', '           for i in ids if False]', "readers.py", [], "plain"),
- ("c2-34 an extra trust line (no event) judged MISMATCH is accepted", "readers.py",
-  '    if said.get("extra") == "MISMATCH":', "    if False:", "readers.py", [], "plain"),
- ("c2-35 a trust-line verdict on an earlier SUMMARY.md is never judged again past the cap", "run_record.py",
-  '        same_, unjudged = False, True\n', '        pass\n', "readers.py", [], "plain"),
  ("c2-36 a status-check agent's seal does not count against a core-fault reviewer's freshness", "stops.py",
   'if x != os.path.join(STOPS, s, ".lane-seals", f"core-review-{k}.json")] + other_agent_seals(rd, agent)',
   'if x != os.path.join(STOPS, s, ".lane-seals", f"core-review-{k}.json")]', "stops.py", [], "plain"),
@@ -5095,9 +5063,6 @@ MUTANTS += [
  ("c2-39 the summary lists a not-verified stop with its mechanism", "make_report.py",
   'not s.get("deferred") and not s.get("core")\n            and not s.get("withdrawn")]',
   'not s.get("deferred")\n            and not s.get("withdrawn")]', "stops.py", [], "plain"),
- ("c2-40 a sealed run's replaced FINDINGS.md is re-sealed instead of restored", "run_record.py",
-  "        if disk == seal.get(\"sha256\"):\n            return None", "        if True:\n            return None",
-  "readers.py", [], "plain"),
  ("c2-41 a provenance-only core fault marks every result not verified", "stops.py",
   '    ("integrity.py", "record", "the record of who reviewed and approved what could not be verified automatically", None),',
   '    ("integrity.py", "record", "the record of who reviewed and approved what could not be verified automatically", "not verified"),',
@@ -5166,27 +5131,11 @@ MUTANTS += [
   "    elif core_fault_markers(cfg):\n        kern =", "    elif False:\n        kern =", "make_report.py", [], "plain"),
  ("c2-44 the legend says nothing of what *faithful* rests on under a provenance fault", "make_report.py",
   '            if cf_ else "") + (RECORD_LEGEND if rec_ else "")]', '            if cf_ else "")]', "make_report.py", [], "plain"),
- ("c2-45 a trust-line OK on an earlier SUMMARY.md is accepted", "readers.py",
-  '    if runs[-1].get("summary_sha256") != run_record.summary_sha(cfg):', "    if False:", "readers.py", [], "plain"),
- ("c2-46 the status check is not told what each trust line weakens", "make_report.py",
-  'f"{e.id} ({e.kind}; the line: \\"{e.line}\\"; what it weakens: {e.affects}; "',
-  'f"{e.id} ({e.kind}; the line: \\"{e.line}\\"; "', "readers.py", [], "plain"),
- ("c2-47 a trust sentence no provider stands for is delivered unguarded", "readers.py",
-  "                for t in make_report.trust_sentences(txt) if t not in lines]", "                for t in []]",
-  "readers.py", [], "plain"),
- ("c2-48 with no trust event an `extra` MISMATCH is never read", "readers.py",
-  '        elif said0.get("extra") == "MISMATCH":', "        elif False:", "readers.py", [], "plain"),
  ("c2-49 a project file under /tmp is collapsed like a temporary file", "stops.py",
   'r"(?:\\.[A-Za-z]+)?(?![A-Za-z0-9_])" % re.escape(tempfile.gettempdir()))',
   'r"(?:\\.[A-Za-z]+)?(?![A-Za-z0-9_])|/tmp/[^\\s:]+" % re.escape(tempfile.gettempdir()))', "stops.py", [], "plain"),
 ]
 MUTANTS += [
- ("c2-50 past the cap, an extra MISMATCH with no event is never judged again on a fixed summary", "run_record.py",
-  '        if said_x.get("extra") == "MISMATCH":\n            unjudged = True', '        if False:\n            unjudged = True',
-  "readers.py", [], "plain"),
- ("c2-51 with no event, a stale `extra` MISMATCH is dropped without a new judgement", "readers.py",
-  '        if said0.get("extra") == "MISMATCH" and runs[-1].get("summary_sha256") != run_record.summary_sha(cfg):',
-  "        if False:", "readers.py", [], "plain"),
 ]
 # --- review re-check (2026-10-26): R1, R2, M8, R3 -------------------------------------------------------------------------
 MUTANTS += [
@@ -5987,9 +5936,6 @@ MUTANTS += [
   "make_report.py", [], "plain"),
 ]
 MUTANTS += [
- ("B3-1 the delivery's coverage note reads a hand-written summary with the strict two-column reader (cannot see N)",
-  "make_report.py", "st, seen = _hand_rows(text, keys) if hand_edited else _table_rows_of(text)",
-  "st, seen = _table_rows_of(text)", "make_report.py", [], "plain"),
  ("B3-2 a label's trailing parenthetical is cut at its innermost `(`, not the balanced one", "project.py",
   "    m = _trailing_paren(s)\n    return s[:m[0]].strip() if m and m[0] > 0 else s\n",
   "    m = re.search(r\"\\s*\\([^()]*\\)$\", s)\n    return s[:m.start()].strip() if m and m.start() > 0 else s\n",
@@ -6011,9 +5957,9 @@ MUTANTS += [
   '        if mentions(what_, label, names):', "result_status.py", [], "plain"),
 ]
 MUTANTS += [
- ("B20-1 the stops table reads an Open questions entry answered only when it says `(answered` (CR-4)", "make_report.py",
+ ("B20-1 the stops table reads an Open questions entry answered only when it says `(answered` (NW-4)", "make_report.py",
   "        ans_ = decisions.entry_answered(b, refs_)", '        ans_ = "(answered" in t', "make_report.py", [], "plain"),
- ("B20-2 an answer line naming an entry's QUESTION row does not answer it (CR-4)", "decisions.py",
+ ("B20-2 an answer line naming an entry's QUESTION row does not answer it (NW-4)", "decisions.py",
   '    return any((" ".join((q.group("item") or "").split()), q.group("round")) in qrefs for q in QROW_RE.finditer(entry))',
   "    return False", "decisions.py", [], "plain"),
 ]
@@ -6024,7 +5970,7 @@ MUTANTS += [
   "        if \"ADOPT\" in (v.get(\"decs\") or []):", "        if True:", "scope.py", [], "plain"),
 ]
 MUTANTS += [
- ("F15-1 a literature hypothesis with no valid row gets no paper-faithfulness item (CR-1: the commit dead end)",
+ ("F15-1 a literature hypothesis with no valid row gets no paper-faithfulness item (NW-1: the commit dead end)",
   "hypotheses.py", "    return {**own, **hyp_items(cfg, rd, set(own.values()))}", "    return own",
   "prompt.py", [], "plain"),
  ("F15-2 the hypothesis item is rendered as a missing-theory item", "prompt.py",
@@ -6032,7 +5978,7 @@ MUTANTS += [
   "             for it in items if it in (f13 or {}) and not it.startswith(flag)]", "prompt.py", [], "plain"),
 ]
 MUTANTS += [
- ("KF-1 a KNOWN_FAULTS notice under another subject is a tamper FAIL again (CR-10)", "integrity.py",
+ ("KF-1 a KNOWN_FAULTS notice under another subject is a tamper FAIL again (NW-10)", "integrity.py",
   '                    and fnmatch.fnmatch(os.path.basename(rel), "KNOWN_FAULTS-*.md"):',
   '                    and False:', "integrity.py", [], "plain"),
 ]
@@ -6049,8 +5995,8 @@ MUTANTS += [
  ("LS-2 the memory floor is ignored", "lean_slot.py",
   "            if free_mb and m is not None and m < free_mb:", "            if False:", "lean_slot.py", [], "plain"),
  ("LS-3 a slot is never released by its holder", "lean_slot.py",
-  "    try:\n        os.close(fd)\n    except OSError:\n        pass\n\n\ndef run_cmd",
-  "    pass\n\n\ndef run_cmd", "lean_slot.py", [], "plain"),
+  "    try:\n        os.close(fd)\n    except OSError:\n        pass\n\n\nPROBE_WALL_CAP",
+  "    pass\n\n\nPROBE_WALL_CAP", "lean_slot.py", [], "plain"),
  ("LS-4 no inode re-check: a deleted slot file's lock counts", "lean_slot.py",
   "            if not same:", "            if False:", "lean_slot.py", [], "plain"),
  ("LS-5 the adjudicator's worker no longer runs scope.py --verify (B13)", "project.py",
@@ -6061,12 +6007,51 @@ MUTANTS += [
  ("LS-7 a --timeout above 240 is not cut (re-check LOW a)", "lean_slot.py",
   "    if timeout > MAX_TIMEOUT or timeout <= 0:", "    if timeout <= 0:", "lean_slot.py", [], "plain"),
 ]
+# --- DESIGN-PAUSE-DEADLINE (approver 2026-11-21): the guard's pauses are added to the probe's limit, capped -------------
+MUTANTS += [
+ ("PD1 the cap is ignored: a probe paused all along runs on", "lean_slot.py",
+  "        new = t0 + min(timeout + m, cap)", "        new = t0 + timeout + m", "lean_slot.py", [], "plain"),
+ ("PD2 the deadline counts the sum of the pauses, not their union (condition B)", "lean_slot.py",
+  "        if end is None or a > end:\n            tot, end = tot + (b - a), b",
+  "        if True:\n            tot, end = tot + (b - a), b", "lean_slot.py", [], "plain"),
+ ("PD3 the deadline never moves (the pre-change 240 s cut)", "lean_slot.py",
+  "        deadline = new\n", "        break\n", "lean_slot.py", [], "plain"),
+ ("PD4 an unreadable pause time extends the deadline to the cap", "lean_slot.py",
+  "        except Exception:       # noqa: BLE001 -- fail safe: no further extension (none at all: a cut at `timeout`)\n"
+  "            pass\n",
+  "        except Exception:       # noqa: BLE001 -- fail safe: no further extension (none at all: a cut at `timeout`)\n"
+  "            m = 10 ** 6\n", "lean_slot.py", [], "plain"),
+ ("PD5 the call cap is 585 s, not 540 (review MEDIUM-1: wait plus probe past today's worst case)", "lean_slot.py",
+  "CALL_CAP = 540 ", "CALL_CAP = 585 ", "lean_slot.py", [], "plain"),
+ ("PD6 the NOTE rule counts the pause, not the unpaused running (condition C)", "lean_slot.py",
+  "    if m > 0 and (timeout - ran) * 4 >= timeout:", "    if m > 0 and m * 4 >= timeout:", "lean_slot.py", [], "plain"),
+ ("PD7 the pause time is read before the first deadline (a probe that ends in time is not run as before)",
+  "lean_slot.py", "    deadline, m = t0 + timeout, 0\n", "    deadline, m = t0 + timeout, int(paused() or 0)\n",
+  "lean_slot.py", [], "plain"),
+ ("PD8 the pause time read can decrease", "lean_slot.py",
+  "            m = max(m, min(int(paused() or 0), int(now - t0)))",
+  "            m = min(int(paused() or 0), int(now - t0))", "lean_slot.py", [], "plain"),
+ ("PD9 no SIGCONT after the SIGTERM: a stopped probe waits 5 s for the SIGKILL", "lean_slot.py",
+  "                os.killpg(p.pid, signal.SIGCONT)\n            except OSError:\n                pass\n        try:\n"
+  "            p.wait(timeout=5)",
+  "                pass\n            except OSError:\n                pass\n        try:\n"
+  "            p.wait(timeout=5)", "lean_slot.py", [], "plain"),
+ ("PD10 the call's budget counts from after the guard's start, not from the start of main", "lean_slot.py",
+  "    start_guard()\n    t_start = int(time.time())\n",
+  "    start_guard()\n    t_mono = time.monotonic()\n    t_start = int(time.time())\n", "lean_slot.py", [], "plain"),
+ ("PD11 any resume line of a pid drops its record: a re-pause in progress is not counted (W-R7 H1)", "lean_slot.py",
+  "            if m.group(2) in cur and int(m.group(1)) >= cur[m.group(2)][0]:\n                cur.pop(m.group(2))",
+  "            if True:\n                cur.pop(m.group(2), None)", "lean_slot.py", [], "plain"),
+ ("PD12 a pause record older than the wrapper's start is counted (W-R7 L6)", "lean_slot.py",
+  "            if me in [str(x) for x in r.get(\"anc\") or []] and int(r[\"t\"]) >= since:",
+  "            if me in [str(x) for x in r.get(\"anc\") or []]:", "lean_slot.py", [], "plain"),
+]
 MUTANTS += [
  ("K-1 a `met` conditions row no longer closes its item (G1)", "result_status.py",
   'COND_CLOSED = ("met", "not applicable")', 'COND_CLOSED = ("not applicable",)', "result_status.py", [], "plain"),
  ("K-3 delivery_rounds ignores the K-stage line (no cap restart)", "project.py",
   "    start = max(last, proof.index(kr)) if kr in proof else last", "    start = last", "project.py", [], "plain"),
- ("K-4 the README drops the CR-6 banner above the sheet's CHECK lines", "project.py",
+ ("K-4 the README drops the NW-6 banner above the sheet's CHECK lines", "project.py",
   '        out += ["", SHEET_BANNER.format(date=appr_ or "at Checkpoint B")]', "        pass", "project.py", [], "plain"),
 ]
 # --- next batch, fix round 1 (REVIEW-ATTACK-NB, REVIEW-COMPAT-NB) --------------------------------------------------
@@ -6173,6 +6158,22 @@ MUTANTS += [
   "    free = (cg or cgroup_mb)()[1]\n", "    free = None\n", "lean_slot.py", [], "plain"),
  ("LG-9 the wrapper's floor is R + P (unreachable on 8 GB: every probe waits the full wait)", "lean_slot.py",
   "F=min(r + p, t - p // 2))", "F=r + p)", "lean_slot.py", [], "plain"),
+ # C-D3 (DESIGN-C032 C1): the routes from measured probe sizes
+ ("RT5 the formula's 3 slots kept (17.7-21.9 GB; approver 2026-11-18 \"Keep 2\": 16 GB = 2 probes)", "lean_slot.py",
+  "    s = 2 if s == 3 else s      # approver 2026-11-18 \"Keep 2\": 16 GB = 2 probes\n", "", "lean_slot.py", [], "plain"),
+ ("RT1 the route's wave W ignores the probe slots S", "lean_slot.py",
+  "    return dict(T=t, R=r, P=p, S=s, W=WAVE[s],", "    return dict(T=t, R=r, P=p, S=s, W=6,", "lean_slot.py", [], "plain"),
+ ("SA2 selftest_all --fast stops when the branch selects no project (Stage 1 step 1 of a second paper)",
+  "selftest_all.py", "                if not a.fast:      # --fast runs", "                if True:      # --fast runs",
+  "tests/tier.py", [], "plain"),
+ ("RT4 the route ignores a lower hand-set lean_slots (REVIEW-COMPAT-C032-1 FIX-2)", "lean_slot.py",
+  '    s_ = min(sz["S"], settings(cfg)[0] or sz["S"])', '    s_ = sz["S"]', "lean_slot.py", [], "plain"),
+ ("RT2 the cgroup's active page cache beyond C counted as used", "lean_slot.py",
+  "                    cache += max(0, (int(act.group(1)) >> 20) - OLEAN_MB) if act else 0\n", "",
+  "lean_slot.py", [], "plain"),
+ ("RT3 the shared .olean pages C counted once per probe", "lean_slot.py",
+  "    s = max(1, min(4, (t - r - OLEAN_MB) // p))", "    s = max(1, min(4, (t - r) // (p + OLEAN_MB)))",
+  "lean_slot.py", [], "plain"),
  ("LG-10 the guard kills instead of pausing", "lean_slot.py",
   "            self.os.kill(pid, signal.SIGSTOP)\n", "            self.os.kill(pid, signal.SIGKILL)\n", "lean_slot.py", [],
   "plain"),
@@ -6182,8 +6183,6 @@ MUTANTS += [
  ("LG-12 a zombie lean (exited, not reaped) counts as running: the paused probes wait for the cap", "lean_slot.py",
   '        leans = {pid: c for pid in tab if tab[pid]["state"] not in ("Z", "X") and (c := self.classify(pid, tab))}',
   "        leans = {pid: c for pid in tab if (c := self.classify(pid, tab))}", "lean_slot.py", [], "plain"),
- ("LG-13 a lean under a Codex reviewer launched by codex_spawn.py is a tool check (never paused)", "lean_slot.py",
-  'AGENT_SCRIPTS = ("lean_slot", "codex_spawn")', 'AGENT_SCRIPTS = ("lean_slot",)', "lean_slot.py", [], "plain"),
  ("LG-14 memory pressure (PSI) never pauses (V2 round 1: page-cache thrashing with free memory left)", "lean_slot.py",
   "        pressed = sp is not None and sp >= PSI_PAUSE", "        pressed = False", "lean_slot.py", [], "plain"),
  ("LG-15 a memory resume ignores the pressure of the last 5 s", "lean_slot.py",
@@ -6210,11 +6209,11 @@ MUTANTS += [
  ("LG-22 `python3 -m audits.<x>` is not a tool check", "lean_slot.py",
   '        if a.startswith("-m") and not a.startswith("--"):', "        if False:", "lean_slot.py", [], "plain"),
  ("LG-23 a probe cut after a guard pause is called too large", "lean_slot.py",
-  "        if m > 0 and m * 4 >= timeout:\n            return 124,", "        if False:\n            return 124,", "lean_slot.py", [], "plain"),
+  "    if m > 0 and (timeout - ran) * 4 >= timeout:\n        head =", "    if False:\n        head =", "lean_slot.py", [], "plain"),
  ("LG-25 any pause, however short, makes the cut inconclusive (F1')", "lean_slot.py",
-  "        if m > 0 and m * 4 >= timeout:", "        if m > 0:", "lean_slot.py", [], "plain"),
+  "    if m > 0 and (timeout - ran) * 4 >= timeout:", "    if m > 0:", "lean_slot.py", [], "plain"),
  ("LG-24 a pause still in progress is not counted in the wrapper's pause seconds", "lean_slot.py",
-  "    return s + sum(cur.values())", "    return s", "lean_slot.py", [], "plain"),
+  "    return out + list(cur.values())", "    return out", "lean_slot.py", [], "plain"),
 ]
 # --- DESIGN-SW2 (2026-11-15): hard prose checks become curable, flags reach a judge (BUILD-SW2.md) -------------------
 MUTANTS += [
@@ -6437,4 +6436,174 @@ MUTANTS += [
   "lanecheck.py", "            if argv is None:\n                if _bsdinfo(lib, pid) is None:",
   "            if argv is None:\n                if e.errno == errno.EIO or _bsdinfo(lib, pid) is None:",
   "lanecheck.py", [], "plain"),
+]
+MUTANTS += [    # 0.3.2 Phase A (DESIGN-A032)
+ ("LS-T1 the self-test's stand-ins are named lean again (a live guard pauses them)", "lean_slot.py",
+  '    sn = "lean-fp-test"', '    sn = "lean"', "lean_slot.py", [], "plain"),
+ ("PL1 the leak control pairs the first two projects whatever their sources", "prompt.py",
+  "            if src(c1) != src(c2):", "            if True:", "prompt.py", [], "plain"),
+ ("AV1 adj_verify returns 3 values on a bad round (callers unpack 4: a crash)", "project.py",
+  "        return [str(e)], None, None, None\n    head, aud", "        return [str(e)], None, None\n    head, aud",
+  "project.py", [], "plain"),
+ ("NRW1 a declined no-round says no reason (P5 S-1)", "scope.py",
+  '    print("# no-round not taken: " + re.sub(r"\\berror:", "error -", " ".join(str(why).split())), file=sys.stderr)',
+  "    pass", "scope.py",
+  [], "plain"),
+ ("ESC-G1 every name in an escalation-like line is the generator's (a reliance hidden in a record line)", "lanecheck.py",
+  "            skip = gen.get(line.strip(), set())", "            skip = set(found)", "lanecheck.py", [], "plain"),
+ ("TPW1 tool_patch withdraw commits WITHDRAWN.json only (the TP's drafts stay uncommitted: pisani S2)",
+  "tool_patch.py", "    commit_paths(audits, [p, *dr], f\"tool-patch {tp} withdraw\")",
+  "    commit_paths(audits, [p], f\"tool-patch {tp} withdraw\")", "tool_patch.py", [], "plain"),
+ ("D3-M1 a missing name in the blind reading is dropped (no note: it reaches no judge)", "make_report.py",
+  "for d_ in soft for n in cites.get(d_, ()) if n in missing]", "for d_ in soft for n in cites.get(d_, ()) if False]",
+  "signoff.py", [], "plain"),
+ ("D3-M2 SIGNOFF.json's copied plain_english stays hard (the blind reading's name stops the round again)", "signoff.py",
+  'if not (k == "plain_english" and str(v).strip()', 'if not (False and str(v).strip()', "signoff.py", [], "plain"),
+ ("D3-M4 soft applied to SIGNOFF.json (a wrong name in the writer's text passes: trial #10)", "signoff.py",
+  'soft=("INFORMAL.json",))', 'soft=("INFORMAL.json", "SIGNOFF.json"))', "signoff.py", [], "plain"),
+ ("D3-M5 a plain_english that differs from the blind reading is softened too (REVIEW C2)", "signoff.py",
+  '== inf.get(informal_key(r.get("result")), None))}', 'is not None)}', "signoff.py", [], "plain"),
+ ("A7-M1 INFORMAL-2.json is not write-once (a second blind reading re-saved)", "signoff.py",
+  'if st and name in ("INFORMAL.json", "INFORMAL-2.json"):', 'if st and name in ("INFORMAL.json",):', "signoff.py", [],
+  "plain"),
+ ("A7-M2 INFORMAL-2.json owned by nobody special (read as a lane verdict, `seal`)", "integrity.py",
+  '("*/INFORMAL-2.json", "signoff ", ()),', "", "integrity.py", [], "plain"),
+ ("A7-M3 the second blind-reader prompt writes INFORMAL.json too (one reading overwrites the other)", "prompt.py",
+  '            "informalizer-2.txt": body.replace("/INFORMAL.json", "/INFORMAL-2.json") + "\\n"}',
+  '            "informalizer-2.txt": body + "\\n"}', "prompt.py", [], "plain"),
+ ("A7-M4 lanecheck reads INFORMAL-2.json as a lane verdict", "lanecheck.py", '"SIGNOFF.json", "INFORMAL-2.json", ',
+  '"SIGNOFF.json", ', "lanecheck.py", [], "plain"),
+ ("RD-U1 the KNOWN_FAULTS notice is decoded strictly (an invalid byte crashes the reader gate)", "readers.py",
+  'notice = open(kf, encoding="utf-8", errors="replace")', 'notice = open(kf, encoding="utf-8")', "readers.py", [],
+  "plain"),
+]
+MUTANTS += [    # 0.3.2 fix round A-R1 (REVIEW-SAFETY-A032 F1): the second blind reading's notes
+ ("AR1-M1 a second reading asked for but never saved gets no note (A7 unenforced, invisible)", "signoff.py",
+  '        if os.path.exists(os.path.join(round_dir, "prompts", "informalizer-2.txt")):', "        if False:",
+  "signoff.py", [], "plain"),
+ ("AR1-M2 an INFORMAL-2.json copied from INFORMAL.json gets no note", "signoff.py",
+  '        if open(two, "rb").read() == open(one, "rb").read():', "        if False:", "signoff.py", [], "plain"),
+ ("AR1-M3 check does not print the second reading's notes", "signoff.py",
+  ' + second_reading_notes(rd)', '', "signoff.py", [], "plain"),
+ ("AR2-M1 the approved round's second-reading notes never reach delivery (judged by nobody under hands-off)",
+  "make_report.py", "            out += [(\"deliver\", n_) for n_ in _so2.second_reading_notes(os.path.join(rd, ar))]",
+  "            pass", "tests/delivery.py", [], "plain"),
+ ("AR1-M4 a multi-line no-round reason is printed as several lines (REVIEW-COMPAT-A032 NOTE-3)", "scope.py",
+  ' " ".join(str(why).split())), file=sys.stderr)', ' why), file=sys.stderr)', "scope.py", [], "plain"),
+]
+MUTANTS += [    # 0.3.2 Phase D (CANARY-D032 run A): the citation role's web-search sentence
+ ("D032-M1 the citation role no longer says web search is not a sandbox command", "codex_agents.py",
+  "        if name=='formalize_citations':body+=' '+CITATION_SEARCH\n", "", "codex_agents.py", [], "plain"),
+]
+MUTANTS += [    # W-R1 (REVIEW-WHOLE-032 NOTE 7, NOTE 9)
+ ("WR1-1 rule 4 lists the owners no current step commits under again", "integrity.py",
+  'LEGACY_OWNERS = ("reader-fix ", "reader-fix-prompt ", "hand-edit ")', "LEGACY_OWNERS = ()", "tests/doclint.py", [], "plain"),
+ ("WR1-2 a reused tool-patch floor is silent at --deliver", "tool_patch.py",
+  "                if info is not None:\n                    info.append(", "                if False:\n                    info.append(",
+  "tool_patch.py", [], "plain"),
+ ("WR1-3 the first pin's verify-delivery --json drops the reuse line", "tool_patch.py",
+  "                    res = info + res\n", "                    res = res\n", "tool_patch.py", [], "plain"),
+ ("WR1-4 the fallback verifier drops the reuse line", "tool_patch.py",
+  "        probs = info + probs\n", "        probs = probs\n", "tool_patch.py", [], "plain"),
+]
+MUTANTS += [    # W-R2 F3 (REVIEW-W032-R2 NOTEs 1-2: hand mutants M2, M4, M7)
+ ("WR2-1 a set-aside round whose lanes were issued (.lane-auth/) but whose marker lists none is unreviewed",
+  "make_report.py",
+  '    return (isinstance(d, dict) and not d.get("lanes")\n            and not os.path.isdir(os.path.join(round_dir, ".lane-auth")))',
+  '    return (isinstance(d, dict) and not d.get("lanes"))', "make_report.py", [], "plain"),
+ ("WR2-2 statement_timeline takes the first statement round even when it was set aside before any lane",
+  "make_report.py",
+  "    first = first_statement_round(cfg)\n    parts = []",
+  "    first = next((r for r in project.rounds(cfg, include_abandoned=True) if project.round_kind(r) == \"statements\"),"
+  " None)\n    parts = []", "make_report.py", [], "plain"),
+ ("WR2-3 the report's Verified line names SKIPPED.md whether or not it exists", "make_report.py",
+  '        head += verified_line(count_txt, os.path.exists(os.path.join(rounds_dir, "SKIPPED.md")),',
+  "        head += verified_line(count_txt, True,", "make_report.py", [], "plain"),
+]
+MUTANTS += [    # W-R4 (DESIGN-W032-R4 rev 2, A2 and A3)
+ ("WR4-A2 an unusable slot file makes the probe run unslotted instead of trying the next slot (CX C1)", "lean_slot.py",
+  "                continue        # the next slot is tried",
+  "                return None, [f\"{NOTE} {unusable[path]}: ran without a slot\"]", "lean_slot.py", [], "plain"),
+ ("WR4-A3 a statement round is a diff base again under rule 2 (KW F1)", "scope.py",
+  '              and (rule < 2 or project.round_kind(r) != "statements")]', "              ]", "scope.py", [], "plain"),
+]
+MUTANTS += [    # W-R4 (DESIGN-W032-R4 rev 2, B10, C3)
+ ("WR4-B10 REPORT.md's stop naming is case-sensitive again ('Stop S1 (' is a false note; FG G4)", "stops.py",
+  '    want = {"REPORT.md": [(r["stop"], rf"(?i)\\bstop {re.escape(r[\'stop\'])} \\(") for r in closed if r.get("human")],',
+  '    want = {"REPORT.md": [(r["stop"], rf"\\bstop {re.escape(r[\'stop\'])} \\(") for r in closed if r.get("human")],',
+  "stops.py", [], "plain"),
+ ("WR4-C3 a release goal stop is shown as 'a failed tool call' again (FG G5)", "stops.py",
+  '            return f"release stop {ks[0]} ({RELEASE_LABELS[ks[0]]})"', '            return "a failed tool call"',
+  "stops.py", [], "plain"),
+]
+MUTANTS += [    # W-R4 (DESIGN-W032-R4 rev 2, B11)
+ ("WR4-B11 the placeholder count includes HTML comments again (the header's own name fails the check; KW F7)",
+  "decisions.py", '    unfilled = re.sub(r"<!--.*?-->", "", text, flags=re.S).count(FILL)',
+  "    unfilled = text.count(FILL)", "decisions.py", [], "plain"),
+]
+MUTANTS += [    # W-R4 (DESIGN-W032-R4 rev 2, B1)
+ ("WR4-B1 the fixed subject `fresh full round on <R>` is not a prescribed empty commit (CX C2)", "tree_state.py",
+  '    re.compile(r"^fresh full round on \\d{4}-\\d{2}-\\d{2}-full-[0-9a-f]{7,40}$"),',
+  '    re.compile(r"^fresh full round on NEVER$"),', "tree_state.py", [], "plain"),
+]
+MUTANTS += [    # W-R4 (DESIGN-W032-R4 rev 2, B4)
+ ("WR4-B4 a loop wrapper whose direct child is the operator's tagged monitor is flagged again (T8 F2)", "lanecheck.py",
+  "        if any(_environ_has(c, OPERATOR_TAG) and LOOP_RE.search(_cmdline(c)) for c in _children(pid)):", "        if False:", "lanecheck.py", [],
+  "plain"),
+]
+MUTANTS += [    # macOS branch: the W-R4 B4 port (REVIEW-COMPAT-W032-R4 M3): _children and _cmdline without /proc
+ ("MAC-B4a without /proc on macOS, _children reads /proc again (no children: the tagged wrapper is flagged)",
+  "lanecheck.py", "    if not PROC and DARWIN:               # macOS branch (W-R4 B4 port): libproc, as Codex",
+  "    if False:               # macOS branch (W-R4 B4 port): libproc, as Codex", "lanecheck.py", [], "plain"),
+ ("MAC-B4b on macOS, _children takes every row of the table, not only the children of the pid", "lanecheck.py",
+  "            return [p for p, pp, *_ in _darwin_table() if pp == pid]",
+  "            return [p for p, pp, *_ in _darwin_table()]", "lanecheck.py", [], "plain"),
+ ("MAC-B4c without /proc on macOS, _cmdline reads /proc again (empty: the tagged child's loop is not seen)",
+  "lanecheck.py", "    if not PROC and DARWIN:               # macOS branch (W-R4 B4 port): sysctl KERN_PROCARGS2",
+  "    if False:               # macOS branch (W-R4 B4 port): sysctl KERN_PROCARGS2", "lanecheck.py", [], "plain"),
+ ("MAC-B4d without /proc elsewhere, _children ignores the ppid column", "lanecheck.py",
+  "                if c.isdigit() and pp.isdigit() and int(pp) == pid]",
+  "                if c.isdigit() and pp.isdigit()]", "lanecheck.py", [], "plain"),
+ ("MAC-B4e without /proc elsewhere, _cmdline is empty", "lanecheck.py",
+  "        return r.stdout.strip()\n    try:\n        return open(f\"/proc/{pid}/cmdline\"",
+  "        return \"\"\n    try:\n        return open(f\"/proc/{pid}/cmdline\"", "lanecheck.py", [], "plain"),
+]
+MUTANTS += [    # W-R5 (approver AP9, 2026-11-21)
+ ("WR5-AP9 an UNCOVERED row marked expected only in its decision cell no longer settles the round", "scope.py",
+  '        if r.decision == "UNCOVERED" and "(expected" not in (r.reason or "") + (r.verdict or "") + (r.text or ""):',
+  '        if r.decision == "UNCOVERED" and "(expected" not in (r.reason or "") + (r.verdict or ""):', "scope.py", [],
+  "plain"),
+]
+MUTANTS += [    # W-R6 (approver N1; AUDIT-E2E-032-T009-NOGOALS N2, N3)
+ ("WR6-N2 with no goal named, the walk's reason still says the config's goal matches no index row", "make_report.py",
+  '                else "no goal result was named at intake"}', '                else "no goal result of the config matches an index row"}',
+  "make_report.py", PROJ, "plain"),
+ ("WR6-N3a with no goal named, section 10 keeps the goal title", "make_report.py",
+  'ROUTES_TITLE_NO_GOAL = "Proof routes"', 'ROUTES_TITLE_NO_GOAL = ROUTES_TITLE', "make_report.py", PROJ, "plain"),
+ ("WR6-N3b with no goal named, section 10 keeps the sentence about the goal results", "make_report.py",
+  'ROUTES_INTRO_NO_GOAL = ROUTES_INTRO.split(" A formalized result the goal results")[0]',
+  'ROUTES_INTRO_NO_GOAL = ROUTES_INTRO', "make_report.py", PROJ, "plain"),
+ ("WR6-N3c with no goal named, section 0 still promises the goal result's status", "make_report.py",
+  'SUMMARY_POINTER_NO_GOAL = SUMMARY_POINTER.replace("one page with the goal result\'s status, every", "one page with every")',
+  'SUMMARY_POINTER_NO_GOAL = SUMMARY_POINTER', "make_report.py", PROJ, "plain"),
+]
+MUTANTS += [    # W-R6 (AUDIT-E2E-032-8G-MAC-R3 §7 g)
+ ("WR6-g project.py --log keeps a non-printing control character (a shell's backspace reaches the documents)",
+  "project.py", "                if ctl:\n                    text = \"\".join(c for c in text",
+  "                if False:\n                    text = \"\".join(c for c in text",
+  "project.py", [], "plain"),
+ ("WR7-L5 with no goal named, REPORT section 10 still heads its walk 'results the goal results do not use'",
+  "make_report.py", "             f\"\\n**{ROUTES_UNUSED_NO_GOAL}:**\\n\\n\") + (",
+  "             \"\\n**Formalized results the goal results do not use:**\\n\\n\") + (", "make_report.py", [], "plain"),
+ ("WR7-L1 project.py --log strips a CR as a control character and names it (CRLF is not turned into LF)",
+  "project.py", '                text = text.replace("\\r\\n", "\\n").replace("\\r", "")\n',
+  "                pass\n", "project.py", [], "plain"),
+]
+MUTANTS += [    # W-R8 (REVIEW-WHOLE-032-FINAL L7)
+ ("WR8-L7a project.py --log matches the reversal cost case- and space-exactly (' New  Round ' refused)",
+  "project.py", '                _key = lambda x: "".join(x.split()).lower()\n',
+  "                _key = lambda x: x\n", "project.py", [], "plain"),
+ ("WR8-L7b project.py --log accepts a non-canonical reversal cost but logs it as typed",
+  "project.py", "lambda m: m.group(1) + _canon.get(_key(m.group(2)), m.group(2)) + \"]\"",
+  "lambda m: m.group(1) + m.group(2) + \"]\"", "project.py", [], "plain"),
 ]

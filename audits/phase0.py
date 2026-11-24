@@ -10,7 +10,8 @@ output is passed through unchanged, and the final table of exit codes is compute
 
   phase0.py                  author mode: every check, then regenerate the report and save the
                              tree baseline (the next round's "did a lane write?" reference)
-  phase0.py --readonly       adjudicator mode: every check, writes NOTHING
+  phase0.py --readonly       adjudicator mode: every blocking check (not the review-only unused-
+                             argument list: the adjudicator reads UNUSED_ARGS.md), writes NOTHING
   phase0.py --statements     statement round: proofs are `sorry` by design, so the sorry scan and
                              the axiom sweep are reported but do not fail the gate
   phase0.py --selftest
@@ -355,7 +356,7 @@ def gate(cfg, readonly, statements, branch, runner=None, hits=None, approved_eve
           f"(comments and literals ignored)\n{'-' * 78}")
     hits = scan(cfg["lean_files"], project.REPO) if hits is None else hits
     # a non-goal result left unproved by a [DELEGATED] decision in the COMMITTED RUN_LOG.md
-    # (decisions.unproved; RUN.md failure table, "your own work"): a sorry/admit inside it is a
+    # (decisions.unproved; the failure table, run/stops-and-set-asides.md, "your own work"): a sorry/admit inside it is a
     # NOTE, any other stays RED; a goal result named there is refused (it stays a stop)
     import decisions
     left = decisions.unproved(cfg) if unproved is None else unproved
@@ -436,10 +437,10 @@ def gate(cfg, readonly, statements, branch, runner=None, hits=None, approved_eve
     run("index check", f"{PY} audits/make_report.py --check --index-only --pending --project {P}", results, runner=runner)
     # review only: arguments no proof uses (Batteries linter), listed for the adjudicator in
     # <ROUNDS-DIR>/UNUSED_ARGS.md; never fails the gate (an approved statement may keep the
-    # paper's own idle hypothesis)
-    run("unused arguments (review; written to UNUSED_ARGS.md)",
-        f"{PY} audits/unused_args.py --project {P}" + ("" if readonly else " --write"), results,
-        waived=True, runner=runner)
+    # paper's own idle hypothesis). Not in read-only mode: the adjudicator reads the author's file
+    if not readonly:
+        run("unused arguments (review; written to UNUSED_ARGS.md)",
+            f"{PY} audits/unused_args.py --project {P} --write", results, waived=True, runner=runner)
     # the dependency and assumption walks over the kernel's terms (U2 §2), in every round -- the
     # assumption walk reads types only, so a statement round has it too: written to DEPENDENCIES.json
     # (what each result assumes, which results the goals do not use); in read-only mode (the
@@ -775,8 +776,9 @@ def selftest():
         say("a round with ADOPTED.md that RUN_LOG.md never mentions is found", lp and "bbbbbbb" in lp[0] and len(lp) == 1)
     finally:
         _sh.rmtree(_d, ignore_errors=True)
-    say("the unused-argument list runs and never fails the gate",
-        G({"unused_args": 1})[0] == 0 and any("unused_args.py" in c for c in G()[2]))
+    say("the unused-argument list runs and never fails the gate; read-only Phase 0 does not run it",
+        G({"unused_args": 1})[0] == 0 and any("unused_args.py" in c for c in G()[2])
+        and not any("unused_args.py" in c for c in G(readonly=True)[2]))
     say("U2 §2: the dependency and assumption walk runs in every round (statement rounds too: it reads types), "
         "writes outside read-only mode, compares in read-only mode, and a failure is RED in each (fails closed)",
         G({"dependencies": 1})[0] == 1 and any("dependencies.py" in c and "--write" in c for c in G()[2])

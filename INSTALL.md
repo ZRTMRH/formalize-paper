@@ -27,7 +27,7 @@ sudo apt install -y git python3 curl \
   with shell escape off (`-no-shell-escape`; pandoc with `--sandbox`).
 - **Disk.** About 7 GB per Lean project, mostly the prebuilt Mathlib, plus about 3 GB for the TeX
   packages.
-- **Memory.** 16 GB is enough, one paper at a time: say so at intake question 7, and the run keeps at most 3 agents at a time, each compiling its Lean files one at a time. 8 GB works, more slowly: ask at question 7 for one agent at a time. 32 GB is comfortable.
+- **Memory.** 16 GB is enough, one paper at a time: say so at intake question 7, and the run takes its 16 GB route (2 Lean probes at once, 6 reviewers at once). 8 GB works, more slowly (1 probe, at most 2 agents at a time). 32 GB and more runs 4 probes and 8 reviewers at once.
 - **Lean.** If `lean --version` does not work, install elan (it provides `lean` and `lake`), then
   open a new terminal:
   `curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh`
@@ -73,11 +73,14 @@ and a TeX engine (for example MacTeX) as on Linux, then:
 - **If an agent does the setup:** Claude Code's safety check asks before building bash and before editing
   `~/.zprofile` / `~/.zshrc`, and Codex may ask to add the PATH line to `~/.zprofile` itself. These are the steps
   listed here, so answer yes (or "retry").
-- **poppler** (`pdftoppm`, `pdftotext`) is optional: without it the PDF agents cannot look at rendered pages, but
-  the run still delivers the PDFs and the markdown.
+- **poppler** (`brew install poppler`: `pdftoppm`, `pdftotext`) is optional, except for a paper given only as a PDF:
+  the agent reads its pages through `pdftotext`/`pdftoppm` (RUN.md rule 13). Without it the PDF agents cannot look at
+  rendered pages through those tools (on one Mac run they wrote Swift/PDFKit scripts instead; that is not part of the
+  protocol), but the run still delivers the PDFs and the markdown.
 - **Keep the Mac awake** for the whole run: `caffeinate -dimsu` in another terminal; stop it when the run ends.
 - **No `timeout` command** on macOS; a subagent that tries it gets exit 127 and retries without it.
-- **On 8 GB**, answer intake question 7 by asking for one agent at a time.
+- **On 8 GB**, say the RAM (8 GB) at intake question 7: the run takes its 8 GB route (1 Lean probe, at most 2
+  agents at a time).
 - **Codex CLI on macOS:** start it as the installer prints (`--sandbox workspace-write --add-dir <project>/.git`).
   Inside Codex's sandbox the process checks read the process table through macOS's `libproc`.
 
@@ -364,8 +367,8 @@ again and type `/formalize-paper`. Stage 0 reads `RUN_LOG.md` and resumes. Befor
 nothing is recorded yet, so the intake simply starts again. It finds the run by the
 checked-out git branch, so if you switched branches, switch back first.
 
-**Memory.** On a 32 GB machine, 6–8 reviewer subagents per wave and three Lean builds at once are
-fine. On less memory, ask the agent to spawn smaller waves.
+**Memory.** The run picks a memory route from the RAM given at intake question 7 (8, 16 or 32+ GB:
+how many Lean probes and agents run at once; RUN.md, "Cost"). On a shared machine, ask for fewer at once.
 
 ## Independent check of the proofs
 
@@ -435,19 +438,23 @@ same paper on an 8 GB Mac, plus the example note on both.
    ```
 
    This does everything section 3 describes, and also installs the skill where Codex reads it
-   (`~/.agents/skills/formalize-paper/`), eleven generated subagent roles in the project
+   (`~/.agents/skills/formalize-paper/`), ten generated subagent roles in the project
    (`.codex/agents/`), and `PYTHONDONTWRITEBYTECODE = "1"` under `[shell_environment_policy.set]` in
    your user Codex config (`~/.codex/config.toml`, which affects **every** Codex session on this
    machine) and in the project's `.codex/config.toml`, keeping your other settings and backing up
    each changed file once as `config.toml.before-formalize-paper`. It needs Python 3.11+ (or 3.10
    with `tomli`), and refuses (before writing anything) a config whose environment include
    allowlist, or a profile's, would drop the variable.
-4. **Start Codex** with the command the installer prints:
+4. **Start Codex** with the command the installer prints for your paper:
 
    ```bash
-   cd ~/my-formalization && codex --sandbox workspace-write --add-dir ~/my-formalization/.git
+   cd ~/my-formalization && codex -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write --add-dir ~/my-formalization/.git --search   # public paper
+   cd ~/my-formalization && codex -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write --add-dir ~/my-formalization/.git            # confidential paper
    ```
 
+   `-m gpt-6.1-sol -c model_reasoning_effort=medium` sets the main session's model: with Codex's default
+   model the main agent ends its turn every few minutes and a hands-off run needs repeated "continue";
+   with this model a test run (De Medts, Linux, Codex 0.163.0) went through with no prompting.
    `--add-dir …/.git` lets the agent commit without an approval prompt per commit (needed for a
    hands-off run). It also lets every sandboxed agent write the project's git metadata, including
    hooks that later run outside the sandbox (`tree_state.py` detects a change; it does not prevent
@@ -456,10 +463,10 @@ same paper on an 8 GB Mac, plus the example note on both.
    folder). Codex 0.163.0 keeps a background server that may still hold the settings from before
    you trusted the folder: if the screen shows a warning (`F2` to view) that project-local config
    is disabled, type `/daemon`, choose "Restart background server", then "Restart"; the warning
-   must be gone before you go on. Inside the sandbox no agent has the network, so the advisory citation notes cannot
-   read the cited works; for a **public** paper you may add `--search` (Codex's web-search tool,
-   not a sandbox change; untested for subagents) so that they can. Never add it for a confidential
-   paper. Without it the run is the same, with fewer citation notes (`audits/run/codex.md`).
+   must be gone before you go on. Inside the sandbox no shell has the network; `--search` (Codex's live
+   web search, not a sandbox change; the subagents inherit it) lets the citation agents read the cited
+   works (arXiv pages and PDFs; publisher pages often refuse). Never add it for a confidential paper:
+   the run is then the same, with fewer citation notes (`audits/run/codex.md`).
 5. **Check the environment** in the session: type `!python3 -c 'import os; assert
    os.environ.get("PYTHONDONTWRITEBYTECODE") == "1"; print("ok")'` (a line starting with `!` runs
    as a shell command), or ask the agent to run that command and show its output. It must print `ok`.
@@ -515,7 +522,7 @@ With `--codex`, also:
 | `~/.agents/skills/formalize-paper/SKILL.md` | the skill for Codex (overwritten, no backup) | delete the directory |
 | `${CODEX_HOME:-~/.codex}/config.toml` | `[shell_environment_policy.set] PYTHONDONTWRITEBYTECODE = "1"`: applies to every Codex session | restore `config.toml.before-formalize-paper`, or delete that one line |
 | `<project>/.codex/config.toml` | the same setting for this project | restore its `.before-formalize-paper` copy, or delete the file |
-| `<project>/.codex/agents/*.toml` | the eleven generated subagent roles (pinned by a run) | delete them after the run |
+| `<project>/.codex/agents/*.toml` | the ten generated subagent roles (pinned by a run) | delete them after the run |
 
 A run itself writes `<project>/.formalization-work/` (the helpers' drafts, `work_dir`, and the
 compiled paper source; excluded from the project's history), the run's

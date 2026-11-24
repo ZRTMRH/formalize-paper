@@ -10,9 +10,14 @@ A fingerprint keyed to content closes both, mechanically.
 
 WHAT IS HASHED (fingerprint_tail.lean computes the per-declaration part, in Lean):
   own(n)  = theorem: its statement (type) -- never its proof
-            def/opaque: type and value; inductive: type and constructor types; other: type
+            def: type and value, the value with every proof subterm (an Expr whose type is a Prop:
+            Meta.isProof, decided in Lean, never on syntax) replaced by one marker (approver 2026-11-16:
+            filling a `sorry` in a proof field of an approved definition is no change of meaning);
+            opaque: type and value (not erased); inductive: type and constructor types; other: type
             (metadata erased; binder names are not part of Lean's expression hash)
-  deps(n) = the project-local constants occurring in own(n). Mathlib is trusted, not followed.
+  deps(n) = the project-local constants occurring in own(n), so through data and types only: a
+            definition used only inside a proof is no dependency (and is not listed on the sheet).
+            Mathlib is trusted, not followed.
   fp(n)   = sha256 of own(n) and of own(m) for every m in the transitive closure of deps(n).
 So changing a definition changes the fingerprint of every statement written in terms of it,
 directly or through other definitions; changing a proof changes nothing.
@@ -590,8 +595,35 @@ def prev : ℕ → ℕ
   | 0 => 0
   | n + 1 => n
 theorem uses_prev : prev 1 = 0 := rfl
+structure PS where
+  n : ℕ
+  pos : 0 < n
+def ps : PS := ⟨3, by have := thing 3; sorry⟩
+def ps2 : PS := ⟨thing 2, by decide⟩
+theorem uses_ps : ps.n = 3 := rfl
+class Rg (α : Type) where
+  op : α → α → α
+  comm : ∀ a b : α, op a b = op b a
+instance instRgNat : Rg ℕ where
+  op a b := a + b
+  comm a b := by have h := thing a; sorry
+theorem uses_rg : Rg.op (2 : ℕ) 3 = 5 := rfl
+def nT : ℕ := by exact 5
+def dd : Decidable (2 = 2) := isTrue rfl
+inductive Sh | p | q
+instance decSh : DecidableEq Sh := fun a b => match a, b with
+  | .p, .p => isTrue rfl
+  | .q, .q => isTrue rfl
+  | .p, .q => isFalse (by intro h; cases h)
+  | .q, .p => isFalse (by intro h; cases h)
+theorem tp : (⟨2, by decide⟩ : Fin 3).val = 2 := rfl
+def UP.{u} (α : Type u) (a : α) : {x : α // x = x} := ⟨a, by have := thing 1; sorry⟩
 end FpT
 """
+# REVIEW-DESIGN-FP R1: a definition nested deeper than Lean's default recursion limit (512), elaborated under the
+# project's own `set_option maxRecDepth`; the erasure's `Meta.transform` must not fail the whole fingerprint run
+DEEP = ("import Mathlib.Order.Basic\nnamespace FpT\nset_option maxRecDepth 100000 in\ndef deep : ℕ := "
+        + "Nat.succ (" * 1500 + "0" + ")" * 1500 + "\nend FpT\n")
 
 # (label, transformation of BASE, {name: must_change(True)/must_not_change(False)})
 VARIANTS = [
@@ -630,7 +662,76 @@ VARIANTS = [
         "def other : ℕ := 3", "def other : ℕ := 4").replace("theorem un : other = 3 := rfl",
                                                          "theorem un : other = 4 := rfl"),
      {"FpT.st": False, "FpT.thing": False, "FpT.other": True, "FpT.un": True}),
+    # DESIGN-FP (approver 2026-11-16, decision 1): a proof subterm of a definition's value is erased before hashing;
+    # data, types and Decidable instances are hashed as before. A 4th element: [(name, dep, must_be_in_deps)].
+    ("a proof field of a definition and of an instance filled (sorry -> proof)", lambda s: s.replace(
+        "⟨3, by have := thing 3; sorry⟩", "⟨3, by decide⟩").replace(
+        "comm a b := by have h := thing a; sorry", "comm a b := Nat.add_comm a b"),
+     {"FpT.ps": False, "FpT.uses_ps": False, "FpT.instRgNat": False, "FpT.uses_rg": False}),
+    ("a declaration with the same proof inserted above (the sorry's position and aux-proof reuse move)",
+     lambda s: s.replace("def ps : PS :=", "theorem above : 1 = 1 := rfl\ndef psEarly : PS := ⟨3, by have := thing 3; "
+                         "sorry⟩\ndef ps : PS :=").replace(
+        "instance instRgNat", "instance instRgEarly : Rg ℕ where\n  op a b := a + b\n  comm a b := by have h := thing a; "
+        "sorry\ninstance (priority := high) instRgNat"),
+     {"FpT.ps": False, "FpT.uses_ps": False, "FpT.instRgNat": False}),
+    ("a proof field now cites a new project lemma, which is no dependency", lambda s: s.replace(
+        "def ps : PS := ⟨3, by have := thing 3; sorry⟩", "theorem pos3 : 0 < 3 := by decide\ndef ps : PS := ⟨3, pos3⟩"),
+     {"FpT.ps": False, "FpT.uses_ps": False},
+     [("FpT.ps", "FpT.pos3", False), ("FpT.ps", "FpT.thing", False), ("FpT.ps2", "FpT.thing", True)]),
+    ("a data field of a structure value changed (3 -> 4)", lambda s: s.replace(
+        "⟨3, by have := thing 3; sorry⟩", "⟨4, by have := thing 3; sorry⟩").replace("ps.n = 3 := rfl", "ps.n = 4 := rfl"),
+     {"FpT.ps": True, "FpT.uses_ps": True, "FpT.ps2": False}),
+    ("data built by a tactic changed (by exact 5 -> 6)", lambda s: s.replace("by exact 5", "by exact 6"),
+     {"FpT.nT": True}),
+    ("a Decidable value changed (isTrue rfl -> decEq 2 2)", lambda s: s.replace(":= isTrue rfl\ninductive Sh", ":= decEq 2 2\ninductive Sh"),
+     {"FpT.dd": True}),
+    ("a DecidableEq instance's body changed (match -> tactic)", lambda s: s.replace(
+        "fun a b => match a, b with\n  | .p, .p => isTrue rfl\n  | .q, .q => isTrue rfl\n"
+        "  | .p, .q => isFalse (by intro h; cases h)\n  | .q, .p => isFalse (by intro h; cases h)",
+        "fun a b => by cases a <;> cases b <;> first | exact isTrue rfl | exact isFalse (by intro h; cases h)"),
+     {"FpT.decSh": True}),
+    ("only the proof inside a Decidable value changed (isTrue rfl -> isTrue (by decide)): no drift, by the rule",
+     lambda s: s.replace(":= isTrue rfl\ninductive Sh", ":= isTrue (by decide)\ninductive Sh"), {"FpT.dd": False}),
+    ("a structure field's type changed (0 < n -> 1 < n)", lambda s: s.replace("pos : 0 < n", "pos : 1 < n"),
+     {"FpT.PS": True, "FpT.ps": True, "FpT.ps2": True}),
+    ("a proof written inside a theorem's TYPE rewritten (types are never erased)", lambda s: s.replace(
+        "(⟨2, by decide⟩ : Fin 3)", "(⟨2, by omega⟩ : Fin 3)"), {"FpT.tp": True}),
+    ("a universe-polymorphic definition with a proof field: universe renamed and the proof filled", lambda s: s.replace(
+        "def UP.{u} (α : Type u) (a : α) : {x : α // x = x} := ⟨a, by have := thing 1; sorry⟩",
+        "def UP.{w} (α : Type w) (a : α) : {x : α // x = x} := ⟨a, rfl⟩"), {"FpT.UP": False}),
 ]
+
+
+def evil_module_run(cfg, value):
+    """REVIEW-SAFETY-FP F1: a module FpEvilMod (compiled into a fresh temp dir, never the repository) defines
+    `auditFpEraseProofs.evil` and `auditFpKey.evil` := `value`; the appended file imports it (module root FpEvilMod)
+    and states `FpT.usesEvil` with them. F-1: a module FpNsMod outside the root defines the private `FpT.nsVal` :=
+    `value`, ours only by the namespace (the tail enumerates the module tables), and FpNsMod2 one of the same name
+    (C-R1: two constants, two keys). The fingerprints ({} if a step failed)."""
+    import shutil, tempfile
+    d = tempfile.mkdtemp(prefix="fp_evil_mod_")
+    try:
+        for name, text in (("FpEvilMod", f"def auditFpEraseProofs.evil : Nat := {value}\ndef auditFpKey.evil : Nat := {value}\n"),
+                           ("FpNsMod", f"namespace FpT\nprivate def nsVal : Nat := {value}\nend FpT\n"),
+                           ("FpNsMod2", f"namespace FpT\nprivate def nsVal : Nat := {value}\nend FpT\n")):
+            mod = os.path.join(d, name + ".lean")
+            with open(mod, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            r = subprocess.run(["lake", "env", "lean", "--root=" + d, "-o", os.path.join(d, name + ".olean"), mod],
+                               cwd=project.REPO, capture_output=True, text=True)
+            if r.returncode != 0:
+                print(f"building the temp module {name} failed:", (r.stdout + r.stderr)[-300:]); return {}
+        body = ("import FpEvilMod\nimport FpNsMod\nimport FpNsMod2\nimport Mathlib.Order.Basic\nnamespace FpT\n"
+                "theorem usesEvil : auditFpEraseProofs.evil + auditFpKey.evil ≥ 0 := Nat.zero_le _\nend FpT\n")
+        rc, out = project.run_lean(body + "\n" + project.lean_tail(cfg, TAIL, root="FpEvilMod"), lean_path=d)
+        if rc != 0:
+            print("the FpEvilMod fingerprint run failed:", out[-300:]); return {}
+        try:
+            return closure_fps(parse(out))
+        except RuntimeError as e:      # e.g. two modules' privates under one key (mutant F6): a FAIL, not a crash
+            print("the FpEvilMod fingerprint run failed:", str(e)[-300:]); return {}
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def _key(table, short):
@@ -715,11 +816,15 @@ def selftest(cfg):
     except RuntimeError as e:
         print(f"FAIL: base fixture did not run: {e}"); return 1
     base_auto = set(_AUTO)
+    base_table = dict(compute.table)
     K = lambda t, n: t.get(_key(t, n))
-    say("base fixture fingerprints every declaration",
-        all(_key(base, n) for n in ("FpT.thing", "FpT.other", "FpT.wrap", "FpT.st", "FpT.via_wrap",
-                                     "FpT.pf", "FpT.un", "FpT.hidden", "FpT.uses_hidden",
-                                     "FpT.eq_zero_of_x", "FpT.uses_helper", "FpT.U", "FpT.Col")))
+    every_ = all(_key(base, n) for n in ("FpT.thing", "FpT.other", "FpT.wrap", "FpT.st", "FpT.via_wrap",
+                                         "FpT.pf", "FpT.un", "FpT.hidden", "FpT.uses_hidden",
+                                         "FpT.eq_zero_of_x", "FpT.uses_helper", "FpT.U", "FpT.Col", "FpT.ps"))
+    say("base fixture fingerprints every declaration", every_)
+    if not every_:
+        print("selftest: FAILED (the base fixture's declarations are missing: the checks below would only crash)")
+        return 1
     say("a private declaration's key names it as private",
         _key(base, "FpT.hidden") and "(private in" in _key(base, "FpT.hidden"))
     say("a root-level declaration of the project is fingerprinted", "helperK" in base)
@@ -737,7 +842,28 @@ def selftest(cfg):
         and tp_ is None and defs_ == ["FpT.prev"])
     say("the helpers of the fingerprint program itself are excluded",
         not any(k.startswith("auditFp") for k in base))
-    for label, f, expect in VARIANTS:
+    say("a definition used only inside a proof is no dependency (it leaves the sheet's definitions); one used as "
+        "data stays (DESIGN-FP)", "FpT.thing" not in base_table["FpT.ps"][2] and "FpT.thing" in base_table["FpT.ps2"][2]
+        and "FpT.thing" not in signoff.closure(["FpT.uses_ps"], base_table)
+        and "FpT.thing" in signoff.closure(["FpT.ps2"], base_table))
+    try:
+        deep_ = compute(cfg, DEEP)
+    except RuntimeError as e:
+        deep_ = {}; print(str(e)[-300:])
+    say("a definition nested deeper than Lean's default recursion limit is fingerprinted (REVIEW-DESIGN-FP R1)",
+        "FpT.deep" in deep_)
+    ev1, ev2 = evil_module_run(cfg, 1), evil_module_run(cfg, 2)
+    say("a project module's declarations named like the helpers (`auditFpEraseProofs.evil`, `auditFpKey.evil`) are "
+        "fingerprinted, and a change of their value drifts the theorem that uses them (REVIEW-SAFETY-FP F1)",
+        all(k in ev1 and k in ev2 for k in ("auditFpEraseProofs.evil", "auditFpKey.evil", "FpT.usesEvil"))
+        and ev1["auditFpEraseProofs.evil"] != ev2["auditFpEraseProofs.evil"]
+        and ev1["FpT.usesEvil"] != ev2["FpT.usesEvil"]
+        and not any(k.startswith("auditFp") and not k.endswith(".evil") for k in ev1))
+    nks = ("FpT.nsVal (private in FpNsMod)", "FpT.nsVal (private in FpNsMod2)")
+    say("F-1: a private declaration in the namespace, in an imported module outside the module root, is fingerprinted "
+        "(the module tables' namespace branch) and drifts with its value; one of the same name in a second module too",
+        all(k in ev1 and k in ev2 and ev1[k] != ev2[k] for k in nks))
+    for label, f, expect, *deps in VARIANTS:
         try:
             var = compute(cfg, f(BASE))
         except RuntimeError as e:
@@ -746,6 +872,9 @@ def selftest(cfg):
             changed = K(base, n) != K(var, n) or K(base, n) is None
             say(f"{label}: {n} {'changes' if must_change else 'unchanged'}",
                 changed == must_change)
+        for n, d, inside in (deps[0] if deps else []):
+            say(f"{label}: {d} {'in' if inside else 'not in'} the deps of {n}",
+                (d in compute.table.get(n, ("", "", []))[2]) == inside)
     # parse(): completeness and uniqueness
     try:
         parse("FP\ta\ttheorem\tuser\t1\t\nFPCOUNT\t2\n"); r1 = False

@@ -40,7 +40,7 @@ SCRIPTS = {
     "signoff": ("pure+lean", True), "tree_state": ("pure", True), "make_report": ("pure", False),
     "render_record": ("pure", True), "hypotheses": ("pure", False), "result_status": ("pure", False),
     "decisions": ("pure", True), "readers": ("pure", True), "lanecheck": ("pure", True),
-    "unused_args": ("pure", True), "codex_spawn": ("pure", False), "lane_auth": ("pure", True),
+    "unused_args": ("pure", True), "lane_auth": ("pure", True),
     "codex_agents": ("pure", False), "claude_settings": ("pure", False), "stops": ("pure", True),
     "tool_patch": ("pure", True), "lean_slot": ("pure", True),
     "tests/replay": ("pure", False), "tests/round3": ("pure", False), "tests/doclint": ("pure", False),
@@ -154,7 +154,7 @@ def delegates(cfg):
 # `stops.py set-aside` refuse it. A code missing from this table (or a failure line with no code)
 # is class "unknown", which is a stop: the table fails closed. The scripts keep that default; a
 # failure no code covers (a traceback, an unwrapped git or Lean error) is first retried and then
-# classified by the operator (RUN.md failure table), who records it under one of the three
+# classified by the operator (the failure table, run/stops-and-set-asides.md), who records it under one of the three
 # operator codes below: `unknown-retry`, `tool-bug` (a STOP class) or `env-unknown`.
 STOP_CLASSES = ("tamper", "apparatus", "freeze", "gitmeta", "proof", "tool-bug", "unknown", "human")
 CAUSES = {
@@ -204,7 +204,6 @@ CAUSES = {
     "codex-approval": ("human", "a Codex command approval prompt under a delegating level: never answered or "
                                 "recorded as delegated; the person answers it"),
     "stop-trail": ("tamper", "the stop or set-aside record itself is inconsistent"),
-    "resolution-trail": ("tamper", "an older run's stall-resolution record is inconsistent"),
     # operator codes for a failure with no cause code (stops.py open --note --cause <code>)
     "unknown-retry": ("mechanical", "a failure with no cause code, re-run within the retry budget: close the "
                                     "stop once its check passes, or reclassify it as tool-bug or env-unknown"),
@@ -216,7 +215,7 @@ CAUSES = {
                              "traceback whose innermost project frame is in audits/), or a check that misjudges this "
                              "case: dev, only a maintainer fixes it; release, a tool patch reviewed by a fresh agent, "
                              "or for the proof-validity core a Lean-side workaround or stops.py core-fault, then close --core-fault "
-                             "(tool_patch.py; RUN.md \"Tool patches\")"),
+                             "(tool_patch.py; run/stops-and-set-asides.md \"Tool patches\")"),
     "env-unknown": ("mechanical", "a failure with no cause code that persists after the retry and comes from the "
                                   "environment (git, Lean/lake, network, filesystem): fix it as an environment "
                                   "fault; a stop for the human after the retry budget"),
@@ -285,7 +284,7 @@ CAUSES = {
     "build": ("mechanical", "the Lean does not build: fix it and run Phase 0 again"),
     # B3: a sorry is the author's unfinished work (prove it, or follow Stage 3 for a result that
     # cannot be proved), not a stop; a token or axiom that leaves a proof unchecked is a stop
-    "sorry": ("proof-wip", "a sorry, admit or sorryAx in the Lean: prove it (RUN.md failure table)"),
+    "sorry": ("proof-wip", "a sorry, admit or sorryAx in the Lean: prove it (the failure table, run/stops-and-set-asides.md)"),
     "hard-token": ("proof", "a token that leaves a proof unchecked by the kernel"),
     "unproved": ("info", "a sorry inside a non-goal result left unproved by a logged [DELEGATED] decision "
                          "(stated, not proved; disclosed in SKIPPED.md, the report and DECISIONS.md)"),
@@ -321,7 +320,7 @@ CAUSES = {
                                    "Phase 0"),
     "baseline": ("mechanical", "the tree baseline could not be saved"),
     # an adjudicator-owned record (PAPER_DEFECTS/SKIPPED/VACUOUS.md) cites what does not exist: F, it
-    # blocks, and the operator cures it at every level by a record correction (RUN.md failure table)
+    # blocks, and the operator cures it at every level by a record correction (the failure table, run/stops-and-set-asides.md)
     "dead-witness": ("record-fix", "a PAPER_DEFECTS.md witness cell names something that is not a declaration of "
                                    "the project (`sorry`, a scratch-file lemma): record correction (prompt.py 4 "
                                    "--record-fix), or a new round if more than a cell must change"),
@@ -502,22 +501,19 @@ RELEASE_STOPS = {1: ("unproved-goal",), 2: ("outward-action",), 3: ("env-unknown
 RELEASE_STOP_CODES = tuple(c for cs in RELEASE_STOPS.values() for c in cs)
 
 
-# OPEN (awaiting the approver; one switch): what release does when the statement-round cap is reached with a
-# faithfulness finding open. Approver 2026-10-24 (decision 3): no stop of its own -- the operator judges the cause:
-# a genuine ambiguity -> stop 4 (`ambiguity`); a loose convention -> a reading-choice decision, disclosed;
-# anything else -> go on, every result the finding leaves open reads "not established: open faithfulness
-# finding" on the summary (result_status, scope.cap_record). Dev: unchanged, a human stop.
-ROUND_CAP_ROUTE = "judge"           # "judge" (decision 3) or "stop" (round-cap a human stop in release too)
-
-
+# What release does when the statement-round cap is reached with a faithfulness finding open. Approver 2026-10-24
+# (decision 3): no stop of its own -- the operator judges the cause: a genuine ambiguity -> stop 4 (`ambiguity`); a
+# loose convention -> a reading-choice decision, disclosed; anything else -> go on, every result the finding leaves
+# open reads "not established: open faithfulness finding" on the summary (result_status, scope.cap_record). Dev: a
+# human stop.
 def round_cap_route(cfg):
-    """How a statement-round cap reached with a faithfulness finding open is handled in this run: "stop" (dev,
-    or release if ROUND_CAP_ROUTE says so: a human stop, --cause round-cap) or "judge" (release: no stop; the
-    operator judges the cause, scope.cap_message names the three routes)."""
-    return "stop" if mode(cfg) != "release" or ROUND_CAP_ROUTE == "stop" else "judge"
+    """How a statement-round cap reached with a faithfulness finding open is handled in this run: "stop" (dev: a
+    human stop, --cause round-cap) or "judge" (release: no stop; the operator judges the cause, scope.cap_message
+    names the three routes)."""
+    return "stop" if mode(cfg) != "release" else "judge"
 
 
-ROUND_CAP_RELEASE = (_H, "human") if ROUND_CAP_ROUTE == "stop" else (_N, "disclose")
+ROUND_CAP_RELEASE = (_N, "disclose")
 # U2 §6.4 / ADDENDUM N1: the delivery codes. Each is a RED precondition of project.py --deliver, printed by
 # make_report.py --check --delivery; none ever opens a stop, so the one-stop slot stays free for a fault
 # in the rounds that clear them
@@ -534,7 +530,7 @@ RELEASE = {
     **{c: (_I, "restore") for c in (
         "no-pin", "tooling", "pyc", "agent", "codex-roles", "config", "pin", "ownership", "waiver",
         "set-aside-changed", "record-changed", "record-fix-diff", "reapproval-record", "stop-trail",
-        "resolution-trail", "uncommitted-record", "gitmeta", "tree-changed", "head-moved", "tool-patch")},
+        "uncommitted-record", "gitmeta", "tree-changed", "head-moved", "tool-patch")},
     **{c: (_I, "redo") for c in (
         "independence", "independence-path", "quote-unmatched", "evidence-after-seal", "auth-metadata", "prompt-changed",
         "unauthenticated", "seal-mismatch", "scope-changed")},
@@ -568,9 +564,6 @@ KINDS = ("rerun", "restore", "redo", "reprove", "patch", "human", "disclose", "p
 # every other script is blocking. {registry name: prefixes of its N self-test checks, or None: all}
 # (review H2: the reader gate and its prompt guard the sheet's pre-approval faithfulness check, so
 # readers.py and every other fresh-reader prompt check block; S1's check was the decisions reader's)
-# scripts whose persistent failure in one path is a tool fault the release run discloses (stops.py disclose --note
-# --cause tool-fault --script NAME) while its selftest still guards. None since PDF-AGENTS removed render_fix
-TOOL_FAULT_SCRIPTS = ()
 SCRIPT_RELEASE = {"tests/doclint": None,
                   "prompt": ("fresh-reader: under a delegating level the decisions reader",
                              "fresh-reader: the next report file is numbered")}
@@ -623,7 +616,7 @@ CURES = {
                 "statement), commit, then run Phase 0 and the build"),
     "patch": ("if a read-only check fails because of a mechanical problem, fix it and re-run the check (close "
               "--cured re-runs it); if the pinned tool itself is wrong (it crashes, or misjudges this case): "
-              "diagnose it and patch it through python3 audits/tool_patch.py begin --stop S<n> (RUN.md, \"Tool "
+              "diagnose it and patch it through python3 audits/tool_patch.py begin --stop S<n> (run/stops-and-set-asides.md, \"Tool "
               "patches\": a fresh reviewer approves the patch; then close --cured \"tool-patch TP<k>\"); a fault in "
               "the proof-validity core (no patch may touch it): a Lean-side workaround, else stops.py core-fault (a fresh "
               "reviewer judges it), then close --core-fault <file> (what the check guarantees reads \"not verified\", "
@@ -651,7 +644,7 @@ _CLOSER_GROUPS = {
     "integrity.py --check": (
         "no-pin", "tooling", "pyc", "agent", "codex-roles", "config", "pin", "ownership", "waiver",
         "set-aside-changed", "record-changed", "record-fix-diff", "reapproval-record", "stop-trail",
-        "resolution-trail", "uncommitted-record", "tool-patch", "owner-redo"),
+        "uncommitted-record", "tool-patch", "owner-redo"),
     "tree_state.py --check": ("tree-changed", "gitmeta", "head-moved", "head-moved-operator"),
     "lanecheck.py --round {R}": (
         "independence", "independence-path", "quote-unmatched", "lane-fault", "evidence-after-seal", "auth-metadata",
@@ -694,7 +687,7 @@ def release_cure(cfg, codes):
 
 
 def closer_table():
-    """RUN.md's release closer table (doclint checks RUN.md carries it verbatim): one row per kind."""
+    """The failure table's release closer table (run/stops-and-set-asides.md; doclint checks it carries it verbatim): one row per kind."""
     rows = ["| kind | codes | cure (`project.CURES`) | closes with |", "|---|---|---|---|"]
     for k in KINDS:
         # review 2026-10-28: a code that never opens a stop (NEVER_STOP) and is not disclosed is listed as no stop
@@ -1443,6 +1436,11 @@ def first_pin(rounds_dir):
 SUPERSEDED_RE = re.compile(r"^\W*superseded\s*\((\d{4}-\d\d-\d\d-[0-9A-Za-z-]+)\)", re.I)
 
 
+def rounds_dir(cfg):
+    """The run's rounds directory (absolute)."""
+    return os.path.join(REPO, cfg["rounds_dir"])
+
+
 def superseded_row(cells):
     """The round named by a row marked `superseded (<round>)` in its last cell, or None."""
     m = SUPERSEDED_RE.match(str(cells[-1])) if cells else None
@@ -1471,6 +1469,15 @@ def intake_section(rounds_dir):
 # The ONE form 5d is logged in (B2 review): `- 5d: agent` or `- 5d: human <name>`, printed by
 # `prompt.py --intake --5d <who>` for the operator to paste; the human's own words go on the next line
 FIVE_D_FORM = re.compile(r"- 5d: (agent|human \S.*)")
+
+
+def source_is_pdf(cfg):
+    """W-R4 C6 (T8 F3, F5): the run's source is a PDF only (no TeX source supplied; signoff.source_macros' test)."""
+    src = str((cfg or {}).get("source_pdf") or "")
+    return bool(src) and not src.endswith(".tex")
+
+
+PDF_LOCATIONS = "Paper locations are PDF page, section and numbered environment (no TeX source was supplied)."
 
 
 def five_d_line(who):
@@ -1995,7 +2002,7 @@ def adj_verify(ctx, round_name, own, text):
     try:
         kind, cmds = _adj_commands(ctx, round_name)
     except ValueError as e:
-        return [str(e)], None, None
+        return [str(e)], None, None, None
     head, aud = _adj_heads(ctx)
     for key, now in (("HEAD", head), ("AUDITS", aud)):
         start = [l for l in lines[1:4] if l.startswith(key + " ") and not l.endswith(" (end)")]
@@ -2521,6 +2528,17 @@ def sheet_commit(rd, rnd):
     return m.group(1) if m else None
 
 
+def sheet_reader_ran(rd, rnd):
+    """Does `<rounds dir>/readers/` hold a fresh reader's record (or response) of round `rnd`'s sign-off sheet
+    (`signoff-<round>-<n>.md`, readers.py)? W-R4 A8."""
+    try:
+        names = os.listdir(os.path.join(rd, "readers")) if rnd else []
+    except OSError:
+        return False
+    pat = re.compile(rf"signoff-{re.escape(str(rnd))}-\d+(?:\.response(?:-\d+)?)?\.md")
+    return any(pat.fullmatch(n) for n in names)
+
+
 def readme_ac(cfg):
     """README sections A-C of the delivery copy (generated; hashed at prepare). Cites the delivered Lean commit
     (ADDENDUM N2), never HEAD; says nothing a reader or --deliver writes (that is section D)."""
@@ -2562,8 +2580,12 @@ def readme_ac(cfg):
                      f"proofs and the line numbers at the final commit are in the report.")
         if involvement(cfg) == "hands-off" or by == "agent":
             lines.append("")
-            lines.append("Not reviewed by a human: the agent approved it under the involvement level chosen at intake. "
-                         "No fresh reader read the delivered sheet either (hands-off: `signoff.py check` only).")
+            # W-R4 A8 (INV F4): the reader sentence only when no fresh reader read this round's sheet
+            lines.append("Not reviewed by a human: the agent approved it under the involvement level chosen at intake."
+                         + ("" if sheet_reader_ran(rd, appr.get("round")) else
+                            " No fresh reader read the delivered sheet either ("
+                            + ("hands-off: " if involvement(cfg) == "hands-off" else "only ")
+                            + "`signoff.py check`" + (" only" if involvement(cfg) == "hands-off" else "") + ")."))
     else:
         lines.append("No sheet: nothing was approved (no APPROVED_FINGERPRINTS.json).")
     # approver (2026-10-24): how the run went is its own file, markdown only; nothing in it is needed to judge
@@ -2769,11 +2791,11 @@ def _render_check(cfg, doc, round_name):
 RENDER_CHECK = _render_check            # the selftest's stand-in
 
 
-def readme_d(cfg, files, kept, dropped, delivered=None):
+def readme_d(cfg, files, delivered=None):
     """README section D (ADDENDUM N6: only in the delivery copy): the stamp, the pointer to RUN_RECORD.md (the
     known-fault notices, the delivery-phase records and the superseded notices are folded into it: approver
     2026-10-24), who wrote and reviewed SUMMARY and REPORT (approver 2026-10-28), the sheet's reader outcome, how each
-    PDF was made, and the fingerprints of the delivered PDFs and of RUN_RECORD.md. `kept` and `dropped` are unused here (run_record.delivery_section reads them)."""
+    PDF was made, and the fingerprints of the delivered PDFs and of RUN_RECORD.md."""
     import fingerprint, stops
     try:
         lean = fingerprint.head(REPO)[:11]
@@ -3170,7 +3192,6 @@ NOTE_KINDS = (
     (r"withdrawn|opened in error", "A stop closed as opened in error", False),
     (r"self-cured stop", "A fixed problem whose check fails again", False),
     (r"^stop S\d+ is open", "A stop still open", False),
-    (r"coverage check", "the summary's layout (the program reads its own layout)", True),
     (r"changed since prepare|is stale|changed after prepare|was not recorded by the last prepare|Lean changed since "
      r"prepare|facts draft of \S+ is missing|no DELIVERY\.json", "documents prepared before a later change", True),
     (r"^\[pdf\]", "a PDF left out (its markdown is delivered)", True),
@@ -3493,7 +3514,7 @@ def status_block(cfg, inp):
         out.append("For each result not rated *faithful*, the program found the first words of its status above in "
                    "every row of the summary that names it; it checks nothing more, so compare the two.")
     if flagged:
-        # next batch G1 (CR-6): the sheet's CHECK reasons are the statement stage's words, not the state at delivery
+        # next batch G1 (NW-6): the sheet's CHECK reasons are the statement stage's words, not the state at delivery
         appr_ = (inp.get("approval") or {}).get("date") if isinstance(inp, dict) else None
         out += ["", SHEET_BANNER.format(date=appr_ or "at Checkpoint B")]
         out += ["", "‡ Faithful by the review records, but the approved sign-off sheet (appendix C) flags it CHECK, for "
@@ -3741,7 +3762,11 @@ def readme_checked(cfg, notes, inp, status_lines):
         if not appr:
             tail = "No approval of the statements is on record."
         elif involvement(cfg) == "hands-off" or by == "agent":
-            tail = ("The statements were approved by the agent, not by you (hands-off)"
+            tail = ("The statements were approved by the agent, not by you "
+                    + ("(hands-off)" if involvement(cfg) == "hands-off" else
+                       "(you chose at the start to let the agent approve the statements)"
+                       if approver_5d(rd) == "agent" else
+                       "(you chose at Checkpoint B to let the agent approve the statements)")
                     + ("; every other decision was the agent's (`DECISIONS.md`)." if ans else
                        ", and the agent took every decision (`DECISIONS.md`)."))
         elif any(k.prefix == "approval" for k in ans):
@@ -3853,7 +3878,7 @@ def _deliver(cfg):
     `sorry` beyond a logged leave line, standard axioms only), the freeze (fingerprint.py --check; no re-approval
     open), the integrity of the proof-validity core (stops.math_gate) and no Lean commit after the last audited round
     (`deliver-stale`, within the delivery round cap). Everything else -- the prepared documents' staleness, the
-    reader gates, hand-edit records, the status check, result_status disagreements, pending adjudication,
+    sheet's reader gate, result_status disagreements, pending adjudication,
     `unverified`, ownership of document and reader files, the PDF render guard, an open stop or Checkpoint C, the
     run record's listing, the tool-patch delivery check -- is printed under NOTES_HEADING for the main agent, who
     judges it (run/stage5-delivery.md); none refuses and none is a stop. Then the delivery copy in
@@ -4052,7 +4077,7 @@ def _deliver(cfg):
         notes.append(f"the README section \"{CHECKED_HEADING[3:]}\" could not be written ({type(e).__name__}: {e})")
         sect_ = CHECKED_HEADING + "\n\n" + CHECKED_FALLBACK.format(e=f"{type(e).__name__}: {e}") + "\n"
     cover = insert_checked(ac_text, sect_) \
-        + (note("README section D", readme_d, cfg, files, kept, dropped, delivered)
+        + (note("README section D", readme_d, cfg, files, delivered)
            or "\n## D. Delivery notes\n\n(could not be written: see the notes)\n")
     open(os.path.join(out, "README.md"), "w", encoding="utf-8").write(cover)
     delivered.append(os.path.join(out, "README.md"))
@@ -4083,7 +4108,7 @@ def run_main(main_fn, *args):
         msg = " ".join(f"{type(e).__name__}: {e}".split())[:300]
         print(f"FAIL[uncoded] {script} crashed ({msg}): re-run it (stops.py open --note \"{script} crashed\" "
               f"--cause unknown-retry with the read-only check of this step); a crash that persists is "
-              f"tool-bug or env-unknown (RUN.md failure table)", flush=True)
+              f"tool-bug or env-unknown (the failure table, run/stops-and-set-asides.md)", flush=True)
         return 1
 
 
@@ -4744,6 +4769,45 @@ def selftest():
                 _rc = main(["--log", "Mechanical failures"])
         finally:
             select, sys.stdin = _sel, _stdin
+        # W-R3 item 4b (Mac fix 5): a [DELEGATED …] tag whose reversal is not one of the four costs is refused at log
+        # time, nothing written; a canonical one logs
+        _rv = {}
+        try:
+            select = lambda name=None: (_lc, "test")
+            for _cost in ("remove SD3", "none", " New  Round "):
+                _before = open(os.path.join(REPO, "audits", "lt", "RUN_LOG.md")).read()
+                sys.stdin = io.StringIO(f"- [DELEGATED 2026-11-19, operator under hands-off (intake); reversal: {_cost}] "
+                                        f"x — y RVQZ{len(_cost)}\n")
+                with contextlib.redirect_stdout(io.StringIO()):
+                    _rv[_cost] = (main(["--log", "Open questions"]),
+                                  _before == open(os.path.join(REPO, "audits", "lt", "RUN_LOG.md")).read())
+        finally:
+            select, sys.stdin = _sel, _stdin
+        _cc = {}
+        try:
+            select = lambda name=None: (_lc, "test")
+            for _k, _t in (("bs", "- grep Minor\bX CCQZ1\n"), ("tab", "- a\tb CCQZ2\n"), ("crlf", "- c\r\nd\re CCQZ3\r\n")):
+                sys.stdin, _o = io.StringIO(_t), io.StringIO()
+                with contextlib.redirect_stdout(_o):
+                    _rc = main(["--log", "Open questions"])
+                _cc[_k] = (_rc, open(os.path.join(REPO, "audits", "lt", "RUN_LOG.md")).read(), _o.getvalue())
+        finally:
+            select, sys.stdin = _sel, _stdin
+        _ccok = lambda k, line, note: (_cc.get(k, (1, "", ""))[0] == 0 and line in _cc[k][1]
+                                       and ("NOTE: removed non-printing" in _cc[k][2]) == note)
+        checks.append(("W-R6 (Mac R3 g) / W-R7 L1: --log strips a non-printing control character (a backspace), logs the "
+                       "entry and names what it removed; CRLF becomes LF and a lone CR is dropped, silently; a tab "
+                       "and newlines log as they are",
+                       _ccok("bs", "- grep MinorX CCQZ1\n", True) and _ccok("tab", "- a\tb CCQZ2\n", False)
+                       and _ccok("crlf", "- c\nde CCQZ3\n", False) and "\r" not in _cc["crlf"][1]
+                       and "\b" not in _cc["bs"][1] and "character(s) U+0008 from" in _cc["bs"][2]))
+        checks.append(("W-R3 4b: --log refuses a [DELEGATED …] tag whose reversal is not one of the four costs (exit 2, "
+                       "RUN_LOG.md unchanged); 'reversal: none' logs",
+                       _rv.get("remove SD3") == (2, True) and _rv.get("none") == (0, False)))
+        checks.append(("W-R8 L7: --log matches the reversal cost ignoring case and whitespace and logs its canonical "
+                       "form ('reversal:  New  Round ' is logged as 'reversal: new round')",
+                       _rv.get(" New  Round ") == (0, False)
+                       and "reversal: new round] x — y RVQZ12" in open(os.path.join(REPO, "audits", "lt", "RUN_LOG.md")).read()))
         try:
             select = lambda name=None: (_lc, "test")
             _o = io.StringIO()
@@ -4945,9 +5009,9 @@ def selftest():
             _cv5 = readme_d({"rounds_dir": "audits/x", "involvement": "hands-off"},
                             [os.path.join(REPO, "audits", "x", "REPORT.pdf"),
                              os.path.join(REPO, "audits", "x", "DECISIONS.md"),
-                             os.path.join(REPO, "audits", "x", "2026-01-01-abc1234", "SIGNOFF.pdf")], [], [])
+                             os.path.join(REPO, "audits", "x", "2026-01-01-abc1234", "SIGNOFF.pdf")])
             _cv8 = readme_d({"rounds_dir": "audits/x", "involvement": "involved"},
-                            [os.path.join(REPO, "audits", "x", "2026-01-01-abc1234", "SIGNOFF.pdf")], [], [])
+                            [os.path.join(REPO, "audits", "x", "2026-01-01-abc1234", "SIGNOFF.pdf")])
             json.dump({"doc": "REPORT", "outcome": "least-bad", "shipped_round": 2, "budget": 6, "rounds": [
                            {"k": 1, "checkers": {
                                "1": {"status": "saved", "verdict": "DIFFERENT", "blocking": 1, "findings": ["p.3: CHKQZ"]},
@@ -4957,21 +5021,21 @@ def selftest():
                        "covers": [{"t": 1, "round": 2, "a": {"status": "saved"}, "check": {"status": "saved",
                                                                                          "verdict": "PASS"}}]},
                       open(os.path.join(REPO, "audits", "x", "pdf", "REPORT", "RENDER.json"), "w"))
-            _cv6 = readme_d({"rounds_dir": "audits/x", "involvement": "hands-off"}, [], [], [])
+            _cv6 = readme_d({"rounds_dir": "audits/x", "involvement": "hands-off"}, [])
             # conf1 (C1 audit): with the real gate's words, README D never says a KNOWN_FAULTS file is delivered
             import readers as _rd7
             globals()["READER_OUTCOME"] = lambda c_, d_, r_: _rd7.outcome_text(f"{d_}-r", 2, 2)[1]
             _cv7 = readme_d({"rounds_dir": "audits/x", "involvement": "hands-off"},
                             [os.path.join(REPO, "audits", "x", "REPORT.pdf"),
-                             os.path.join(REPO, "audits", "x", "DECISIONS.md")], [], [])
+                             os.path.join(REPO, "audits", "x", "DECISIONS.md")])
             open(os.path.join(REPO, "audits", "x", JUDGEMENT_MD), "w").write("claims-1 · adopted.\n")
             os.makedirs(os.path.join(REPO, "audits", "x", REVIEW_DIR), exist_ok=True)
             for p_ in ("CLAIMS", "TRUST"):
                 open(os.path.join(REPO, "audits", "x", REVIEW_DIR, p_ + ".md"), "w").write("1. minor: x\n")
-            _cv9 = readme_d({"rounds_dir": "audits/x", "involvement": "hands-off"}, [], [], [])
+            _cv9 = readme_d({"rounds_dir": "audits/x", "involvement": "hands-off"}, [])
             os.makedirs(os.path.join(REPO, "audits", "x", FACTS_DIR), exist_ok=True)
             shutil.copy(os.path.join(REPO, "audits", "x", "SUMMARY.md"), os.path.join(REPO, "audits", "x", FACTS_DIR))
-            _cv10 = readme_d({"rounds_dir": "audits/x", "involvement": "hands-off"}, [], [], [])
+            _cv10 = readme_d({"rounds_dir": "audits/x", "involvement": "hands-off"}, [])
             _dc10 = draft_copies({"rounds_dir": "audits/x"})
             shutil.rmtree(os.path.join(REPO, "audits", "x", FACTS_DIR))
             shutil.rmtree(os.path.join(REPO, "audits", "x", REVIEW_DIR))
@@ -5387,7 +5451,7 @@ def _checked_controls():
                     "marked ‡ (next batch B5: not †), with the sheet's reason under a heading after a blank line; an "
                     "OK one and a not-faithful one are not marked for it; every † or ‡ heading follows a blank line",
                     "| faithful | Theorem 1.1; Lemma 2.1 ‡; Remark 4.2 ‡ |" in t8
-                    # next batch G1: the CR-6 banner directly above the quoted sheet CHECK lines (K-REMOVE: no K line)
+                    # next batch G1: the NW-6 banner directly above the quoted sheet CHECK lines (K-REMOVE: no K line)
                     and "K standard" not in t8
                     and "The sign-off sheet is the statement-stage record" in t8
                     and t8.index("statement-stage record") < t8.index("‡ Faithful")
@@ -5429,6 +5493,50 @@ def _checked_controls():
         inv = readme_checked(dict(cfg, involvement="involved"), [], {"approval": approval}, [])
         make_report.disclosure_keys = lambda c_, i_=None: [K("Results", "result", "Lemma 1.2", "faithful"), stop_key]
         inv2 = readme_checked(dict(cfg, involvement="involved"), [], {"approval": approval}, [])
+        _keep_5d = globals()["approver_5d"]
+        try:
+            globals()["approver_5d"] = lambda rd_: "agent"
+            inv3 = readme_checked(dict(cfg, involvement="involved"), [], {"approval": dict(approval, by="agent")}, [])
+            globals()["approver_5d"] = lambda rd_: "human"
+            inv4 = readme_checked(dict(cfg, involvement="involved"), [], {"approval": dict(approval, by="agent")}, [])
+        finally:
+            globals()["approver_5d"] = _keep_5d
+        out.append(("W-R4 review M2: under involved with the agent approving, the README says when the human chose it: "
+                    "at the start (5d agent) or at Checkpoint B (5d a human, answer (c))",
+                    "(you chose at the start to let the agent approve the statements)" in inv3
+                    and "(you chose at Checkpoint B to let the agent approve the statements)" in inv4
+                    and "(hands-off)" not in inv4))
+        # W-R4 review L1: readme_ac rendered under involved with the agent approving, with and without a sheet reader
+        _keep_dc = globals()["delivered_commit"]
+        try:
+            globals()["delivered_commit"] = lambda c_: "abcdef01234"
+            json.dump({"by": "agent", "how": "blanket", "round": "R1", "commit": "abcdef0123456789", "rows": {}},
+                      open(os.path.join(rd, "APPROVED_FINGERPRINTS.json"), "w"))
+            _ac_icfg = dict(cfg, involvement="involved")
+            _ac_none = readme_ac(_ac_icfg)
+            _ac_hoff = readme_ac(dict(cfg, involvement="hands-off"))
+            os.makedirs(os.path.join(rd, "readers"), exist_ok=True)
+            open(os.path.join(rd, "readers", "signoff-R1-1.md"), "w").write("x")
+            _ac_read = readme_ac(_ac_icfg)
+        finally:
+            globals()["delivered_commit"] = _keep_dc
+            os.remove(os.path.join(rd, "APPROVED_FINGERPRINTS.json"))
+            shutil.rmtree(os.path.join(rd, "readers"), ignore_errors=True)
+        out.append(("W-R4 review L1: readme_ac under involved, agent approval: no reader -> the reader sentence without "
+                    "'hands-off'; with readers/signoff-R1-1.md -> no reader sentence; hands-off keeps its wording",
+                    "No fresh reader read the delivered sheet either (only `signoff.py check`)." in _ac_none
+                    and "hands-off" not in _ac_none.split("## C.")[1].split("## The run record")[0]
+                    and "No fresh reader read" not in _ac_read
+                    and "(hands-off: `signoff.py check` only)." in _ac_hoff))
+        _rdr = tempfile.mkdtemp()
+        os.makedirs(os.path.join(_rdr, "readers"))
+        _no_reader = sheet_reader_ran(_rdr, "R1")
+        open(os.path.join(_rdr, "readers", "signoff-R1-1.md"), "w").write("x")
+        out.append(("W-R4 A8 (INV F4): under involved with the agent approving, the README never says 'hands-off', and "
+                    "a fresh reader's record of the sheet's round means the reader sentence is left out",
+                    "(hands-off)" not in inv3 and "(you chose at the start to let the agent approve the statements)" in inv3
+                    and not _no_reader and sheet_reader_ran(_rdr, "R1") and not sheet_reader_ran(_rdr, "R2")))
+        shutil.rmtree(_rdr, ignore_errors=True)
         out.append(("E2 fix 2 (M1, M2): the answers recorded as yours at every level -- hands-off lists a human stop "
                     "answer and says the agent approved the statements; 'None.' only with no answer; involved points "
                     "to the approval above, never a Lean commit called an audit commit",
@@ -5760,7 +5868,7 @@ def _release_controls(fake):
             "the one exception is round-cap under round_cap_route 'judge' (approver 2026-10-24: the operator judges "
             "the cause, no stop of its own)",
             [c for c in CAUSES if cause_class(c) in STOP_CLASSES and release_class(c) == "N"]
-            == ([] if ROUND_CAP_ROUTE == "stop" else ["round-cap"])),
+            == ["round-cap"]),
            ("faithfulness, proof and integrity codes block in release: drift, index, unsettled, report, sorry, "
             "axiom, build, unlisted, ownership, tooling, tree-changed, unproved-goal",
             not any(disclosed(rel, c) for c in ("drift", "index", "unsettled", "report", "sorry", "axiom", "build",
@@ -7576,6 +7684,13 @@ def _adj_checks_controls():
         h0 = _adj_heads(ctx)[0]
         why_end, _, _, _ = adj_verify(ctx, R, False, good.replace(f"HEAD {h0} (end)", "HEAD " + "0" * 40 + " (end)"))
         why_ok, _, _, _ = adj_verify(ctx, R, False, good)
+        tj_ = os.path.join(repo, ctx["rounds_dir"], R, "TARGET.json")     # 0.3.2 A4: TARGET.json gone -> stale, no crash
+        os.rename(tj_, tj_ + ".x")
+        try:
+            why_tj, _, _, _ = adj_verify(ctx, R, False, good)
+        except ValueError:
+            why_tj = []
+        os.rename(tj_ + ".x", tj_)
         rc17, o17 = run("--wait-adjudicator-checks", "--round", "../x")
         out.append(("C3: no log, another round's log, a worker started by hand, a bad round name, a HEAD line "
                     "before END that differs are refused or stale; a log of stubbed commands never verifies outside the selftest (the real commands are "
@@ -7583,6 +7698,7 @@ def _adj_checks_controls():
                     rc14 == 1 and "no log" in o14 and rc15 == 1 and "first line" in o15 and rc16 == 2
                     and any("did not run exactly `python3 audits/phase0.py --readonly --project toy`" in w for w in why)
                     and why_ok == [] and any("HEAD line at the end" in w for w in why_end)
+                    and any("_meta.kind" in w for w in why_tj)
                     and rc17 == 2))
         # 9. the own run with --foreground started in the background (Bash run_in_background) and waited on at once
         ctl(phase0={"sleep": 1})
@@ -8057,11 +8173,34 @@ def main(argv):
             if argv[0] == "--stage":
                 p = log_append(cfg, "Current stage", argv[1], replace=True)
             else:
-                p = log_append(cfg, argv[1], sys.stdin.read())
+                text = sys.stdin.read()
+                # W-R3 item 4 (Mac fix 5): a [DELEGATED …] tag whose reversal is not one of the four costs is refused
+                # here, in seconds, instead of as RED[report] by the next Phase 0 (RUN.md "Involvement levels")
+                # W-R8 L7: the cost is matched ignoring case and whitespace, and logged in its canonical form
+                import decisions
+                _canon = {"".join(c.split()): c for c in decisions.REVERSAL_COSTS}
+                _key = lambda x: "".join(x.split()).lower()
+                bad = [m.group(1) for m in re.finditer(r"\[DELEGATED [^\]\n]*?; reversal: ([^\]\n]*)\]", text)
+                       if _key(m.group(1)) not in _canon]
+                text = re.sub(r"(\[DELEGATED [^\]\n]*?; reversal: )([^\]\n]*)\]",
+                              lambda m: m.group(1) + _canon.get(_key(m.group(2)), m.group(2)) + "]", text)
+                if bad:
+                    raise ValueError(f"nothing logged: reversal {bad[0]!r} is not one of "
+                                     f"{', '.join(decisions.REVERSAL_COSTS)} (RUN.md, \"Involvement levels\")")
+                # W-R6 (Mac R3 audit g): a shell turned `\b` into a backspace that reached the delivered documents.
+                # W-R7 L1: CRLF line ends become LF; other control characters are stripped and named (no refusal)
+                text = text.replace("\r\n", "\n").replace("\r", "")
+                ctl = sorted({f"U+{ord(c):04X}" for c in text if (ord(c) < 32 or 127 <= ord(c) < 160) and c not in "\n\t"})
+                if ctl:
+                    text = "".join(c for c in text if not ((ord(c) < 32 or 127 <= ord(c) < 160) and c not in "\n\t"))
+                p = log_append(cfg, argv[1], text)
         except (SelectionError, ValueError, OSError) as e:
             print(f"FAIL: {e}")
             return 2
         print(f"logged in {os.path.relpath(p, REPO)} under \"## {'Current stage' if argv[0] == '--stage' else argv[1]}\"")
+        if argv[0] == "--log" and ctl:
+            print(f"NOTE: removed non-printing control character(s) {', '.join(ctl)} from the entry (a shell may have "
+                  f"turned an escape such as \\b into one)")
         if argv[0] == "--stage":
             print(stage_hint(argv[1]))
         return 0

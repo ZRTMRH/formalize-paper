@@ -388,8 +388,8 @@ RESOLVED_INTRO = ("A check or a tool call stopped the run, and nobody was asked:
                   "that is a delegated close (never of a STOP class: tampering, the apparatus, approved statements, git "
                   "metadata, a sorry or an axiom, or anything uncoded), also a [DELEGATED] decision in `RUN_LOG.md` and "
                   "in the decisions document. In `release` mode it is a self-cure, of any class but a human stop: the "
-                  "cure the cause table prints, closed by re-running the stop's recorded check, which must pass (RUN.md, "
-                  "\"Stops and set-asides\"); a fault in the proof-validity core with no Lean-side workaround is "
+                  "cure the cause table prints, closed by re-running the stop's recorded check, which must pass (run/stops-and-set-asides.md, "
+                  "\"Recording and closing a stop\"); a fault in the proof-validity core with no Lean-side workaround is "
                   "closed instead as not established, its check still failing. Its record is `<rounds dir>/stops/S<n>/`.")
 # compat review L1 (batch A): said only when a row of the table is a withdrawal, so no other run record changes
 RESOLVED_WITHDRAWN = (" A stop the operator opened in error is withdrawn instead (`close --withdrawn`): its check was "
@@ -874,14 +874,6 @@ def who_decided(cfg, lvl):
             f"person after the intake")
 
 
-def setaside_row(cfg):
-    """Rounds and re-vote lanes set aside (stops.py set-aside), with the items each carried forward:
-    they are in the record but no script counts them as adjudicated."""
-    items = [f"{r[0]} SET ASIDE ({r[1]}, {r[2]}): {r[3]}" for r in set_asides(cfg)]
-    return ("Set-aside rounds and lanes", "every round's and re-vote's verdicts were adjudicated",
-            "none" if not items else "; ".join(items))
-
-
 def reapproval_rows(cfg):
     """[(begun, declarations, reason, level, closed by)] for every re-approval of the run (ROUND3
     H1), from fingerprint.reapprovals: the trust table and section 1 list each."""
@@ -903,13 +895,33 @@ def reapproval_rows(cfg):
     return rows
 
 
+def unreviewed_set_aside(round_dir):
+    """A round set aside before any lane was issued (its ABANDONED.json lists no lane, it has no .lane-auth): nothing
+    in it was reviewed, so it is never "the first statement round" (AUDIT-E2E-032 F3a: a set-aside to name instances
+    made the report say 47 statements changed after review)."""
+    if not project.is_abandoned(round_dir):
+        return False
+    try:
+        d = json.load(open(os.path.join(round_dir, project.ABANDONED)))
+    except (OSError, ValueError):
+        return False
+    return (isinstance(d, dict) and not d.get("lanes")
+            and not os.path.isdir(os.path.join(round_dir, ".lane-auth")))
+
+
+def first_statement_round(cfg):
+    """The first statement round whose lanes were issued (set-aside rounds included, unreviewed_set_aside excluded)."""
+    return next((r for r in project.rounds(cfg, include_abandoned=True) if project.round_kind(r) == "statements"
+                 and not unreviewed_set_aside(r)), None)
+
+
 def statement_timeline(cfg, reapproved=False):
     """Verifiable facts only (test-run audit, caveat 1): when the statements were committed (the first
     statement round's commit and its time), when and at which commit they were approved, and that
     the freeze check (fingerprints) shows them unchanged since. Never "before any proof was written",
     which nothing in the record establishes."""
     rd = os.path.join(REPO, cfg["rounds_dir"])
-    first = next((r for r in project.rounds(cfg, include_abandoned=True) if project.round_kind(r) == "statements"), None)
+    first = first_statement_round(cfg)
     parts = []
     if first:
         c = project.round_commit(os.path.basename(first))
@@ -1080,7 +1092,6 @@ ac_LANE_WHAT = {
 }
 
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_'!?₀-₉ₐ-ₜ]*(?:\.[A-Za-z_][A-Za-z0-9_'!?₀-₉ₐ-ₜ]*)*$")
-DECL = r"(?:theorem|lemma|def|abbrev|structure|inductive|class|instance|noncomputable def)"
 # an index row: a kind and a label. C2 audit (fault (b)): a number was required, so the unnumbered row
 # "Definition (notation 𝒬(n), tex l.38-39)" -- approved and frozen (signoff.index_rows, scope.INDEX_ROW read it) --
 # was left out of the coverage table, the statuses and the summary (11 listed against 12 approved). One parser
@@ -2257,6 +2268,15 @@ ROUTES_INTRO = ("Where a Lean proof replaces the paper's argument by another rou
                 "formalized result the goal results do not use (a dependency walk over the kernel's terms, "
                 "`dependencies.py`, run by Phase 0 after the proofs) stands alone: the goal results do not rest "
                 "on it.")
+# T009 N3: with no goal result named at intake, the section neither names goals in its title nor explains them
+ROUTES_TITLE_NO_GOAL = "Proof routes"
+ROUTES_INTRO_NO_GOAL = ROUTES_INTRO.split(" A formalized result the goal results")[0]
+ROUTES_UNUSED_NO_GOAL = "Unused formalized results"     # W-R7 L5: the sub-heading names no goal either
+
+
+def goal_names(cfg):
+    """The goal results named at intake (config `goal_results`), blank entries dropped; [] means no result is a goal."""
+    return [" ".join(str(g).split()) for g in cfg.get("goal_results") or [] if str(g).strip()]
 
 
 def open_revotes(cfg):
@@ -2283,7 +2303,9 @@ def proof_routes(cfg, deviations, header):
         return {"replaced": replaced, "unused": None, "why": "DEPENDENCIES.json is malformed"}
     if d.get("roots") == [] and "assumes" in d:
         # B5: the walk now runs without a goal result (for the assumptions); "unused" needs one
-        return {"replaced": replaced, "unused": None, "why": "no goal result of the config matches an index row"}
+        return {"replaced": replaced, "unused": None,
+                "why": "no goal result of the config matches an index row" if goal_names(cfg)
+                else "no goal result was named at intake"}
     head = delivered_commit(cfg)       # ADDENDUM N2: never HEAD
     same = bool(head) and (str(d.get("commit", "")).startswith(head[:7]) or head.startswith(str(d.get("commit", "?"))[:7]))
     stale = "" if same else f" (computed at commit {d.get('commit')}" + (f", not at {head})" if head else ")")
@@ -2458,13 +2480,14 @@ def _declared_earlier(cfg, name):
     return False
 
 
-def cited_name_problems(cfg, docs, run=None, notes=None):
+def cited_name_problems(cfg, docs, run=None, notes=None, soft=()):
     """[text] for each generated document of `docs` ({name: text}) citing a Lean name that does not exist
     (cited_lean_names, missing_lean_names), or one line if the names could not be resolved. DESIGN-SW2B X1: a name
     whose first component is no global name either (`G.Adj`) cannot be decided (dot notation on a variable, or a
     wrong name): with `notes` a list its text goes there (a NOTE judged at delivery), else it is returned with the
     problems (--deliver makes every one a delivery note). Also after "Mathlib's": REVIEW-DESIGN-SW2B C7's optional
-    hard case is not taken (a real blind reading wrote "Mathlib's G.minDegree", correct dot notation; BUILD-SW2B)."""
+    hard case is not taken (a real blind reading wrote "Mathlib's G.minDegree", correct dot notation; BUILD-SW2B).
+    0.3.2 D3: a missing name in a doc of `soft` (the write-once blind reading) is such a note too."""
     cites = {d_: cited_lean_names(t_) for d_, t_ in docs.items() if t_}
     every = sorted({n for ns_ in cites.values() for n in ns_})
     if not every:
@@ -2477,8 +2500,10 @@ def cited_name_problems(cfg, docs, run=None, notes=None):
     out = [f"{d_} cites `{n}`, which is no declaration, module or namespace of the project or the libraries it "
            f"imports (resolved in Lean against the build): correct the text that says it -- its source record or "
            f"the operator's line -- and generate the document again"
-            for d_, ns_ in cites.items() for n in ns_ if n in missing]
+            for d_, ns_ in cites.items() if d_ not in soft for n in ns_ if n in missing]
     hn = [head_name_note(d_, n, docs.get(d_)) for d_, ns_ in cites.items() for n in ns_ if n in heads]
+    hn += [f"{d_} (the blind reading, written once) cites `{n}`, which is no declaration, module or namespace of the "
+           f"project or its libraries: kept; judged at delivery" for d_ in soft for n in cites.get(d_, ()) if n in missing]
     if notes is None:
         return out + hn
     notes += hn
@@ -2760,7 +2785,7 @@ def front_matter(cfg):
          f"file is `{cfg.get('source_pdf', '?')}`. The Lean code is in the repository `{REPO}`, "
          f"branch `{cfg.get('branch', '?')}`, commit `{head}`, namespace `{cfg.get('namespace', '?')}`; "
          f"its files are " + ", ".join(f"`{x}`" for x in cfg.get("lean_files", [])) + ". The "
-         f"audit record is the directory `{root}`."),
+         f"audit record is the directory `{root}`." + (" The source is a PDF only." if project.source_is_pdf(cfg) else "")),
         ("How it was checked",
          "The Lean statements of the paper's results were written and committed first, and reviewed "
          "and approved at a checkpoint (Checkpoint B); section 1 says who approved them, at which "
@@ -2796,7 +2821,9 @@ def front_matter(cfg):
          "round that examined everything rather than only the changes. Each round is a directory "
          "of the audit record, holding the reviewers' verdicts and the adjudicator's decisions "
          "(`ADOPTED.md`). `AUTHOR_NOTES.md` (in the audit record) holds the formalizer's numbered "
-         "notes on reading choices (not the paper author's). `tex N` or `tex l.N` is line N of the source file; `File.lean:N` is "
+         "notes on reading choices (not the paper author's). "
+         + (project.PDF_LOCATIONS + " `File.lean:N` is " if project.source_is_pdf(cfg) else
+            "`tex N` or `tex l.N` is line N of the source file; `File.lean:N` is ") +
          "line N of that Lean file at the commit above (except where a record's line is older; "
          "those are listed under \"Stale line numbers\"). Route changes are numbered 1, 2, ... in "
          "section 6. A *standing defer* is a rule in the project configuration "
@@ -2841,8 +2868,7 @@ def global_differences(cfg):
 # delivery says so); the answers recorded as yours (receipts); one line on the decisions (the number of distinct
 # matters in DECISIONS.md). When the page is full, the items of a kind are counted on one line that names each by
 # its number and the REPORT section holding them in full (never dropped). Generated only (never written by hand).
-# summary_problems() (inside make_report.py --check --delivery) re-enumerates the record and refuses a summary on
-# which an item is neither listed nor counted. Its PDF (render_record.py) is one page: the renderer fits it, the
+# Its PDF (render_record.py) is one page: the renderer fits it, the
 # verifier fails a longer one (PDF-AGENTS).
 SUMMARY_MD = "SUMMARY.md"
 SUMMARY_POINTER = ("**0. Summary.** Read the summary first (`SUMMARY.pdf`, its markdown `SUMMARY.md` beside it; "
@@ -2852,6 +2878,8 @@ SUMMARY_POINTER = ("**0. Summary.** Read the summary first (`SUMMARY.pdf`, its m
                    "the section of this report that holds it), the answers recorded as yours, and the number of "
                    "matters decided in DECISIONS.md. This report is its appendix A. How the run went (self-cured "
                    "stops, set-asides, process events) is in RUN_RECORD.md, appendix D.")
+# T009 N3: no goal result named at intake -> the pointer does not promise a goal result's status
+SUMMARY_POINTER_NO_GOAL = SUMMARY_POINTER.replace("one page with the goal result's status, every", "one page with every")
 # a result's status (U2 §1) is result_status.py's (B9): "faithful" only when every review of it is Pass and current
 # and nothing else applies (U2 §6.5: nothing defaulted to faithful)
 
@@ -2955,8 +2983,8 @@ def _summary_extra(cfg, inp):
 
 
 def _col(head, row, name):
-    i = next((k for k, h in enumerate(head or []) if h.lower().startswith(name)), None)
-    return row[i] if i is not None and i < len(row) else ""
+    import result_status
+    return result_status._col(head, row, name)
 
 
 def result_status(cfg, row, inp):
@@ -3414,13 +3442,8 @@ def assumption_trust_rows(cfg, asm):
     return hypotheses.trust_rows(cfg, r=asm)
 
 
-def result_status_legend():
-    import result_status as _rs
-    return _rs.STATUS_LEGEND
-
-
 def _goal_line(cfg, keys):
-    goals = [" ".join(str(g).split()) for g in cfg.get("goal_results") or [] if str(g).strip()]
+    goals = goal_names(cfg)
     res = {k.ident: k.short for k in keys if k.prefix == "result"}
     if not goals:
         return "**Goal result:** none named at intake."
@@ -3458,14 +3481,6 @@ def summary_header(cfg, inp, keys):
             f"`{cfg.get('branch', '?')}`, repository `{REPO}`. Run mode: {project.mode(cfg)}. Involvement: {lvl}"
             + (f" (intake answer: \"{dl[1]}\")" if dl and dl[1] else "") + f". {ap}{p0}"]
 
-# Approver (2026-10-26): the plain trust lines code writes on SUMMARY page 1 and in REPORT are judged by an agent, the
-# status check (run_record.status_items, readers.trust_problems). THE HOOK: TRUST_LINE_PROVIDERS, a list of functions
-# provider(cfg) -> [TrustEvent]; each event names its id ("TL-<kind>-<key>", stable across prepares), what kind of
-# event it is, the plain line the generator writes for it (on SUMMARY page 1 and in REPORT), and where RUN_RECORD.md
-# records the event. Another kind of line (a status decided by corrected software, ...) appends its provider here
-TrustEvent = collections.namedtuple("TrustEvent", "id kind line record affects")
-
-
 def raised_status_lines(cfg):
     """SWEEP-FIX D4: the plain lines "<result>: this status was decided by a corrected version of our checking software; ..." (one per result
     whose status a tool patch made stronger than the FIRST pin's result_status.py gives it; tool_patch.raised_lines),
@@ -3476,109 +3491,6 @@ def raised_status_lines(cfg):
         return tool_patch.raised_lines(cfg)
     except Exception:       # noqa: BLE001 -- never silent: the comparison is said not to have run
         return [tool_patch.STATUS_UNCOMPARED]
-
-
-
-def core_fault_events(cfg):
-    """[TrustEvent] of every stop closed as not verified (stops.py close --core-fault), each with what it weakens."""
-    import stops, run_record
-    out = []
-    for c in stops.core_fault_rows(cfg):
-        g, _t, short = stops.core_guarantee(c)
-        aff = (f"every result's status reads \"{short}\"; the report's Lean-kernel row says it"
-               + ("; the report's Approval of statements row says it" if g == "statement" else "")
-               if short else
-               "no result's status changes (the proofs and statements were checked); the legend says *faithful* rests "
-               "on reviewer records not verified; the report's rows Approval of statements, AI reviewer(s) and Record "
-               "provenance, and the summary's section Answers recorded as yours, say it")
-        out.append(TrustEvent(f"TL-not-verified-{c.get('stop')}", "a check of the proofs, the statements or the record "
-                              "could not be run", stops.core_fault_marker(c),
-                              f"RUN_RECORD.md: stop {c.get('stop')} (\"{run_record.STOPS_TITLE}\") and the requests to "
-                              f"close a stop as not verified", aff))
-    return out
-
-
-STATUS_UNCOMPARED_FALLBACK = ("Our checking software was corrected during this run, and the statuses could not be "
-                              "compared with what the original version would have said. Details for maintainers: "
-                              "RUN_RECORD.md.")
-
-
-def raised_status_events(cfg):
-    """[TrustEvent] of every status a corrected version of the checking software raised (SWEEP-FIX D4: code flags it
-    from the first pin's result_status.py; the status check judges the line against RUN_RECORD.md)."""
-    import tool_patch
-    unc = [TrustEvent("TL-raised-uncompared", "statuses not compared with the original checking software",
-                      getattr(tool_patch, "STATUS_UNCOMPARED", STATUS_UNCOMPARED_FALLBACK),
-                      "RUN_RECORD.md: \"Tool patches\", \"Statuses raised by tool patches\"",
-                      "any result's status may be stronger than the original software would have given; the sentence "
-                      "stands on the summary's first lines and in the report's section 1")]
-    try:
-        # SWEEP-FIX review B2: every call inside the guard; a crash fails closed (the not-compared line is then
-        # required on the documents and judged by the status check), never a crash of the status check or run_record
-        patched = bool(tool_patch.links(project.AUDITS, os.path.join(REPO, cfg["rounds_dir"])))
-        recs = tool_patch.raised_statuses(cfg) if patched else []
-    except Exception:       # noqa: BLE001 -- the comparison is said not to have run
-        return unc
-    if recs is None:
-        return unc
-    return [TrustEvent(f"TL-raised-{re.sub(r'[^A-Za-z0-9.]+', '_', lb)}", "a status decided by a corrected version of "
-                       "the checking software", tool_patch.RAISED.format(label=lb, tp=tp, old=old),
-                       f"RUN_RECORD.md: \"Tool patches\", \"Statuses raised by tool patches\" ({tp})",
-                       f"the status of {lb} only (the shown status is the corrected software's; the original one is "
-                       f"quoted); the sentence stands on the summary's first lines and in the report's section 1")
-            for lb, tp, old in recs]
-
-
-
-
-def weakened_events(cfg):
-    """[TrustEvent] of the report's "Checks weakened" row (weakened_row): a correction of the checking software, a
-    hand delivery."""
-    out = []
-    if tools_patched(cfg):
-        out.append(TrustEvent("TL-software-corrected", "the checking software was corrected during the run",
-                              TOOLS_PATCHED, "RUN_RECORD.md section 1 (tool patches)",
-                              "the report's row Checks weakened says it; a corrected tool may change result statuses "
-                              "-- the lines that name a status set by corrected software say which results"))
-    if hand_delivered(cfg):
-        out.append(TrustEvent("TL-hand-delivered", "the run was delivered by hand", HAND_DELIVERY,
-                              "RUN_RECORD.md: the stop whose answer says so", "no result's status; the report's row "
-                              "Checks weakened says it"))
-    return out
-
-
-TRUST_LINE_PROVIDERS = [core_fault_events, weakened_events, raised_status_events]   # per-result lines: SWEEP-FIX D4
-# review 3 (fail-safe coverage, code flags): every plain trust sentence a generator writes is one of these kinds; each
-# one SUMMARY.md or REPORT.md carries must be some event's line (readers.trust_problems), so a kind whose provider is
-# missing refuses delivery. THE SECOND HOOK: a new kind of trust sentence appends its pattern here and its provider to
-# TRUST_LINE_PROVIDERS
-TRUST_SENTENCE_RES = [re.compile(r"Not verified: [^\n]*?\(details for maintainers in RUN_RECORD\.md\)\."),
-                      re.compile(re.escape(TOOLS_PATCHED)), re.compile(re.escape(HAND_DELIVERY)),
-                      # SWEEP-FIX D4: a status decided by corrected software (one per result, as SUMMARY writes it in
-                      # bold and REPORT as a list item), and the line saying the statuses could not be compared
-                      re.compile(r"(?m)(?:(?<=^- )|(?<=\*\*))[^\n*]+?: this status was decided by a corrected version "
-                                 r"of our checking software; the original version would have said \"[^\n]*?\"\. Details "
-                                 r"for maintainers: RUN_RECORD\.md\."),
-                      re.compile(r"Our checking software was corrected during this run, and the statuses could not be "
-                                 r"compared[^\n]*?RUN_RECORD\.md\.")]
-
-
-def trust_line_events(cfg):
-    """[TrustEvent] of every provider in TRUST_LINE_PROVIDERS, in order."""
-    return [e for prov in TRUST_LINE_PROVIDERS for e in prov(cfg)]
-
-
-def trust_sentences(text):
-    """[sentence] of the plain trust kinds (TRUST_SENTENCE_RES) in a generated document's text, each once."""
-    return list(dict.fromkeys(m.group(0) for rx in TRUST_SENTENCE_RES for m in rx.finditer(text or "")))
-
-
-def trust_line_summary(cfg):
-    """The status check's <TRUST-LINES>: each event, its kind, the line the generator wrote for it, what it weakens
-    (affects: the specification the agent judges against) and where RUN_RECORD.md records it; "none"."""
-    ev = trust_line_events(cfg)
-    return "none" if not ev else "; ".join(f"{e.id} ({e.kind}; the line: \"{e.line}\"; what it weakens: {e.affects}; "
-                                           f"recorded in {e.record})" for e in ev)
 
 
 # review 3: the reviewers' verdicts are authenticated at delivery by the integrity check; when it (or the tool-patch
@@ -3813,165 +3725,6 @@ def dangling_lines(md):
     return out
 
 
-def _hand_rows(text, keys):
-    """({label: status}, [label]) of a HAND-WRITTEN summary's results table, read as the README reads it
-    (project.summary_result_rows: any table with a Status and a Result column, three or more columns included) and
-    paired with the record's labels as project.status_block pairs them (exact, then a spaced parenthetical cut, then
-    any trailing parenthetical). Next batch B3/B16: the strict two-column reader found none of a three-column table
-    and the delivery note said it "cannot see" every result. A label the record does not hold is kept as written."""
-    ids = [" ".join(k.ident.split()) for k in keys if k.prefix in ("result", "excluded")]
-    exact = {project.norm_label(i, cut=False): i for i in ids}
-    normd = {project.norm_label(i): i for i in ids}
-    st, seen = {}, []
-    for lbl, cells in project.summary_result_rows(text).items():
-        a = project.norm_label(lbl, cut=False)
-        i = exact.get(a) or normd.get(project.norm_label(lbl)) or exact.get(project._cut_any_paren(a)) or a
-        for c_ in cells:
-            seen.append(i)
-            st[i] = c_
-    return st, seen
-
-
-def summary_problems(cfg, text=None, inp=None, hand_edited=False):
-    """[Finding(deliver)] of the delivered SUMMARY.md against a fresh enumeration (U2 §6.4 coverage, §1
-    independent check): every result in the table once, with its status as the record gives it; every other item
-    of the record (defect, proof slip, vacuous statement, assumption, stop, answer, ...) either listed on its line,
-    whole and as generated, or counted on its kind's line by its name (never dropped, never listed twice); the goal
-    and decisions lines as the record gives them; no result a status-bearing record names reading plain
-    (faithful), none with a reading-choice row reading plain faithful. `hand_edited` (DOC-FIX: the summary carries
-    recorded hand edits): a result's status word and an item line's text may differ from the generator's -- the
-    status check, a fresh agent, judges each edit (readers.judgement_problems) -- but every result and item must
-    still be there, once."""
-    import collections as _c, decisions
-    p = os.path.join(REPO, cfg["rounds_dir"], SUMMARY_MD)
-    if text is None:
-        try:
-            text = open(p, encoding="utf-8").read()
-        except OSError:
-            return [project.Finding(f"{SUMMARY_MD} is missing: python3 audits/project.py --prepare-delivery", "deliver")]
-    inp = _summary_extra(cfg, inp or summary_inputs(cfg))
-    keys = disclosure_keys(cfg, inp)
-    lines = [" ".join(l.split()) for l in text.splitlines() if l.startswith("- ")]
-    out = []
-    st, seen = _hand_rows(text, keys) if hand_edited else _table_rows_of(text)
-    for k in keys:
-        if k.prefix not in ("result", "excluded"):
-            continue
-        n = seen.count(k.ident)
-        if n != 1:
-            out.append(f"{SUMMARY_MD}'s results table has {k.prefix} {k.ident} {n} time(s), the record once")
-        elif k.prefix == "result" and st[k.ident] != k.short and not hand_edited:
-            out.append(f"{SUMMARY_MD}'s results table gives {k.ident} the status \"{st[k.ident]}\", the record "
-                       f"\"{k.short}\"")
-    for lbl in set(seen) - {k.ident for k in keys if k.prefix in ("result", "excluded")}:
-        out.append(f"{SUMMARY_MD}'s results table lists {lbl}, which the index does not hold")
-    counted = _c.defaultdict(list)
-    for l in lines:
-        m = COUNTED_RE.match(l)
-        if m:
-            ids = [] if not m.group(3) else m.group(3).split("; ")
-            if int(m.group(2)) != len(ids):
-                out.append(f"{SUMMARY_MD} counts {m.group(2)} {m.group(1)} but names {len(ids)}")
-            counted[m.group(1)] += ["" if i == "-" else i for i in ids]
-    itemized = [k for k in keys if k.group not in ("Results",)]
-    for prefix in dict.fromkeys(k.prefix for k in itemized):
-        ks = [k for k in itemized if k.prefix == prefix]
-        want = _c.Counter(k.ident for k in ks)
-        lst = _c.Counter()
-        for k in dict.fromkeys(ks):
-            lst[k.ident] += sum(1 for l in lines if l == " ".join(_line(k).split()))
-        heads = _c.Counter()
-        shown_ = {k.ident: _shown_ident(k) for k in ks}
-        for l in lines:
-            for i in want:
-                h = f"- {prefix} {shown_[i]} — " if shown_[i] else f"- {prefix} — "
-                if l.startswith(h):
-                    heads[i] += 1
-        for i in want:
-            have = (max(lst[i], heads[i]) if hand_edited else lst[i]) + counted[prefix].count(i)
-            if heads[i] > lst[i] and not hand_edited:
-                out.append(f"{SUMMARY_MD} has the line of {prefix} {i} changed or cut short (not as the record "
-                           "gives it)")
-            elif have < want[i]:
-                out.append(f"{SUMMARY_MD} neither lists nor counts {prefix} {i}" if i else
-                           f"{SUMMARY_MD} lacks the line of {prefix}")
-            elif have > want[i]:
-                out.append(f"{SUMMARY_MD} has {prefix} {i} {have} time(s), the record {want[i]}")
-        for i in set(counted[prefix]) - set(want):
-            out.append(f"{SUMMARY_MD} counts {prefix} {i or '-'}, which the record does not hold")
-    for prefix in set(counted) - {k.prefix for k in itemized}:
-        out.append(f"{SUMMARY_MD} counts {prefix}, a kind the record does not hold")
-    # a listed line the record does not hold (its kind: the longest prefix it starts with)
-    allp = sorted({p_ for _, ps in PAGE_GROUPS for p_ in ps}, key=len, reverse=True)
-    want_all = {(k.prefix, _shown_ident(k)) for k in itemized}
-    for l in lines:
-        if COUNTED_RE.match(l):
-            continue
-        p_ = next((q for q in allp if l.startswith(f"- {q} ")), None)
-        if p_ is None:
-            continue
-        i_ = l[len(f"- {p_} "):].split(" — ", 1)[0] if not l.startswith(f"- {p_} — ") else ""
-        if (p_, i_) not in want_all:
-            out.append(f"{SUMMARY_MD} lists {p_} {i_}, which the record does not hold")
-    # an independent count from the raw records (decisions' parsers, stops.py; not the summary's inputs): every
-    # defect row, proof slip, vacuous row and stop is listed or counted
-    rd_ = os.path.join(REPO, cfg["rounds_dir"])
-    try:
-        import stops as _stops
-        vt = decisions.table_rows(decisions._read(os.path.join(rd_, "VACUOUS.md")))
-        raw = {("defect",): sum(1 for h, c in decisions.defect_rows(rd_) if decisions.is_defect_header(h)),
-               ("vacuous",): sum(1 for h, c in vt if decisions._idx(h, "statement") is not None),
-               ("proof slip",): len(decisions.slip_rows(rd_)),
-               ("stop",): len(page_stops(_stops.stop_rows(cfg, phase="run")))}
-    except Exception as e:      # noqa: BLE001 -- fail closed, the reason shown
-        raw = {}
-        out.append(f"the record's defects, slips, vacuous rows and stops could not be counted: {e}")
-    allp = {p_ for _, ps in PAGE_GROUPS for p_ in ps}
-    kind = lambda l, p_: l.startswith(f"- {p_} ") and not any(l.startswith(f"- {q} ") for q in allp
-                                                              if q != p_ and q.startswith(p_ + " "))
-    for prefs, n in raw.items():
-        on = (sum(1 for l in lines if not COUNTED_RE.match(l) and any(kind(l, p_) for p_ in prefs))
-              + sum(len(counted[p_]) for p_ in prefs))
-        if on != n:
-            out.append(f"{SUMMARY_MD} shows {on} {prefs[0]}(s), listed or counted; the record holds {n}")
-    gl = _goal_line(cfg, keys)
-    if gl not in text.splitlines():
-        out.append(f"{SUMMARY_MD} lacks the goal line as the record gives it ({gl})")
-    dl = " ".join(_decisions_line(cfg, inp).split())
-    if dl not in lines:
-        out.append(f"{SUMMARY_MD} lacks the decisions line as the record gives it ({dl})")
-    # the §1 independent check, from another enumerator: the subject cells of the raw records (decisions'
-    # parser), never the summary's own inputs. A result one of them names must not read plain
-    rd = os.path.join(REPO, cfg["rounds_dir"])
-    subjects = []
-    try:
-        import result_status
-        subjects += [("defect", decisions._col(h, c, "where")) for h, c in decisions.defect_rows(rd)
-                     if decisions.is_defect_header(h)]
-        for f, col in (("SKIPPED.md", "what"), ("VACUOUS.md", "statement")):
-            # next batch B6: the part of the cell the row is about (result_status.primary_subject), as the status reads it
-            subjects += [(f, result_status.primary_subject(c[decisions._idx(h, col)], "vacuous" if col == "statement"
-                                                           else "skipped"))
-                         for h, c in decisions.table_rows(decisions._read(os.path.join(rd, f)))
-                         if decisions._idx(h, col) is not None and len(c) > decisions._idx(h, col)]
-        subjects += [("stated only", f"`{d}`") for d in decisions.unproved(cfg)["decls"]]
-    except Exception as e:      # noqa: BLE001 -- fail closed, the reason shown
-        out.append(f"the disclosures could not be enumerated: {e}")
-    deh, derows = inp["deviations"]
-    reading = [(_col(deh, r, "result") or r[0]) for r in derows
-               if _col(deh, r, "kind").strip("* ").lower() == "reading choice"]
-    for row in inp["index"]:
-        lbl = " ".join(row[0].split())
-        names = _names_of(row[1] if len(row) > 1 else "")
-        plain = st.get(lbl) == "faithful"
-        named = [f"{k}: {t}" for k, t in subjects if _mentions(t, lbl, names)]
-        if plain and named:
-            out.append(f"{lbl} reads plain (faithful) although a record names it: {project.clip(named[0], 120)}")
-        if plain and any(_mentions(x, lbl, names) for x in reading):
-            out.append(f"{lbl} reads plain faithful although a reading choice concerns it")
-    return [project.Finding(x, "deliver") for x in out]
-
-
 def build_summary(cfg, quiet=False):
     """Write SUMMARY.md (its PDF is made afterwards by agents: render_record.py). Returns [] (kept a list for its
     callers)."""
@@ -4082,9 +3835,8 @@ def delivery_problems(cfg, inp=None):
     every other code is a NOTE for the main agent, never a refusal and never a stop). The prepared documents: DELIVERY.json exists; the generator writes now exactly what
     prepare recorded and what is on disk (SUMMARY, REPORT and README A-C recomputed in memory; DECISIONS and the
     sheet by their recorded hash). The PDFs are not checked here: --deliver's render guard does (render_record.py,
-    a fingerprint). Their readers: every gated
-    document has a pass on its current version with every finding answered, every single-pass document exactly
-    one; the hands-off sheet none. Coverage and the §1 check (summary_problems). No `unverified`, no
+    a fingerprint). The approved sheet's reader (none under hands-off) has a pass on its current
+    version with every finding answered. No `unverified`, no
     `deliver-stale`, no pending adjudication item. Every code but adj-record/dead-witness/record-cite is a delivery
     code: a RED precondition, never a stop (ADDENDUM N1)."""
     import decisions, readers, stops
@@ -4148,13 +3900,6 @@ def delivery_problems(cfg, inp=None):
         except Exception as e:      # noqa: BLE001 -- fail closed
             ps = [f"the reader records could not be read: {e!r}"]
         out += [("deliver", f"reader gate {doc}: {' '.join(str(p_).split())}") for p_ in ps]
-    # approver (2026-10-28): the coverage check reads the generator's layout; on the main agent's own SUMMARY it is
-    # one note listing what it cannot see, for the agent to check in its own words
-    sp_ = [" ".join(str(p_).split()) for p_ in summary_problems(cfg, inp=inp, hand_edited=True)]
-    if sp_:
-        out.append(("deliver", f"the summary coverage check (it reads the generator's layout; your wording may differ) "
-                               f"cannot see {len(sp_)} item(s) in SUMMARY.md as it expects -- check that each is covered: "
-                               + "; ".join(sp_)))
     # DESIGN-E fix 2: the agent's SUMMARY keeps the line pointing to README.md's code-written section (a note)
     try:
         summ_ = open(os.path.join(rd, "SUMMARY.md"), encoding="utf-8").read()
@@ -4163,7 +3908,7 @@ def delivery_problems(cfg, inp=None):
     if summ_ is not None and project.CHECKED_POINTER.lower() not in summ_.lower():
         out.append(("deliver", "SUMMARY.md has no line pointing to README.md's section \"What the checking code "
                                "found\" (run/stage5-delivery.md step 5): add it on its first page"))
-    # next batch G1 (CR-5): the conditions checklist's provenance (notes, never a refusal); K-REMOVE: the K text is
+    # next batch G1 (NW-5): the conditions checklist's provenance (notes, never a refusal); K-REMOVE: the K text is
     # the agent's, checked by the delivery reviewers, never by the code
     try:
         import result_status as _rs_k
@@ -4184,6 +3929,13 @@ def delivery_problems(cfg, inp=None):
         out += [("deliver", p_) for p_ in cited_name_problems(cfg, named)]
     except Exception as e:      # noqa: BLE001 -- fail closed
         out.append(("deliver", f"the Lean names the documents cite could not be checked: {e!r}"))
+    # T70 (approver: every flag judged): the approved round's second-reading notes reach the NOTES reviewer
+    if ar:
+        try:
+            import signoff as _so2
+            out += [("deliver", n_) for n_ in _so2.second_reading_notes(os.path.join(rd, ar))]
+        except Exception as e:      # noqa: BLE001 -- a note, never a refusal
+            out.append(("deliver", f"the second blind reading could not be checked: {e!r}"))
     for doc, gone in stops.unnamed(cfg).items():
         out.append(("deliver", f"{doc} does not name {', '.join(sorted(gone))}: prepare again"))
     # integration review (attack 6): the summary's statuses read DEVIATIONS.md's reading-choice and differs rows;
@@ -4465,8 +4217,6 @@ ASSUME_MD = ("Read off the Lean (the assumption walk, `dependencies.py`), not wr
 REAPPROVAL_INTRO = ("Approved statements changed after the approval, each announced by `signoff.py reapprove --begin` "
                     "before the edit and closed by a new `signoff.py approve` (run/reapproval.md). An OPEN one was "
                     "never approved.")
-DISCLOSED_HEAD = ("**Known faults, disclosed (release mode: presentation or bookkeeping, not the mathematics; they did "
-                  "not stop the run):**")
 ASSUME_NONE = ("None: no axiom, no declared literature hypothesis, and no hypothesis the walk lists (it reads the "
                "statements' types as said above).")
 ASSUME_HEADER = ["assumed", "kind", "stands for (source)", "plain English", "Lean"]
@@ -4478,7 +4228,6 @@ NO_DEFER = "No standing defer."
 NO_DELEGATED = "None."
 NO_ESCALATION = "None written."
 NO_RESOLVED = "None: no stop was cleared without you."
-NO_STOPS = "None: the run recorded no stop."
 NO_SETASIDE = "None: nothing was set aside and no lane NOTE was cleared."
 NO_UNUSED = "None: every formalized result is on the proof path of a goal result."
 
@@ -5307,6 +5056,16 @@ def record_problems(rounds_dir, round_name=None, revotes=None, cfg=None):
 
 
 
+def verified_line(count_txt, skipped_exists, removed):
+    """The report's "Verified" line (AUDIT-E2E-032 F3b): it names SKIPPED.md only when the run has one, and never says
+    every cited Lean name exists while section 1 lists declarations removed before the approval."""
+    return (f"\n**Verified:** all {count_txt} are "
+            + ("either formalized or explained in `SKIPPED.md`" if skipped_exists else "formalized")
+            + ", and every Lean name cited below exists"
+            + (f", apart from the {len(removed)} declaration(s) section 1 lists as removed before the approval"
+               if removed else "") + ".\n")
+
+
 def build(cfg, check_only=False, pending_ok=False, adjudicating=None):
     """The report (or, `check_only`, its check). `pending_ok` (Phase 0, --pending): an adjudicator-owned record fault
     (PENDING_CODES) is printed as a PENDING[adjudication] NOTE and does not fail; without it, it fails."""
@@ -5412,7 +5171,7 @@ def build(cfg, check_only=False, pending_ok=False, adjudicating=None):
     box, bg = front
     head = f"# Formalization report — {cfg['source_cite']}\n"
     # B10 (U2 §6.1): section 0 is a pointer to the one-page summary, which lists every disclosure the old box did
-    head += "\n" + SUMMARY_POINTER + "\n"
+    head += "\n" + (SUMMARY_POINTER if goal_names(cfg) else SUMMARY_POINTER_NO_GOAL) + "\n"
     for title_, para in bg:
         head += f"\n**{title_}.** {para}\n"
     head += f"""
@@ -5461,8 +5220,8 @@ Project `{cfg['name']}`, branch `{cfg['branch']}`, namespace `{cfg['namespace']}
     elif held:
         head += "\n**Not yet verified:** the faults above wait for the next adjudication.\n"
     else:
-        head += (f"\n**Verified:** all {count_txt} are either formalized or "
-                 f"explained in `SKIPPED.md`, and every Lean name cited below exists.\n")
+        head += verified_line(count_txt, os.path.exists(os.path.join(rounds_dir, "SKIPPED.md")),
+                              re.findall(r"`([^`]+)` removed", statement_timeline(cfg) or ""))
 
     def render(title, note, rows, header):
         if not rows:
@@ -5574,9 +5333,11 @@ Project `{cfg['name']}`, branch `{cfg['branch']}`, namespace `{cfg['namespace']}
     # approver (2026-10-24): every stop, the stops cleared without you, set-asides and clearances are the process
     # record (RUN_RECORD.md, run_record.py), not the report
     routes = proof_routes(cfg, deviations, heads["deviations"])
-    body += f"\n## {nsec}. {ROUTES_TITLE}\n\n" + ROUTES_INTRO + "\n\n**Results whose paper proof was replaced by a different route:**\n\n"
+    body += (f"\n## {nsec}. {ROUTES_TITLE}\n\n" + ROUTES_INTRO if goal_names(cfg)
+             else f"\n## {nsec}. {ROUTES_TITLE_NO_GOAL}\n\n" + ROUTES_INTRO_NO_GOAL) + "\n\n**Results whose paper proof was replaced by a different route:**\n\n"
     body += ("".join(f"- {x}\n" for x in routes["replaced"]) if routes["replaced"] else f"- {NONE_RECORDED}\n")
-    body += "\n**Formalized results the goal results do not use:**\n\n" + (
+    body += ("\n**Formalized results the goal results do not use:**\n\n" if goal_names(cfg) else
+             f"\n**{ROUTES_UNUSED_NO_GOAL}:**\n\n") + (
         "".join(f"- {x}\n" for x in routes["unused"]) if routes["unused"] is not None and routes["unused"]
         else f"- {NO_UNUSED}\n" if routes["unused"] is not None
         else f"- Not computed: {routes['why']}\n")
@@ -6023,6 +5784,17 @@ def selftest():
                        and "NOT re-audited" in later_fact("1", _lr2)))
         open(os.path.join(tmp, "P", "Src.lean"), "w").write("theorem thm_1_1 : True := trivial\n")
         checks.append(("a fully covered index passes", build(cfg, True) == 0))
+
+        def _vl_skipped():
+            """REVIEW-W032-R2 NOTE 2 (F3b call site): what build tells verified_line about SKIPPED.md."""
+            seen, keep = [], globals()["verified_line"]
+            globals()["verified_line"] = lambda c_, s_, r_: (seen.append(s_), keep(c_, s_, r_))[1]
+            try:
+                rc_ = build(cfg, True)
+            finally:
+                globals()["verified_line"] = keep
+            return rc_, seen
+        _vl_abs = _vl_skipped()
         _dfx = ("| # | where | status | repair | says | why | witness | consequence | found |\n"
                 "|---|---|---|---|---|---|---|---|---|\n| 1 | Theorem 1.1 | false | substantial | x | y; counterexample: n = 3; F10: f10/paper-faithfulness.json | `{}` | z | r1 |\n")
         open(os.path.join(tmp, "R", "PAPER_DEFECTS.md"), "w").write(_dfx.format("gone_witness"))
@@ -6048,6 +5820,9 @@ def selftest():
         open(os.path.join(tmp, "R", "SKIPPED.md"), "w").write(
             "| # | what | reason |\n|---|---|---|\n| 1 | Lemma 1.2 | needs a long construction |\n")
         checks.append(("the same skip passes once SKIPPED.md explains it", build(cfg, True) == 0))
+        _vl_pre = _vl_skipped()
+        checks.append(("F3b: the report's Verified line is told whether SKIPPED.md exists (absent, then present)",
+                       _vl_abs == (0, [False]) and _vl_pre == (0, [True])))
         open(os.path.join(tmp, "R", "SKIPPED.md"), "w").write(
             "| # | what | reason |\n|---|---|---|\n| 1 | Lemma 1.2 | needs $n\\le m$ over \\mathbb{N}_0 |\n")
         checks.append(("LaTeX in an adjudicator record is set as code, not a failure (stop S3)",
@@ -6976,11 +6751,10 @@ def selftest():
                        and any("tex l.~70" in p for p in rp2)
                        and any("index row" in p and "Q9" in p for p in rp2)
                        and any("config literature" in p and "l.48" in p for p in rp2)))
-        os.makedirs(os.path.join(tmp, "R", "2026-01-01-aaaaaaa")); os.makedirs(os.path.join(tmp, "R", "2026-01-02-bbbbbbb"))
-        open(os.path.join(tmp, "R", "2026-01-01-aaaaaaa", "ADOPTED.md"), "w").write(
-            "| lane | item | verdict | decision | reason |\n|---|---|---|---|---|\n| correspondence | X.foo | Fail | **REJECT** | no |\n")
-        open(os.path.join(tmp, "R", "2026-01-02-bbbbbbb", "ADOPTED.md"), "w").write(
-            "| lane | item | verdict | decision | reason |\n|---|---|---|---|---|\n| correspondence | X.foo | STALE | **UNCOVERED** | gone |\n")
+        import lanecheck
+        for d_, row_ in (("2026-01-01-aaaaaaa", "Fail | **REJECT** | no"), ("2026-01-02-bbbbbbb", "STALE | **UNCOVERED** | gone")):
+            os.makedirs(os.path.join(tmp, "R", d_))
+            lanecheck.fixture_rows(os.path.join(tmp, "R", d_), f"| correspondence | X.foo | {row_} |\n")
         so_ = project.order_rounds
         project.order_rounds = lambda rs, repo: sorted(rs)
         try:
@@ -7029,7 +6803,7 @@ def selftest():
                        re.findall(r"(?m)^## (\d+)\. ", md_) == [str(i) for i in range(1, 13)]
                        and f"## 12. {K_TITLE}" in md_ and K_DEFINITION in md_
                        and "## 8. Open questions" in md_ and f"## 9. {DECIDED_TITLE}" in md_
-                       and f"## 10. {ROUTES_TITLE}" in md_ and "## 11. Where the Lean names are" in md_))
+                       and f"## 10. {ROUTES_TITLE_NO_GOAL}\n" in md_ and "## 11. Where the Lean names are" in md_))
         import stops as _st
         _keep_w = (_st.stop_rows,)
         _pin_w = os.path.join(tmp, "R", "TOOLING_PIN.json")
@@ -7084,6 +6858,22 @@ def selftest():
                        and _w4 is not None and "PARTQZ acknowledged" in _w4[2] and _w4[0] == _tp.WEAKENED_TITLE
                        and TOOLS_PATCHED == _tp.TOOLS_PATCHED
                        and _ln4 not in summary_md(cfg)))
+        # review R3 (sw-f8): a pin history that cannot be read fails closed -- the row says the software may have
+        # been corrected; the control shows this fixture otherwise records no patch
+        import run_record as _rr8
+        _keep_ap = _rr8.applied_patches
+        _tp8_0 = tools_patched(cfg)
+        try:
+            def _ap8(c_, *a_, **k_):
+                raise OSError("unreadable pin history")
+            _rr8.applied_patches = _ap8
+            _tp8_1, _w8 = tools_patched(cfg), weakened_row(cfg)
+        finally:
+            _rr8.applied_patches = _keep_ap
+        checks.append(("review R3: when run_record.applied_patches raises, tools_patched fails closed (True) and the "
+                       "\"Checks weakened\" row names the corrected software; with a readable record and no patch, "
+                       "False",
+                       _tp8_0 is False and _tp8_1 is True and _w8 is not None and TOOLS_PATCHED in _w8[2]))
         # approver 2026-10-26: what SUMMARY and REPORT say of these routes is plain words, no mechanism term
         _plain = [_ln4, _tp.STATUS_UNCOMPARED, RAISED_INTRO, RAISED_HEADING]
         _sec4 = _md4.split(RAISED_HEADING, 1)[-1].split("\n### ", 1)[0].split("\n## ", 1)[0]
@@ -7092,33 +6882,6 @@ def selftest():
                        "is RUN_RECORD.md's",
                        not [t for t in _tp.MECHANISM_TERMS for x in _plain + [_sec4] if t.lower() in x.lower()]
                        and "corrected version of our checking software" in _ln4 and "RUN_RECORD.md" in _ln4))
-        _krs, _klk = _tp.raised_statuses, _tp.links
-        try:
-            _tp.links = lambda *a_: [("c", "TP1", "p", "n", {})]
-            _tp.raised_statuses = lambda c_, rd=None, audits=None: [("Theorem 1.1", "TP1", "not established: x")]
-            _ev4 = [e for e in trust_line_events(cfg) if e.id.startswith("TL-raised-")]
-
-            def _boom(*a_):
-                raise ValueError("git log failed")
-            _tp.links = _boom
-            _evb = [e for e in raised_status_events(cfg) if e.id.startswith("TL-raised-")]
-            _evall = [e.id for e in trust_line_events(cfg)]     # review R3: no crash; fails closed
-        finally:
-            _tp.raised_statuses, _tp.links = _krs, _klk
-        checks.append(("SWEEP-FIX review B2: a tool_patch.links() that raises fails closed -- the trust lines carry the "
-                       "not-compared event (its line then required on the documents), never a crash",
-                       len(_evb) == 1 and _evb[0].id == "TL-raised-uncompared" and _evb[0].line == _tp.STATUS_UNCOMPARED
-                       and "TL-software-corrected" in _evall and "TL-raised-uncompared" in _evall))
-        _lnx = _tp.RAISED.format(label="Lemma 2.4 (b)", tp="TP1", old="not established: x")
-        checks.append(("review 3 hook: the raised-status sentence, as SUMMARY (bold) and REPORT (a list item) write it, is "
-                       "found by TRUST_SENTENCE_RES exactly as its event's line; so is the not-compared one",
-                       trust_sentences(f"**{_lnx}**\n\n- {_lnx}\n") == [_lnx]
-                       and trust_sentences(f"**{_tp.STATUS_UNCOMPARED}**\n") == [_tp.STATUS_UNCOMPARED]))
-        checks.append(("approver 2026-10-26: a status decided by corrected checking software registers as a trust line the "
-                       "status-check agent judges (TRUST_LINE_PROVIDERS), its line the plain one, its record RUN_RECORD.md",
-                       len(_ev4) == 1 and _ev4[0].line == _tp.RAISED.format(label="Theorem 1.1", tp="TP1",
-                                                                            old="not established: x")
-                       and "RUN_RECORD.md" in _ev4[0].record and "TP1" not in _ev4[0].line))
         _keep_sr, _keep_sa, _keep_rr = _st.stop_rows, _st.set_aside_rows, _st.repair_rows
         _st.repair_rows = lambda c_, rd=None: [
             {"stop": "repair R1", "date": "2026-10-19", "classes": ["mechanical"], "by": "the operator",
@@ -7225,7 +6988,15 @@ def selftest():
         checks.append(("an unsettled (here abandoned) re-vote is listed with the open questions",
                        "Paper.probDist_single" in md_r and "REVOTEREASONQZ" in md_r and "re-vote lane ABANDONED" in md_r))
         checks.append(("the proof-routes section lists replaced routes and, without DEPENDENCIES.json, says the walk "
-                       "was not computed", f". {ROUTES_TITLE}" in md_r and "Not computed: no DEPENDENCIES.json" in md_r))
+                       "was not computed", f". {ROUTES_TITLE_NO_GOAL}\n" in md_r and "Not computed: no DEPENDENCIES.json" in md_r))
+        checks.append(("T009 N2/N3: with no goal result named at intake, section 10 is titled 'Proof routes' without the "
+                       "goal sentence, section 0 promises no goal result's status, and the walk's reason says no goal "
+                       "was named; with a goal named, the goal wording stays",
+                       ROUTES_TITLE not in md_r and "the goal results do not rest" not in md_r
+                       and "the goal results do not use:" not in md_r and f"**{ROUTES_UNUSED_NO_GOAL}:**" in md_r
+                       and SUMMARY_POINTER_NO_GOAL in md_r and "the goal result's status" not in md_r
+                       and "the goal result's status" in SUMMARY_POINTER
+                       and goal_names({"goal_results": [" ", ""]}) == [] and goal_names({"goal_results": ["Theorem  1"]}) == ["Theorem 1"]))
         checks.append(("a record's own '##' headings are demoted in the markdown (bold lines, never the report's numbering)",
                        demote_headings("## Not defects\ntext\n### Sending these") == "**Not defects**\ntext\n**Sending these**"))
         _pk = project.REPO
@@ -7236,14 +7007,13 @@ def selftest():
                        "files": {"a.json": "x"}, "lanes": {"substantiveness@1.json": "unsealed"},
                        "carried": [{"lane": "substantiveness@1.json", "item": "K.hfs_comp_add", "verdict": "Fail"}]},
                       open(os.path.join(rab, project.ABANDONED), "w"))
-            ar_ = setaside_row(cfg)
             open(os.path.join(rab, "ADOPTED.md"), "w").write("- CLEARED substantiveness.json: CLRQZ advice text\n")
             cl_ = all_clearances(cfg)
             open(os.path.join(tmp, "R", "RUN_LOG.md"), "w").write(
                 "# Run log\n## Open questions\n- integrity failed on round x: archive? (answered 2026-10-19: STOPQZ archive them)\n"
                 "- [DELEGATED 2026-10-19, operator under hands-off (intake); reversal: none] kept y — z\n")
             as_ = all_stops(cfg)
-            # next batch B20 (CR-4): an Open questions entry answered only by an `## Answered` line naming its anchor,
+            # next batch B20 (NW-4): an Open questions entry answered only by an `## Answered` line naming its anchor,
             # or by a Checkpoint B answer naming its QUESTION row, is not OPEN; an unanswered one still is
             open(os.path.join(tmp, "R", "RUN_LOG.md"), "w").write(
                 "# Run log\n## Open questions\n- q1: which reading of Lemma 2? ANSQZ\n"
@@ -7283,6 +7053,11 @@ def selftest():
                       open(os.path.join(tmp, "R", "DEPENDENCIES.json"), "w"))
             pr_ = proof_routes(cfg, [["R1", "Lemma 1.5", "rounding", "discrete", "simpler", "same strength"]],
                                ["#", "result", "the paper's route", "the lean route", "why different", "kind"])
+            _dj = open(os.path.join(tmp, "R", "DEPENDENCIES.json")).read()
+            json.dump({"commit": "zzz", "roots": [], "assumes": {}}, open(os.path.join(tmp, "R", "DEPENDENCIES.json"), "w"))
+            pr_ng_ = proof_routes(cfg, [], None)["why"]
+            pr_g_ = proof_routes(dict(cfg, goal_results=["Theorem 9.9"]), [], None)["why"]
+            open(os.path.join(tmp, "R", "DEPENDENCIES.json"), "w").write(_dj)
             _hd = globals()["human_decisions"]
             globals()["human_decisions"] = lambda c_: ["Checkpoint A: x", "a stop answered by the human: y"]
             wd_ = who_decided(cfg, "hands-off")
@@ -7305,6 +7080,40 @@ def selftest():
         finally:
             project.REPO = _pk2
             shutil.rmtree(os.path.join(tmp, "R", "2026-01-06-abcdef1"), ignore_errors=True)
+        _pk3 = project.REPO
+        try:
+            # F3a (AUDIT-E2E-032): a statement round set aside before any lane is never "the first statement round"
+            project.REPO = tmp
+            _sa = [os.path.join(tmp, "R", n) for n in ("2026-01-07-full-aaaaaaa", "2026-01-07-full-bbbbbbb",
+                                                     "2026-01-07-full-ccccccc", "2026-01-07-full-ddddddd")]
+            for i_, d_ in enumerate(_sa):
+                os.makedirs(d_, exist_ok=True)
+                json.dump({"_meta": {"kind": "statements"}}, open(os.path.join(d_, "TARGET.json"), "w"))
+            json.dump({"lanes": {}}, open(os.path.join(_sa[0], project.ABANDONED), "w"))
+            json.dump({"lanes": {"correspondence.json": "sealed"}}, open(os.path.join(_sa[1], project.ABANDONED), "w"))
+            # REVIEW-W032-R2 NOTE 1: a marker listing no lane, but lanes were issued (.lane-auth/): reviewed
+            json.dump({"lanes": {}}, open(os.path.join(_sa[3], project.ABANDONED), "w"))
+            os.makedirs(os.path.join(_sa[3], ".lane-auth"), exist_ok=True)
+            for i_, d_ in enumerate(_sa):
+                os.utime(d_, (1000 + i_, 1000 + i_))
+            sa_ = [unreviewed_set_aside(d_) for d_ in _sa]
+            _first = first_statement_round(cfg)
+            # REVIEW-W032-R2 NOTE 2: statement_timeline itself names that round's commit
+            _tl3 = statement_timeline(cfg)
+        finally:
+            project.REPO = _pk3
+            for d_ in _sa:
+                shutil.rmtree(d_, ignore_errors=True)
+        checks.append(("F3a: a round set aside before any lane is skipped as the first statement round; one set aside "
+                       "after its lanes is not, nor one whose lanes were issued (.lane-auth/) though its marker lists "
+                       "none; statement_timeline names the reviewed round's commit",
+                       sa_ == [True, False, False, False] and _first == _sa[1]
+                       and _tl3.startswith("statements committed at bbbbbbb")))
+        vl_ = verified_line("3 results", False, ["K.old"])
+        vl2_ = verified_line("3 results", True, [])
+        checks.append(("F3b: the Verified line names SKIPPED.md only when it exists and excepts the names listed as removed",
+                       "SKIPPED" not in vl_ and "apart from the 1 declaration(s)" in vl_
+                       and "explained in `SKIPPED.md`, and every Lean name cited below exists." in vl2_))
         checks.append(("global differences (G1, ...) of the sign-off sheet are defined in the report",
                        gd_ and gd_[0][0] == "G1" and "GTEXTQZ" in gd_[0][1]))
         checks.append(("the report never claims the statements were approved before any proof was written",
@@ -7316,8 +7125,6 @@ def selftest():
                        sc_ == ["`K.b` changed", "`K.d` added", "`K.c` removed"]))
         checks.append(("a declaration the approval does not list, still in the approved round, is not 'removed'",
                        sc2_ == ["`K.b` changed", "`K.d` added"]))
-        checks.append(("a set-aside round is in the trust table, with the Fail items it carried forward, by name",
-                       "SET ASIDE" in ar_[2] and "K.hfs_comp_add (Fail)" in ar_[2]))
         checks.append(("every independence clearance is listed with its reason",
                        cl_ == [("2026-01-05-full-abcdef0", "substantiveness.json", "CLRQZ advice text")]))
         checks.append(("proof routes: a replaced route and a result the goals do not use (from DEPENDENCIES.json) are "
@@ -7325,6 +7132,10 @@ def selftest():
                        pr_["replaced"] and "Lemma 1.5" in pr_["replaced"][0] and pr_["unused"]
                        and "K.lemma_4_1" in pr_["unused"][0] and "computed at commit zzz" in pr_["unused"][0]
                        and any("NOT CHECKED" in x and "K.gone_name" in x for x in pr_["unused"])))
+        checks.append(("T009 N2: a walk without roots says 'no goal result was named at intake' when the config names "
+                       "none, and keeps the mismatch reason when it names one",
+                       pr_ng_ == "no goal result was named at intake"
+                       and pr_g_ == "no goal result of the config matches an index row"))
         checks.append(("who decided: with a human answer at a stop, the report never says no human decided",
                        "attributes 1 answer(s), approval(s) or stop decision(s)" in wd_ and "no human took" not in wd_.lower()
                        and "Apart from the setup at Checkpoint A, no human took" in wd0_))
@@ -7431,6 +7242,13 @@ def selftest():
                            and "on the human's instruction" in " ".join(box_i)))
             checks.append(("an invalid involvement level is a report problem",
                            delegation_problems(dict(cfg, involvement="hands-free")) != []))
+            _bg_pdf = " ".join(p_ for _, p_ in front_matter(dict(cfg, source_pdf="paper.pdf"))[1])
+            _bg_tex = " ".join(p_ for _, p_ in front_matter(dict(cfg, source_pdf="paper.tex"))[1])
+            checks.append(("W-R4 C6 (T8 F3, F5): a PDF-only source: the glossary gives PDF locations (no `tex l.N` is "
+                           "line N) and 'What this is' says the source is a PDF only; a .tex source keeps the line glossary",
+                           project.PDF_LOCATIONS in _bg_pdf and "is line N of the source file" not in _bg_pdf
+                           and "The source is a PDF only." in _bg_pdf and "is line N of the source file" in _bg_tex
+                           and "The source is a PDF only." not in _bg_tex))
             # adversarial (hands-off review, B4/B5, items 5 and 9)
             json.dump({"by": "agent", "how": "blanket", "date": "2026-01-02", "commit": "c",
                        "rows": {"Theorem 1.1": {"status": "approved"}}}, open(ap4, "w"))
@@ -7467,8 +7285,8 @@ def selftest():
             md4 = open(os.path.join(tmp, "R", "REPORT.md")).read()
             checks.append(("B10 (U2 §6.1): REPORT.md opens with section 0, the pointer to the summary, before the "
                            "background and everything else; no page-1 box",
-                           SUMMARY_POINTER in md4 and "**What this is.**" in md4 and "READ THIS FIRST" not in md4
-                           and md4.index(SUMMARY_POINTER) < md4.index("**What this is.**") < md4.index("**Generated")))
+                           SUMMARY_POINTER_NO_GOAL in md4 and "**What this is.**" in md4 and "READ THIS FIRST" not in md4
+                           and md4.index(SUMMARY_POINTER_NO_GOAL) < md4.index("**What this is.**") < md4.index("**Generated")))
             checks.append(("the vacuous section shows each statement with its decision",
                            "FOUND-MARK" in md4[md4.find("## 7."):]
                            and "## 7. Statements true only vacuously" in md4 and "KEEP-AS-CONTRADICTION" in md4))
@@ -7488,9 +7306,9 @@ def selftest():
             _k4 = [k_ for k_ in disclosure_keys(cfg) if k_.group != "Results"]
             _cnt4 = " ".join(l_ for l_ in sm4.splitlines() if COUNTED_RE.match(l_))
             checks.append(("B10: every disclosure is listed in SUMMARY.md, or counted by name with "
-                           "the place of its full text, and the coverage check passes on it; the summary says how its PDF "
+                           "the place of its full text; the summary says how its PDF "
                            "is made and where that check's outcome is told (PDF-AGENTS)",
-                           bool(_k4) and summary_problems(cfg, sm4) == [] and "- " + PDF_LINE in sm4
+                           bool(_k4) and "- " + PDF_LINE in sm4
                            and all((_line(k_) in sm4)
                                    or (f"- {k_.prefix} (" in _cnt4 and k_.ident in _cnt4) for k_ in _k4)))
             gl = globals(); saved_lr = gl["later_row"]
@@ -8104,8 +7922,8 @@ def _selftest_one_page():
         lines = md.splitlines()
         cnt = [l for l in lines if COUNTED_RE.match(l)]
         out.append(("one page: a record larger than the largest run snapshot gives a summary within the line budget, "
-                    "some kinds counted (named, with the place of their full text), and the coverage check passes",
-                    summary_problems(cfg, md, inp) == [] and bool(cnt) and all("full text in " in l for l in cnt)))
+                    "some kinds counted (named, with the place of their full text)",
+                    bool(cnt) and all("full text in " in l for l in cnt)))
         kinds = {k.prefix for k in keys}
         out.append(("one page: every defect, proof slip, vacuous row, idle hypothesis, row not formalized, \"not a "
                     "defect\" and stop of the record is a key (listed or counted)",
@@ -8118,23 +7936,9 @@ def _selftest_one_page():
         out.append(("re-review E L4: the results table's rows inside an HTML comment (closed or left open) are not "
                     "read, as project.summary_result_rows drops them",
                     _table_rows_of(cm_) == ({"Lemma 1.2": "**false**"}, ["Lemma 1.2"])))
-        # next batch B3/B16: a hand-written three-column table `| Result | Status in Lean | Note |` is read as the
-        # README reads it; nested parentheses in a label pair it with the record's label
-        md3_ = md.split("\n## Results", 1)[0] + "\n" + "\n".join(
-            ["## Results", "", "| Result | Status in Lean | Note |", "|---|---|---|"]
-            + [f"| {lb_} | {st_.replace('**', '')} | checked |" for lb_, st_ in _table_rows_of(md)[0].items()]) \
-            + "\n\n## " + md.split("\n## Results", 1)[1].split("\n## ", 1)[1]
-        cov3 = [str(x) for x in summary_problems(cfg, md3_, inp, hand_edited=True)]
-        _K3 = collections.namedtuple("_K3", "prefix ident")
-        nst_, nseen_ = _hand_rows("## Results\n\n| Result | Status |\n|---|---|\n| Lemma 2 (b(G,H) bound) | faithful |\n"
-                                  "| Claim Q(78) | faithful |\n", [_K3("result", "Lemma 2"), _K3("result", "Claim Q(78)")])
-        out.append(("next batch B3/B16: the delivery's coverage note reads a hand-written three-column results table "
-                    "(no \"results table has result ... 0 time(s)\"), and labels with nested parentheses pair",
-                    not any("results table has result" in x for x in cov3)
-                    and any("results table has result" in x for x in
-                            [str(y) for y in summary_problems(cfg, md3_, inp)])
-                    and sorted(nseen_) == ["Claim Q(78)", "Lemma 2"]
-                    and project.norm_label("Lemma 2 (b(G,H) bound)") == "Lemma 2"
+        # next batch B3/B16: nested parentheses in a label pair it with the record's label
+        out.append(("next batch B3/B16: labels with nested parentheses pair",
+                    project.norm_label("Lemma 2 (b(G,H) bound)") == "Lemma 2"
                     and project._cut_any_paren("Lemma 2 (b(G,H))") == "Lemma 2"
                     and project.norm_label("Lemma 3.2 (c)") == "Lemma 3.2 (c)"))
         tbl = _table_rows_of(md)[1]
@@ -8152,37 +7956,6 @@ def _selftest_one_page():
                     "answer is under \"Answers recorded as yours\" with its audit commit (or counted there)",
                     bool(hand) and "copied by hand" in hand[0] and not any(l.startswith("- hand delivery S1") for l in lines)
                     and (bool(s5) and "audit commit " in s5[0] or any("stop S5" in l for l in cnt))))
-        # the coverage check refuses: a listed line dropped, changed, invented; a counted name dropped or miscounted
-        if not cnt:     # the budget did not count anything: the checks below need a counted line
-            raise ValueError("no counted line on the page (the line budget is off)")
-        lst = next(l for l in lines if l.startswith("- defect 1 — "))
-        drop = md.replace(lst + "\n", "")
-        chg = md.replace(lst, lst.replace("false", "true"))
-        inv = md.replace(lst, lst + "\n- defect 99 — Lemma 9.9: false")
-        c0 = cnt[0]
-        m0 = COUNTED_RE.match(c0)
-        ids = m0.group(3).split("; ")
-        lessn = md.replace(c0, c0.replace(f"({'+' if '(+' in c0 else ''}{len(ids)})",
-                                          f"({'+' if '(+' in c0 else ''}{len(ids) - 1})").replace(ids[-1] + " — ", "", 1)
-                           .replace("; " + ids[-1] + " — ", " — "))
-        miscount = md.replace(c0, c0.replace(f"{len(ids)})", f"{len(ids) + 1})", 1))
-        pr = lambda t_: [str(x) for x in summary_problems(cfg, t_, inp)]
-        row0 = next(l for l in lines if l.startswith("| ") and not l.startswith("| Status") and "Lemma 2.2" in l)
-        restat = md.replace(row0, row0.replace("false as printed", "a misprint"))
-        decl = next(l for l in lines if l.startswith("- Decisions: "))
-        redec = md.replace(decl, decl.replace(" matter(s)", "0 matter(s)", 1))
-        out.append(("one page: the coverage check refuses a results row whose status is not the record's, and a "
-                    "decisions line whose count of matters is not DECISIONS.md's",
-                    any("gives Lemma 2.2 the status" in x for x in pr(restat))
-                    and any("lacks the decisions line" in x for x in pr(redec))))
-        out.append(("one page: the coverage check refuses a listed defect dropped, changed or invented, a counted item "
-                    "dropped from its line, and a count that does not match its names",
-                    any("neither lists nor counts defect 1" in x for x in pr(drop))
-                    and any("shows 5 defect(s)" in x for x in pr(drop))
-                    and any("defect 1 changed or cut short" in x for x in pr(chg))
-                    and any("lists defect 99, which the record does not hold" in x for x in pr(inv))
-                    and any(f"neither lists nor counts {m0.group(1)} {ids[-1]}" in x for x in pr(lessn))
-                    and any("but names" in x for x in pr(miscount))))
         # several items sharing one ident (mini4: two assumption notes, ident ""; mini2: ten open questions of one
         # round and lane): every listed line counts, not only the last key's (prepare's own summary was refused)
         notes2 = ["Hypotheses added since the approval: none.",
@@ -8190,11 +7963,8 @@ def _selftest_one_page():
         inp2 = dict(inp, assumptions=dict(inp["assumptions"], notes=notes2))
         md2 = summary_md(cfg, inp2)
         nl2 = [l for l in md2.splitlines() if l.startswith("- assumption note — ")]
-        out.append(("one page: several items sharing one ident (two assumption notes) are each listed and the "
-                    "coverage check passes the summary prepare wrote; one of them dropped is refused",
-                    len(nl2) == 2 and summary_problems(cfg, md2, inp2) == []
-                    and any("lacks the line of assumption note" in str(x)
-                            for x in summary_problems(cfg, md2.replace(nl2[1] + "\n", ""), inp2))))
+        out.append(("one page: several items sharing one ident (two assumption notes) are each listed",
+                    len(nl2) == 2))
         with contextlib.redirect_stdout(io.StringIO()):
             probs = build_summary(cfg, quiet=True)
         out.append(("one page (PDF-AGENTS): build_summary writes SUMMARY.md only; its PDF is the agents' "

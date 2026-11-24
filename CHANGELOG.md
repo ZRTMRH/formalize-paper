@@ -2,6 +2,311 @@
 
 ## Unreleased
 
+### 0.3.2 release notes (2026-11-24)
+
+- **KNOWN_LIMITATIONS:** two entries added from the final end-to-end tests, both deferred to the next version:
+  answered questions shown as open in REPORT section 8 and RUN_RECORD at the `involved` level, and an intake
+  note about running the tool recorded as a condition (a "K reached for 0 of N" line). Documentation only.
+
+### 0.3.2 W-R8 (2026-11-22; REVIEW-WHOLE-032-FINAL L1-L7, L11, L13)
+
+- **`project.py --log`** matches a `[DELEGATED …; reversal: X]` tag's cost ignoring case and whitespace and logs
+  its canonical form (`New  Round` is logged as `new round`); any other X is still refused, nothing logged (exit 2).
+  The W-R3 header's "No new stop or question" missed this refusal: it was one new curable refusal. Selftest
+  (W-R8 L7) added; mutants WR8-L7a, WR8-L7b added.
+- **Text:** stage 5's "No third delivery" exceptions add a `[status-wording]` note, a later reversal and the K
+  stage; non-vacuity 4b splits its probe file only when a cut's NOTE says it is too large (an inconclusive cut is
+  re-run, rule 9); rule 9: after a second inconclusive cut the item is marked NotDoneYet with the comment
+  `memory`; stage 3's machine note: 16 GB is the minimum for a long paper, 8 GB runs a short one on the 8 GB
+  route; release stop 1 has one wording in RUN.md (twice) and the stops file ("looks false, true only vacuously,
+  unprovable …, or stays unproved"); stop 3's "only for" lists include a change to the user's own files;
+  `codex.md`: a confidential paper gets no citation notes under Codex (no `--search`), and the completion message
+  says so (the intake text, and its hash, unchanged).
+- **KNOWN_LIMITATIONS:** the stale intake question 7 entry is removed (q7 names the memory routes); the no-goal
+  limitation added (no stop for a false result; the goal list not checked against the 2b answer).
+- **Moved from 0.3.1** (a 0.3.2 change): the licence file is now written by a setup command
+  (`project.py --license`), so Claude Code's auto mode no longer blocks it (it often denied the file copy used
+  before).
+
+No new stop or question; one refusal narrowed.
+
+### 0.3.2 W-R7 (2026-11-22; REVIEW-W032-R6-COMBINED-CODE H1, L1-L6, REVIEW-COMPAT-W032-R6-COMBINED L1-L4)
+
+- **Pause deadline:** a re-pause of a probe the guard had already paused and resumed is now counted (a resume line
+  drops a pause record only if it ended that record's pause), so such a probe is extended and, if cut, called
+  inconclusive rather than too large (its NOTE's pause seconds come from the same read); `pause_secs`, the
+  summed variant, is fixed the same way. A pause record older
+  than the wrapper's start is ignored. Selftest (z0n) added; (z0b)'s fixture starts its window before its records;
+  (z0i), (z0c2), (z0d), (z0j) given wider timing margins for a loaded machine. Mutants PD11, PD12 added.
+- **`project.py --log`** no longer refuses an entry with control characters (see W-R6 below); WR6-g re-pointed,
+  WR7-L1 added.
+- **Wording:** the wait plus a probe take "about 540 s" (the SIGTERM/SIGKILL waits can add a few seconds); rule 9
+  says a cut whose NOTE says too large is split; the second 2b ask's answer is final; with no goal, REPORT section
+  10's walk is headed "Unused formalized results" (mutant WR7-L5); the cure section of the stops file is read before
+  the first `stops.py open` or `close` in a conversation. No new stop or refusal.
+
+### 0.3.2 pause deadline (2026-11-21; approver, DESIGN-PAUSE-DEADLINE with REVIEW-PAUSE-DEADLINE's changes)
+
+- **A probe's time limit no longer counts the time the memory guard paused it.** `lean_slot.py run` cuts a probe
+  once it has run 240 s unpaused, and at the latest when the slot wait plus the probe reach 540 s (today's worst
+  case, under a 600 s tool call). The pause time is the union of the guard's pauses of the probe's processes, read
+  only when a deadline is reached; if it cannot be read the probe is cut at 240 s as before. A cut probe that ran
+  180 s or less unpaused is inconclusive ("re-run, this is not a too-large probe"); a cut at the cap says
+  `cut after W s at the C s cap`. At the cut the wrapper sends SIGCONT right after SIGTERM, so a stopped probe dies
+  at once. The call's budget counts from the start of `main`. Selftests (z0b) refitted, (z0c2)-(z0m) added
+  (including a real SIGSTOP/SIGCONT); mutants PD1-PD10 added, LS-3 and LG-23-25 re-pointed. No new stop or refusal;
+  the guard and its decisions are unchanged. A paused probe now keeps its memory and slot up to 540 s, not 240 s.
+
+### 0.3.2 W-R6 (2026-11-21; approver items 3-5 and N1, AUDIT-E2E-032-T009-NOGOALS N2-N5, AUDIT-E2E-032-8G-MAC-R3 b c g i j)
+
+- **No goal named at intake** (approver N1): an empty `goal_results` means no result is a goal (stop 1 does not
+  apply). When 2b names no goal, the intake asks 2b again in the approver's words; "every result is a goal" lists
+  every numbered result in `goal_results` at Stage 1 (before the pin); insisting on none keeps it empty, logs the
+  reply verbatim, and Checkpoint A states the consequence. The lanes' `<GOAL-RESULTS>` fill for an empty list no
+  longer says "treat every result of the source as a goal". With no goal, REPORT section 0 promises no goal
+  status, section 10 is titled "Proof routes", its walk says "no goal result was named at intake", and SUMMARY
+  says "No goal result was named at intake." A delegated Checkpoint C line names an earlier missing-theory
+  decision's result by its Lean name. An existing config with an empty `goal_results` now means no goal; before
+  upgrading a run mid-way, list its goals in the config.
+- **Approver wordings:** the K reminder's human-condition line reads "You chose this restriction during the run (at
+  the start, or when approving the statements)."; the Stage 2 PDF-only bullet is the approver's wording again
+  (trimmed), not the compaction's pointer.
+- **Mac R3 audit:** non-vacuity 4b puts all of a lane's triviality probes in one file (one `example` each, its own
+  heartbeat limit; split only at the 240 s cut); the 8 GB route spawns the non-vacuity lanes first; `project.py
+  --log` turns CRLF into LF, strips other non-printing control characters (newline and tab kept), logs the entry
+  and prints a note naming what it removed; SUMMARY never asks whether a result
+  the paper attributes to others is the paper's own; the K closing line names the results behind each gap kind.
+- **Code removed:** `integrity.py --commit-reader-fix` (unreachable since `prompt.py --reader-fix` went in 0.3.2);
+  the verifier of older runs' reader-fix commits stays. Mutants b10-29, t9d-1, t9d-4 retired; WR6-N2, WR6-N3a-c,
+  WR6-g added; M62 re-pointed. No new stop or refusal.
+
+### 0.3.2 compaction (2026-11-21; DESIGN-W032-COMPACT rev 2, reviewed)
+
+- Text only, no behaviour change, no new stop, refusal or mechanism. Lane prompts: the common rules 7, 9 and 10
+  tightened (rule 10 now covers every Lean file a lane compiles, scratch or probe), the seal rationale and review
+  ids dropped, the read-only line moved into the common head. RUN.md: the release-cure mechanics ("close --cured",
+  failure tally, cure budget, classify, withdrawal, redo stop's fresh round, what `--deliver` re-runs) move verbatim
+  to `run/stops-and-set-asides.md` item 2, read by section before the first `stops.py open`; "Statement changes
+  after approval", the round-cap routes and the tool-bug bullet point to the files that hold the detail; the
+  "Fixes to try first" list moves to the stops file item 1. Review ids and approver dates removed from agent-read
+  text (not from the generated release column or the intake message). Adjudicator: small trims (T10 b, d-g).
+- Code: unused `lanecheck.revote_lane`, `decisions.RESULT_RE`/`result_of` (mutant rv-H2a now inlines the regex),
+  `hypotheses.mt_rulings`, `stops.SET_ASIDE_RE`, `prompt.HERE`, doclint's `PENDING_SCRIPTS`, the uncalled
+  `readers.py --next` and `result_status.py --live` flags, and a never-reached selftest stub removed.
+
+### 0.3.2 W-R5 AP2: rolling lane spawns at the same cap (2026-11-21; REVIEW-MEMORY-AP2 conditions)
+
+- Lanes are spawned rolling: the first up to the memory route's cap in one message, then the next lane once a
+  returned one's seal command has finished (Codex: its child closed); the cap counts agents running now (8 GB: 2 of
+  any kind). `lanecheck --kill` runs only when every lane of the round has returned. `lean_slot.py --show` prints
+  "at most W lanes at once". Guard and slot code unchanged.
+
+### 0.3.2 W-R5: approver decisions AP3 AP5b AP6 AP7 AP9 AP11 AP13 (2026-11-21)
+
+- Text: two equivalent phrasings of a definition are a K representation change (bridge tip at Stage 2); a PDF-only
+  paper's related pages are read as page images (RUN.md rule 13); `reversal: re-approve` for "missing theory: build"
+  and for a reading that would change an approved statement; F12 minimality by the counterexample alone when the proof
+  never argues the failing clause ("no printed step"); the adjudicator may mark a helper-only UNCOVERED row expected,
+  with a reason; the SUMMARY K reminder's other gap kinds in the approver's words, and the CLAIMS/READABILITY check
+  against suggesting carelessness; a goal false only by an evident misprint is release stop 1. Code: `scope.py` reads
+  the `(expected` mark in an UNCOVERED row's decision cell too. No new stop kind or refusal; AP13 adds a case to
+  release stop 1.
+
+### 0.3.2 fix round W-R4 (2026-11-21; AUDIT-E2E-032-INVOLVED, -KWALK, -FALSEGOAL, -T008-PDF, -CODEX, approver)
+
+No new stop or refusal; one question inside the existing Checkpoint A wait (intake 5c (b) with 5d the agent).
+- **A goal result refuted as printed** (a witness in the paper's notation, rule G's F10 test; not a Lean encoding
+  artefact, not a stated convention) is release stop 1 at once (`GOAL LOOKS FALSE` in the QUESTION row), never a
+  delegated reading; restricting it away is a repair. Genuine two-reading cases and non-goal results are unchanged.
+- **Probe slots.** `lean_slot.py` opens an existing slot file without `O_CREAT` (another account's file is usable);
+  an unusable slot file is skipped and the probe waits for another, running unslotted only when every slot is
+  unusable. `--show` counts the memory guard's pauses since this run's pin (this account's guard log, named).
+- **Diff base.** A statement round is no diff base (`_meta.base_rule: 2`); a TARGET.json without it verifies under
+  the old rule. K-stage re-approvals: a statement round, then one diff round.
+- **Empty-commit route** `fresh full round on <R>` when a full round on HEAD was adjudicated and is not settled
+  (`scope.py` prints it; `tree_state` accepts that subject only).
+- **Checks.** `lanecheck` skips a loop wrapper whose direct child carries `FORMALIZE_PAPER_OPERATOR=1`; REPORT.md
+  names a stop case-insensitively; `decisions.py --check` does not count the header comment's `<<FILL`; release
+  `--note` stops read "release stop <k> (<label>)" in the documents.
+- **Documents.** README under `involved` no longer says "hands-off" and drops the reader sentence when a fresh
+  reader read the sheet; the sign-off sheet quotes the `involved` intake answer; a PDF-only source gets PDF
+  locations in the glossary and a disclosure. SUMMARY carries a K reminder (whose side each gap is on); the
+  completion message ends with a verbatim block; K questions offer "Something else", skip and stop.
+- **Text.** K3 bridges only by a project declaration; PDF sources read as page images; intake 5c (b) with 5d agent
+  asked again at Checkpoint A; non-vacuity 4b on index rows only; citation notes start at the beginning of
+  Stage 5; `literature_hypotheses` frozen at the pin; `decisions.py --check` after each prepare; condition ids
+  `C<n>`; declarations on their own lines; build after a merge; operator scratch never `/tmp`; Codex reads
+  stage files in ranged parts. Common-rule changes (PDF reading, never `/tmp`) alter the generated Codex roles:
+  `install.sh --upgrade --codex` regenerates them.
+
+### macOS branch: the 0.3.2 port (2026-11-18; BUILD-MACOS-032)
+
+- **The guard self-test's macOS stand-in is named `lean-fp-test`** (0.3.2 A1): on macOS it is a copy of the
+  interpreter's binary (a symlink keeps the target's name there), now under that name, so a live guard on the Mac
+  never pauses it; the outer-guard test (z8) also runs on macOS, where both guards read processes through libproc.
+- **INSTALL's 8 GB line follows the 0.3.2 route**: say the RAM at intake question 7 (1 Lean probe, at most 2 agents
+  at a time), in place of asking for one agent at a time.
+- **Merge of 0.3.2 W-R4 to W-R7 (2026-11-22):** the stray-loop check's wrapper rule (W-R4 B4) works without /proc:
+  `_children` reads libproc's table on macOS (`ps` elsewhere) and `_cmdline` reads KERN_PROCARGS2 (`ps` elsewhere);
+  its self-test narrows the macOS table to its own wrappers and says it is skipped when a SIP-protected `bash` hides
+  the tag. INSTALL: poppler is needed for a paper given only as a PDF (RUN.md rule 13).
+
+### 0.3.2 fix round W-R3 (2026-11-19; AUDIT-E2E-032-32G-T005, -8G-MAC, -MATIJASEVICK, approver)
+
+No new stop or question.
+- **Background moves.** A lane, the formalizer or the adjudicator whose command the harness moves to the background
+  does not stop it or start a second copy: it waits for the completion notification, reads the output file, and
+  never hands back its result while the command runs.
+- **No `pgrep -f`/`pkill -f`** of a pattern (RUN.md rule 9, spawn-and-seal, lane rule 9, and new rule 5 of the common
+  rules for every other subagent): wait on the notification or the `[exited with code` line; stop with TaskStop or a
+  recorded PID. The common-rules change alters the generated Codex roles: `install.sh --upgrade --codex` regenerates them.
+- **Checks.** `prompt.py --show` prints the render check's findings on the config (`# config: …`, e.g. a bare `l.N`
+  in `literature_hypotheses`) before the pin; `project.py --log` refuses a `[DELEGATED …]` tag whose reversal is not
+  one of the four costs (nothing written, exit 2). Stage 1: run `prompt.py --show` after every config edit.
+- **Text.** Unused arguments dropped once per merge in one change, a cascade left to the adjudicator; index labels in
+  Unicode (stage1's "`$…$`" instruction corrected) and missing-theory lines logged before the first Phase 0; Stage 4
+  goes to Stage 5 without a diff round when the adopted fixes change no approved statement and leave no proof work;
+  no bare stdin readers; a SUMMARY/REPORT drafting helper returns text; citation notes start with Stage 5's full
+  round; no new `CONDITIONS.md` item at the NOTES step; K only through the result's own approved statement; the
+  adjudicator defers clean-up findings under `goal: faithfulness`; unnumbered running-text claims settled at Stage 2;
+  F12 and the formalizer's "A result false as printed" bullet: restrict only the failing clauses, or say the true
+  clauses lose the case; a case nonempty only if an open conjecture of the paper fails is no vacuity question.
+
+### 0.3.2 fix round W-R2 (2026-11-18; AUDIT-E2E-032-16G, approver)
+
+No new stop, check or question.
+- **Text.** Stages 2 and 3: never put `omit … in` / `include … in` directly after an approved definition (the
+  freeze reads it as part of that definition: a DRIFT stop); Stage 2 step 1: name every `instance` before the first
+  scope. Non-vacuity rule 4b: a closure only through a verbatim project twin of the audited statement is no
+  closure; the twin is probed instead.
+- **Report.** A statement round set aside before any lane was issued is not "the first statement round" (no false
+  "N statement(s) changed" line); the Verified line names `SKIPPED.md` only when it exists and excepts the
+  declarations section 1 lists as removed.
+
+### 0.3.2 fix round W-R1 (2026-11-18; REVIEW-WHOLE-032, REVIEW-COMPAT-D032-1)
+
+No new stop, refusal or question. `VERSION` is `0.3.2-rc1` for the end-to-end runs.
+- **`install.sh --upgrade --codex`** replaces the project's generated roles (`.codex/agents/formalize_*.toml`, a
+  role this version no longer generates included) instead of refusing an older version's; `tests/upgrade.py` covers it.
+- **A reused tool-patch floor is said** at `--deliver`: one note `floor reused: tooling digest <12 hex> matched`.
+- **Text.** Stage 5's "no third delivery" names the steps that deliver again; Stage 3's NEEDS-HUMAN answer is
+  decided, not asked, under a delegating level; the blind informalizers stay within the 8 GB route's 2 agents;
+  pointers moved with the failure table name `run/stops-and-set-asides.md` or `RUN.md`; pointers into that file
+  name their section, and its first lines say to read only that section. RUN.md's rule 4 no longer lists the owners
+  no current step commits under (`reader-fix`, `reader-fix-prompt`, `hand-edit`; `integrity.py` still checks them).
+  Codex launch commands are shown as two lines, public paper with `--search`, confidential without.
+- **Probe slots on about 17.7-21.9 GB** are 2, not 3 (approver 2026-11-18, "Keep 2": 16 GB = 2 probes, waves of
+  6): the derived S is 1, 2 or 4; a hand-set `lean_slots` 3 is kept.
+
+### 0.3.2 Phase A: two blind readers; a wrong name in the blind reading is a flag; small fixes (2026-11-17; DESIGN-A032, approver)
+
+No new stop or refusal.
+- **A wrong name in the blind reading is a flag (D3).** A Lean name that does not exist, cited by the write-once blind
+  reading (INFORMAL.json), is now `NOTE[signoff-check]` and no longer a `signoff.py check` problem. The same holds for
+  a SIGNOFF.json `plain_english` that is equal to the blind reading's text for that row. Every field the sign-off
+  writer authors (a different `plain_english`, `differences`, `paper`, the definitions) stays a problem. This
+  replaces the set-aside cure for such a name given in the X1 entry below. TRADEOFFS T69.
+- **Two blind readers (A7).** Stage 2 spawns two independent informalizers. The second writes `INFORMAL-2.json`
+  (`signoff.py save-informal --second`, write-once, owned like INFORMAL.json). The sign-off writer compares the two
+  readings and marks a substantive difference CHECK. No code compares them (TRADEOFFS T70). Fix round A-R1: `check`
+  prints a NOTE when the second reading was asked for (`prompts/informalizer-2.txt`) but not saved, or when it is
+  byte-identical to INFORMAL.json. Fix round AB-R2: delivery repeats the approved round's notes, so the NOTES
+  reviewer judges them under hands-off too.
+- **Smaller fixes.** The memory guard's self-test stand-ins are named `lean-fp-test`, so a live guard no longer
+  pauses them (A1). The leak control pairs only projects with different sources (A2). A bare reliance check skips a
+  line that is exactly a generated escalation record line (A3a, the TP3 port). A refutation proved at universe 0 is
+  accepted for a universe-polymorphic statement (A3b). `adj_verify` returns four values on a bad round,
+  `readers` decodes KNOWN_FAULTS with `errors="replace"`, and summary note ids no longer depend on the hash seed
+  (A4a-c). `tool_patch.py withdraw` commits the TP's drafts too (A4d). A declined no-round prints its reason (A4e).
+  The text says that `close --cured` is the release form of a record fix (A5).
+
+### 0.3.2 Phase B: compaction (2026-11-18; DESIGN-B032-r2, approver)
+
+Removals only; no new stop or refusal, and no cure changed.
+- Dead code and older-run text removed (pure cuts; `stops.deliver_gate` callers now call `math_gate`). The
+  resolver-era compatibility rows (`resolutions/*`, `*/.superseded/*`, ownership 1) are gone from integrity.py and
+  lanecheck. Read-only Phase 0 no longer runs `unused_args.py`, so the adjudicator's Phase 0 log carries no fresh
+  unused-argument list: a stale `UNUSED_ARGS.md` (its header not naming the adjudicated commit) is its only signal. `codex_spawn.py` is removed.
+- The summary-coverage delivery note is cut (D2 b), and with it the summary's "reads plain although a record names
+  it" check, whose only live caller it was.
+- The status-check prompt, the reader-fix route and the hand-edit listing are removed, with the code that produced
+  their records (D1). Older runs' records are still read. On such records there is no reader-fix routing and no dev
+  past-budget stop, and a "hand edit HEk" answer is not cross-checked. There are ten Codex roles.
+- One `rounds_dir`, one `_col`, one escalation-citation pattern. RUN.md's failure table moves unchanged to
+  `run/stops-and-set-asides.md`, and RUN.md keeps a pointer.
+
+### 0.3.2 Phase C: speed and memory routes (2026-11-18; DESIGN-C032-r2, approver C-D1..C-D3)
+
+No new stop or refusal.
+- **Faster freeze and sweep checks (C-D2, F-1).** The fingerprint and axiom-sweep tails take their candidates from
+  the module tables (each constant once) instead of every constant of the environment; the same declarations are
+  decided by the unchanged rules (nie-wei: 299 s to 0.4 s and 233 s to 10 s). The fingerprint tail stops with an
+  error on a candidate it cannot resolve (fix round C-R1).
+- **Memory routes (C-D3).** P = 3.2 GB per probe and 4 GB of shared .olean pages counted once give 1, 2 or 4 probe
+  slots: the 8 GB route (at most 2 agents at once), 16 GB (waves of 6) and 32+ GB (waves of 8);
+  `lean_slot.py --show` prints the route, from a lower hand-set `lean_slots` when there is one (C-R1). Slot waits
+  are logged.
+- **Faster self-test.** `selftest_all.py --jobs N` runs the scripts in a pool and ends with the tooling id;
+  Stage 1 starts `--fast` at step 1 in the background (it needs no project, also when another paper's config
+  exists: C-R1) and checks the id before the pin. tool_patch's selftest fixture carries a FLOOR of 3.
+- **Tool-patch floor reused at delivery (C-D1).** `--deliver` reuses the floor FACTS judged at prepare when the
+  tooling digest matches byte for byte (every extracted file, `__pycache__` included: C-R1); otherwise the full
+  floor runs. TRADEOFFS T71. The apparatus is extracted with one `git cat-file --batch`: the committed bytes,
+  whatever attributes or `core.autocrlf` say (C-R1).
+- Sign-off render/approve reuse one fingerprint run; Stage 5 orders delivery so fixes fold into one `--deliver`.
+
+### 0.3.2 D8: the 0.2 decision-row reader is removed (2026-11-18; approver D8)
+
+No new stop or refusal. `audit_coverage.read_adopted` reads every ADOPTED.md through the strict reader
+(`lanecheck.valid_rows`); the best-effort reading kept for records with no pin or a pin of ownership 1 is gone, with
+`strict_rows`. A 0.2 run keeps its pinned tools. Read by these tools, such a record's rows that name no lane or item of
+their round decide nothing. Self-test fixtures write their rows with `lanecheck.fixture_rows`.
+
+### 0.3.2 Phase D: the citation check under Codex (2026-11-18; DESIGN-D032, CANARY-D032, approver D7, O1, O2)
+
+No new stop, refusal or code switch; the citation step stays advisory.
+- **Public paper: start Codex with `--search` (D7).** Every child inherits live web search (canary-verified);
+  `install.sh --codex` prints a public and a confidential launch line. A confidential paper keeps Codex's default
+  cached search and the prompts' title-and-authors rule (O1). The shell network stays off.
+- **The citation role says that web search is not a sandbox command** (`codex_agents.CITATION_SEARCH`): in the
+  canary its child read the sandbox rule's "(no network" as no search and reached nothing; with the sentence it
+  read all four sources. Only that role's bytes change (`install.sh --codex` regenerates). TRADEOFFS T72.
+
+### Filling a proof inside an approved definition is no drift; hands-off re-approves (2026-11-16; DESIGN-FP, approver)
+
+- **Proof-erased definition fingerprints (decision 1).** In a definition's value every proof subterm (an
+  expression whose type is a proposition, decided by Lean's `Meta.isProof` on the elaborated term, never on the
+  source text) is replaced by one fixed marker before hashing (`fingerprint_tail.lean`, `auditFpEraseProofs`).
+  Filling a `sorry` in a proof field of an approved instance or structure value, or rewriting such a proof, no
+  longer drifts the approval (De Medts e2e, stop S1: 14 of 33 approved declarations drifted because Lean names the
+  aux proofs of an instance's proof fields and reuses them across a module). Everything else is hashed as before:
+  a theorem's statement, a definition's type, its data (also data built by a tactic), a structure field's type,
+  a `Decidable`/`DecidableEq` value. A definition with no proof subterm keeps its old hash exactly.
+- **Disclosed consequences.** (a) A definition used only inside a proof is no longer a dependency, so the sign-off
+  sheet's "Definitions these statements use" may list fewer definitions (only those reached through data or
+  types; approver: "Accept, disclose it"); by proof irrelevance such a definition cannot change what a statement
+  means. (b) `opaque` values are not erased (they still drift on any change). (c) A change confined to the proof
+  inside a `Decidable` value (`isTrue rfl` to `isTrue (by decide)`) does not drift; a change of the decision
+  procedure does. (d) A proof written inside a statement (`(⟨2, by decide⟩ : Fin 3)`) is part of the type and still
+  drifts. (e) The approved statement text (STATEMENTS_BUNDLE.md) still shows a named definition's source, so filling
+  a proof field written there still changes that text (a freeze self-cure, then a re-approval).
+- **Upgrading.** Hashes change for definitions with a proof subterm, so an approval made with the old code does not
+  match the new one: a run in progress keeps its pinned code; a project upgraded between runs starts a fresh run
+  and re-approves (INSTALL.md, "Upgrading"; it never checks an old `APPROVED_FINGERPRINTS.json` with the new tail).
+  Runs are not upgraded mid-run: a maintainer `--repin` of a running run onto this version (dev only) makes every
+  approved result over a definition containing a proof show DRIFT (it fails safe).
+- **Helper names (REVIEW-SAFETY-FP F1).** The fingerprint program's own helpers (`auditFpStripMData`, `auditFpKey`,
+  `auditFpEraseProofs`) are excluded only as declarations of the appended file; in `import` sweep mode (the
+  default) a project module's declaration under those names (`auditFpEraseProofs.evil`) is now fingerprinted. In
+  `append` sweep mode the project's text is part of the appended file, so such a name is still excluded there
+  (as before this version; KNOWN_LIMITATIONS).
+- **Hands-off re-approval (decision 2).** The 2026-11-14 restriction that a `hands-off` run re-approves only missing
+  theory turned into a named hypothesis is removed: under `hands-off` the agent decides any intended change of an
+  approved statement by re-approval, except the D2 cases (a faithfulness finding after the sign-off, a refuted
+  non-goal statement: keep the approved statement, [DELEGATED keep], a `CONDITIONS.md` `finding` item; the
+  adjudicator never ADOPTs such a change, it writes a QUESTION row). `involved` and `statements-only` unchanged.
+  Text only (`RUN.md`, `run/reapproval.md`, `run/stage3-proofs.md`); no new stop or refusal.
+
 ### The code writes no K content; the run's agent judges K (2026-11-16; K-REMOVE, approver's decision, option A)
 
 - Approver: "remove the code output. Just let agent judge." All code-generated K content is removed from the
@@ -47,8 +352,9 @@ a stop or refusal, and both keep the fail-closed rule (a live process that canno
 Each change only removes a hard stop or failure; no new refusal or stop.
 - **Dot notation on a variable (X1).** A dotted name the sign-off sheet's texts cite whose first component is no Lean
   name (`G.Adj`, `G.chromaticNumber`) is printed as `NOTE[signoff-check]` and no longer fails `signoff.py check`; it
-  comes back at delivery as a note for the NOTES reviewer. A wrong global name (`Finset.Foo.card_le`) still fails. Stage 2 step 7 names the cure for a wrong name in the blind reading: set the round
-  aside on its stop (`--stop S<n>`), redo it with a round of the same kind, close the stop `--cured`.
+  comes back at delivery as a note for the NOTES reviewer. A wrong global name (`Finset.Foo.card_le`) still fails. Stage 2 step 7 named the cure for a wrong name in the blind reading: set the round
+  aside on its stop (`--stop S<n>`), redo it with a round of the same kind, close the stop `--cured`. Superseded in
+  0.3.2 (Phase A, D3): such a name is a `NOTE[signoff-check]`, with no stop and no set-aside.
 - **Record citations of library names (X2).** A dotted non-project name cited at `File.lean:N` is resolved in Lean:
   a wrong global name is still a dead citation; a variable's field at the line that shows it passes; elsewhere it is
   a note in the report ("Citations the check could not decide") and a delivery note. No answer from Lean: as before.
@@ -149,7 +455,7 @@ Each change only removes a hard stop, refusal or wait; no new refusal or stop.
 - **A stray script is listed (D3).** `NOTE[unpinned-py]`: every `*.py` in audits/ that no pin's tree holds and no
   tool patch brought, shown by `integrity.py --check`, in the README and in the run record. Never a stop.
 - **README:12 L∞ line kept** (D4, approver 2026-11-11).
-- **A machine-wide limit on Lean probes (D5, CR-9).** `audits/lean_slot.py run --timeout 240 -- lake env lean
+- **A machine-wide limit on Lean probes (D5, NW-9).** `audits/lean_slot.py run --timeout 240 -- lake env lean
   <file>`: reviewers and helpers compile probes through it; it waits at most 300 s for one of the config's
   `lean_slots` (and `lean_free_mb` of free memory), then runs anyway and says so; a probe is cut at 240 s. It only
   delays, never refuses; tool-internal Lean calls are not slotted. The adjudicator's background checks now run
@@ -771,8 +1077,6 @@ Each change only removes a hard stop, refusal or wait; no new refusal or stop.
   `INSTALL.md`, with a quick check (seconds) instead of the full self-tests, which every run
   performs itself; Codex status (two runs on Linux, including a real paper; one on macOS);
   macOS support on the separate `macos` branch (less tested).
-- **Later fix:** the licence file is now written by a setup command (`project.py --license`), so
-  Claude Code's auto mode no longer blocks it (it often denied the file copy used before).
 
 ## 0.3.0 (release date: the date of the v0.3.0 tag)
 

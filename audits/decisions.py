@@ -157,7 +157,6 @@ DISCLOSURE = {
     "statements-only": "No human reviewed any decision below, except sections whose Decision taken "
                        "says Not applicable, which the human decided at Checkpoint B.",
 }
-LABELS = ("**Paper**", "**Lean**", "**Evidence**", "**Options", "**Recommendation")
 PLACEHOLDER_WORDS = re.compile(r"\b(TODO|TBD|FIXME)\b")
 # Claims the record cannot establish (test-run audit, caveat 1): drafts of proofs existed before the
 # approval there, and the deliverables said the opposite. The fingerprints prove the statements did
@@ -812,7 +811,7 @@ TAG_RE = re.compile(r"\[PROXY[^\]\n]*\]", re.I)
 
 
 def answer_refs(log):
-    """(anchors, QUESTION-row refs) the human's recorded answers name (next batch B20, CR-4): the anchor of each
+    """(anchors, QUESTION-row refs) the human's recorded answers name (next batch B20, NW-4): the anchor of each
     `## Answered` line (`- answered <anchor> (…)`), and the `QUESTION row on <item>, round <R>` of each answer line --
     under `## Answered` or `## Checkpoint B`, or a `- human answer (…)` line anywhere."""
     anchors, qrefs = set(), set()
@@ -840,7 +839,7 @@ def entry_answered(entry, refs):
         return True
     anchors, qrefs = refs
     m = re.match(r"^\s*[-*]\s+(\S+?):\s", entry)
-    if (m and m.group(1) in anchors) or anchor_id("open", entry) in anchors:   # gate 3a (CR): the decisions anchor
+    if (m and m.group(1) in anchors) or anchor_id("open", entry) in anchors:   # gate 3a (NW): the decisions anchor
         return True
     return any((" ".join((q.group("item") or "").split()), q.group("round")) in qrefs for q in QROW_RE.finditer(entry))
 
@@ -1371,7 +1370,7 @@ def tag_problems(log, level=None):
     return out
 
 
-# A non-goal result left unproved under a delegating level (RUN.md, failure table, "your own
+# A non-goal result left unproved under a delegating level (the failure table, run/stops-and-set-asides.md, "your own
 # work"; approver's decision Q1 (b)). The operator logs, after a serious attempt,
 #   [DELEGATED <date>, operator under <level> (intake); reversal: re-prove] leave <decl> unproved — <reason>
 # with <decl> the full Lean name (backticks optional). The statement stays byte-identical and
@@ -1626,15 +1625,7 @@ def question_mention(item):
     return item.split(":")[0].strip()[:40]
 
 
-# E2E-FIX2 M1: the kind words are project.RESULT_KINDS (these copies lacked Problem, Question, Construction, ...)
-RESULT_RE = re.compile(rf"\b({project.RESULT_KINDS_RE})s?[\s_]+(\d+(?:\.\d+)*)", re.I)
 DECL_KINDS = ("question", "unused", "revote")
-
-
-def result_of(text):
-    """'Lemma 3.2' for any text naming Lemma 3.2 or a part of it ('Lemma_3.2', 'Lemma 3.2(c)'), else None."""
-    m = RESULT_RE.search(str(text))
-    return f"{m.group(1).capitalize()} {m.group(2)}" if m else None
 
 
 # a paper-result label in a labelled field: kind word, blank, dotted number, and nothing that
@@ -2202,7 +2193,7 @@ def skeleton(cfg, rounds, last_round):
                 mention="[DELEGATED", matter=(FORCED + rule_matter(rule_named(b, rules)) if rule_named(b, rules) else
                                               matter_of(pre.group(1), "", idx, appr_round) if pre else None),
                 label=qrow.group("item") if qrow and qrow.group("item") else None)
-    # gate 3a (a confidential run): an item answered by an `## Answered` line naming its anchor is already this document's
+    # gate 3a (Nie-Wei): an item answered by an `## Answered` line naming its anchor is already this document's
     # "previously answered" item; dropping it here made --check refuse its anchor (a new refusal), so this reader
     # keeps its own rule and only the stops table (make_report.all_stops) uses entry_answered
     for b in log_entries(section(log, "Open questions")):
@@ -2413,6 +2404,7 @@ def check(text, required, round_name=None, box_lines=(), names=None, level="invo
     filled **Decision taken** field that shows "[DELEGATED" (unless it says why it does not apply).
     `decided`: {anchor: its decision line logged in RUN_LOG.md} (skeleton.decided): that line must stand
     word for word in its item's Decision taken, one tagged line per item (B11 review: M2/M3/M4)."""
+    import lanecheck
     probs = []
     decided = decided or {}
     norm_ = lambda x: " ".join(str(x).split())
@@ -2458,8 +2450,9 @@ def check(text, required, round_name=None, box_lines=(), names=None, level="invo
     tag = ROUND_TAG_RE.search(text)
     if round_name and (not tag or tag.group(1) != round_name):
         probs.append(f"document was written for round {tag.group(1) if tag else '?'}, not {round_name}")
-    if FILL in text:
-        probs.append(f"{text.count(FILL)} placeholder(s) still unfilled ({FILL} ... >>)")
+    unfilled = re.sub(r"<!--.*?-->", "", text, flags=re.S).count(FILL)     # W-R4 B11: the header comment names one
+    if unfilled:
+        probs.append(f"{unfilled} placeholder(s) still unfilled ({FILL} ... >>)")
     prose = re.sub(r"<!--.*?-->", "", text, flags=re.S)
     prose = re.sub(r"^\s*(```|~~~).*?^\s*(```|~~~)", "", prose, flags=re.S | re.M)
     prose = re.sub(r"`[^`\n]*`", "", prose)
@@ -2572,7 +2565,7 @@ def check(text, required, round_name=None, box_lines=(), names=None, level="invo
                                and f"stop {cited.group(1)} closed" in b)
                 # review 1: an accepted ANSWERABLE escalation is a written recommendation (RUN.md)
                 esc_ok = any(e["name"] == m_.group(1).upper() and (e["answer"] or "").startswith("ANSWERABLE")
-                             for m_ in ESC_CITE.finditer(rec) for e in escalations)
+                             for m_ in lanecheck.ESC_CITE_RE.finditer(rec) for e in escalations)
                 if not re.search(r"conservative rule", rec, re.I) and not (
                         re.search(r"adjudicator", rec, re.I) and re.search(r"\d{4}-\d{2}-\d{2}-", rec)
                         and "ADOPTED" in rec) and not stop_ok and not esc_ok:
@@ -2584,7 +2577,7 @@ def check(text, required, round_name=None, box_lines=(), names=None, level="invo
     # review 1: a section citing an escalation shows its answer, and for a re-ask the earlier NEEDS-HUMAN
     by_e = {e["name"]: e for e in escalations}
     for h, b in secs:
-        for n_ in sorted({m_.group(1).upper() for m_ in ESC_CITE.finditer(h + b)}):
+        for n_ in sorted({m_.group(1).upper() for m_ in lanecheck.ESC_CITE_RE.finditer(h + b)}):
             e = by_e.get(n_)
             if not e or not e["answer"]:
                 continue        # escalation_citations reports it
@@ -2608,16 +2601,13 @@ def check(text, required, round_name=None, box_lines=(), names=None, level="invo
     return probs
 
 
-ESC_CITE = re.compile(r"\bescalation (?:check )?(E[0-9]+)\b", re.I)     # lanecheck.ESC_CITE_RE
-
-
 def escalation_note(cfg, text, recs=None):
     """The skeleton's note for an item whose record cites escalations (review 1): each cited one with its
     answer (lanecheck.escalation_line), and the earlier NEEDS-HUMAN a re-ask repeats. "" when none."""
-    cited = sorted({m_.group(1).upper() for m_ in ESC_CITE.finditer(text or "")}, key=lambda x: int(x[1:]))
+    import lanecheck
+    cited = sorted({m_.group(1).upper() for m_ in lanecheck.ESC_CITE_RE.finditer(text or "")}, key=lambda x: int(x[1:]))
     if not cited:
         return ""
-    import lanecheck
     recs = lanecheck.escalations(cfg) if recs is None else recs
     by = {e["name"]: e for e in recs}
     show = []
@@ -2964,10 +2954,10 @@ def selftest():
                 "## Answered\n- answered q1 (2026-01-03, 2026-01-02-abcdef1): \"first\"\n")
         _r20 = answer_refs(_b20)
         _e20 = log_entries(section(_b20, "Open questions"))
-        say("next batch B20 (CR-4): an Open questions entry is answered by an `## Answered` line naming its anchor, a "
+        say("next batch B20 (NW-4): an Open questions entry is answered by an `## Answered` line naming its anchor, a "
             "Checkpoint B answer naming its QUESTION row, or by being a human answer line; another stays open",
             [entry_answered(b, _r20) for b in _e20] == [True, True, False, True]
-            # gate 3a (a confidential run): an `## Answered` line naming the entry's decisions anchor answers it
+            # gate 3a (Nie-Wei): an `## Answered` line naming the entry's decisions anchor answers it
             and entry_answered(_e20[2], answer_refs(_b20 + f"- answered {anchor_id('open', _e20[2])} (2026-01-05): ok\n")))
         # fix round 1 (attack 7, demonstrated): a [DELEGATED] line or a "no answer yet" line naming the QUESTION row
         # under `## Checkpoint B` answers nothing
@@ -3901,6 +3891,11 @@ def _selftest(tmp, say):
         filled = re.sub(re.escape(FILL) + r".*?>>", "x" * 25, text, flags=re.S)
         say("the unfilled skeleton fails the check", any("still unfilled" in p for p in check(text, anchors)))
         say("a filled skeleton passes", check(filled, anchors, os.path.basename(r2)) == [])
+        hdr_kept = "".join(p_ if p_.startswith("<!--") else re.sub(re.escape(FILL) + r".*?>>", "x" * 25, p_, flags=re.S)
+                           for p_ in re.split(r"(<!--.*?-->)", text, flags=re.S))
+        say("W-R4 B11 (KW F7): the untouched header comment (it names " + FILL + " >> once) passes; a body " + FILL
+            + " fails", FILL in hdr_kept and check(hdr_kept, anchors, os.path.basename(r2)) == []
+            and any("1 placeholder(s) still unfilled" in p for p in check(hdr_kept + "\n" + FILL + " x >>\n", anchors)))
         say("a document written for another round fails",
             any("written for round" in p for p in check(filled, anchors, "other")))
         dropped = filled.replace(f"<!-- item:{proxies[0]} -->", "")

@@ -141,12 +141,14 @@ def classify_sourceless(names, table, source_of):
 
 
 def lean_table(cfg):
-    """{name: (kind, own, deps)} from the fingerprint run (needs a built project)."""
+    """{name: (kind, own, deps)} from the fingerprint run (needs a built project). The run's fingerprints are kept in
+    lean_table.fps (C4d, P4 #3: render and approve use them instead of running the same Lean again)."""
     import fingerprint
-    rc, out = project.run_lean(fingerprint.lean_source(cfg))
-    if rc != 0:
-        raise RuntimeError(out[-2000:])
-    return fingerprint.parse(out)
+    lean_table.fps = fingerprint.compute(cfg)
+    return fingerprint.compute.table
+
+
+lean_table.fps = None
 
 
 def signatures(cfg, names):
@@ -621,48 +623,6 @@ def paper_labels(cfg):
     return {}
 
 
-def theorem_envs(cfg):
-    """Theorem-like environment names the paper declares (\\newtheorem{name}, \\declaretheorem)."""
-    src = cfg.get("source_pdf", "")
-    if not src.endswith(".tex") or not os.path.exists(src):
-        return set()
-    pre = open(src, encoding="utf-8", errors="replace").read().split("\\begin{document}")[0]
-    return set(re.findall(r"\\(?:newtheorem|declaretheorem)\*?\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}", pre))
-
-
-def strip_theorem_envs(text, names):
-    """The statement inside `\\begin{lemma}[...] ... \\end{lemma}` (and `restatable`), without the
-    wrapper, `\\label` or `\\qed`: the sheet has its own heading per result, and the wrapper's
-    environment is not defined there (it broke a test run's sheet)."""
-    envs = set(names) | {"restatable", "theorem", "lemma", "corollary", "proposition",
-                         "observation", "claim", "definition", "remark", "fact", "conjecture"}
-    alt = "|".join(sorted((re.escape(e) for e in envs), key=len, reverse=True))
-    text = re.sub(r"\\begin\{restatable\}(?:\[[^\]]*\])?\{[^}]*\}\{[^}]*\}", "", text)
-    text = re.sub(r"\\begin\{(?:" + alt + r")\*?\}(?:\[[^\]]*\])?", "", text)
-    text = re.sub(r"\\end\{(?:" + alt + r")\*?\}", "", text)
-    text = re.sub(r"\\label\{[^}]*\}", "", text)
-    return re.sub(r"\\qed\b", "", text).strip()
-
-
-def resolve_refs(text, labels):
-    """`\\cref{L}` / `\\Cref{L}` -> "Lemma 1.2", `\\ref{L}` -> "1.2", from the paper's own .aux.
-    An unknown label is shown as [L] rather than breaking the sheet (the paper's statements quote
-    cross-references; the sheet has no .aux of its own)."""
-    def one(m):
-        cmd, keys = m.group(1), m.group(2).split(",")
-        out = []
-        for key in keys:
-            kind, num = labels.get(key.strip(), ("", None))
-            if num is None:
-                out.append("[" + key.strip().replace("_", "\\_") + "]")
-            elif cmd in ("cref", "Cref") and kind:
-                out.append(kind.capitalize() + "~" + num)
-            else:
-                out.append(num)
-        return ", ".join(out)
-    return re.sub(r"\\(cref|Cref|ref|eqref|autoref)\{([^}]*)\}", one, text)
-
-
 def paper_lines(cfg):
     """{result label in lower case ("lemma 2.3"): line number in the .tex}, the line of the
     environment that holds the result's \\label, from the paper's own .aux. Empty without a .tex or
@@ -793,6 +753,17 @@ def sheet_background(cfg, so, kind="statements", approved=False, reapproval=Fals
     }.get(lvl, "The approver ticks each result and each global difference they agree with; under the involved "
                "level they may instead let the agent approve everything (the report then says no person "
                "reviewed the statements).")
+    if lvl == "involved":       # W-R4 C7 (INV F3): the intake answer quoted, as at the other two levels
+        try:
+            five = project.approver_5d(os.path.join(project.REPO, cfg.get("rounds_dir") or ""))
+        except Exception:       # noqa: BLE001 -- no intake read: the approver is the human
+            five = None
+        who = (f"At intake (the questions answered at the start of the run) the person chose the involved level "
+               f"(answer, verbatim: \"{ans}\"), and this sign-off is Checkpoint B: "
+               + ("the approver is an AI agent; its approval is recorded as the agent's, and no person reviewed the "
+                  "statements." if five == "agent" else
+                  "the approver ticks each result and each global difference they agree with (or lets the agent "
+                  "approve everything; the report then says no person reviewed the statements)."))
     return (f"**What this sheet is.** For each numbered result of {cfg.get('source_cite', 'the paper')}, the "
             f"paper's statement, the Lean statement, a plain-English reading of the Lean written by a reviewer "
             f"who did not see the paper, and a second reviewer's comparison. " + who + " A result left unticked "
@@ -813,8 +784,10 @@ def sheet_background(cfg, so, kind="statements", approved=False, reapproval=Fals
                + ("no proof at that commit uses `sorry`, so the proofs there may be complete. "
                   if kind == "statements" else
                   "this sheet is for a re-approval, so the proofs may be complete at that commit. "))
-            + "`tex l.N` is line N of the paper's source; `File.lean:N` is line N of that Lean "
-            "file at that commit. " + AS_OF_ROUND
+            + (project.PDF_LOCATIONS + " The paper's statements below were transcribed from the PDF; compare them "
+               "with the PDF. `File.lean:N` is line N of that Lean " if project.source_is_pdf(cfg) else
+               "`tex l.N` is line N of the paper's source; `File.lean:N` is line N of that Lean ")
+            + "file at that commit. " + AS_OF_ROUND
             + ((REAPPROVAL_STATE[0] if approved else REAPPROVAL_STATE[1]) if reapproval else "")
             + "\n\n" + SHEET_TERMS + "\n\n" + SHEET_LEGEND + "\n")
 
@@ -1147,6 +1120,25 @@ def _as_list(x):
     return x if isinstance(x, list) else [x] if x else []
 
 
+def second_reading_notes(round_dir):
+    """REVIEW-SAFETY-A032 F1: [note] when the second blind reading was asked for (prompts/informalizer-2.txt) but
+    INFORMAL-2.json is missing, or is byte-identical to INFORMAL.json (two independent readings never are). Notes
+    only, never a problem: a round from before A7 has neither file and gets none."""
+    one, two = (os.path.join(round_dir, f) for f in ("INFORMAL.json", "INFORMAL-2.json"))
+    if not os.path.exists(two):
+        if os.path.exists(os.path.join(round_dir, "prompts", "informalizer-2.txt")):
+            return ["the second blind reading (INFORMAL-2.json) is missing: prompts/informalizer-2.txt was written, "
+                    "but no second reading was saved, so the sign-off writer compared no two readings"]
+        return []
+    try:
+        if open(two, "rb").read() == open(one, "rb").read():
+            return ["the second blind reading (INFORMAL-2.json) is byte-identical to INFORMAL.json: two independent "
+                    "readings never are, so it was not read independently"]
+    except OSError:
+        pass
+    return []
+
+
 def cited_name_problems(cfg, round_dir):
     """[problem] for each Lean name the writer's and informalizer's text (SIGNOFF.json, INFORMAL.json) cites that
     does not exist (make_report.cited_name_problems, resolved in Lean). Trial #10: a Mathlib
@@ -1162,13 +1154,24 @@ def cited_name_problems(cfg, round_dir):
         if isinstance(x, list):
             return [t for v in x for t in strings(v)]
         return [x] if isinstance(x, str) else []
-    docs = {}
+    js = {}
     for f in ("SIGNOFF.json", "INFORMAL.json"):
         try:
-            docs[f] = "\n".join(strings(json.load(open(os.path.join(round_dir, f), encoding="utf-8"))))
+            js[f] = json.load(open(os.path.join(round_dir, f), encoding="utf-8"))
         except (OSError, ValueError):
             pass
-    return mr.cited_name_problems(cfg, docs, notes=cited_name_problems.notes)
+    # 0.3.2 D3: a SIGNOFF row's plain_english EQUAL to its INFORMAL.json row's is the blind reading's text, judged as
+    # that (a NOTE); every field the writer authors stays a PROBLEM
+    inf = {informal_key(r.get("result")): str(r.get("plain_english", "")).strip()
+           for r in (js.get("INFORMAL.json") or {}).get("rows", []) if isinstance(r, dict)} \
+        if isinstance(js.get("INFORMAL.json"), dict) else {}
+    so = js.get("SIGNOFF.json")
+    if isinstance(so, dict) and isinstance(so.get("rows"), list):
+        js["SIGNOFF.json"] = dict(so, rows=[{k: v for k, v in r.items() if not (k == "plain_english" and str(v).strip()
+                             == inf.get(informal_key(r.get("result")), None))} if isinstance(r, dict) else r
+                            for r in so["rows"]])
+    return mr.cited_name_problems(cfg, {f: "\n".join(strings(x)) for f, x in js.items()},
+                                  notes=cited_name_problems.notes, soft=("INFORMAL.json",))
 
 
 def lean_names(x):
@@ -1235,7 +1238,7 @@ def same_approval(old, new):
 
 
 def save_record(round_dir, name, reason=""):
-    """Commit the blind informalizer's INFORMAL.json or the sign-off writer's SIGNOFF.json, by name,
+    """Commit a blind informalizer's INFORMAL.json (the second's INFORMAL-2.json) or the writer's SIGNOFF.json, by name,
     as "signoff <R>" (each is that agent's record; nobody else commits it, and the adjudication no
     longer sweeps it in). A sheet saved again after a writer rerun needs --reason; INFORMAL.json is
     saved once."""
@@ -1249,7 +1252,7 @@ def save_record(round_dir, name, reason=""):
         print(f"FAIL: {name} is not valid JSON ({e}): a mechanical failure of the agent", file=sys.stderr); return 1
     st = subprocess.run(["git", "-C", os.path.dirname(p), "log", "--format=%h", "--", name],
                         capture_output=True, text=True).stdout.split()
-    if st and name == "INFORMAL.json":
+    if st and name in ("INFORMAL.json", "INFORMAL-2.json"):
         print(f"FAIL: {name} is already saved; the blind reading is written once", file=sys.stderr); return 1
     why = " ".join(str(reason or "").split())
     if st and not why:
@@ -1305,7 +1308,9 @@ def refutation_lean(thm, asp, decl):
             '          say "type" (if ok then "ok" else "bad")\n'
             "          match env.find? decl with\n"
             "          | some d =>\n"
-            "              let ok2 ← try (isDefEq a.value d.type) catch _ => pure false\n"
+            "              -- the approved statement at universe 0 (a refutation there refutes every universe):\n"
+            "              let dty := d.instantiateTypeLevelParams (d.levelParams.map fun _ => Level.zero)\n"
+            "              let ok2 ← try (isDefEq a.value dty) catch _ => pure false\n"
             '              say "defeq" (if ok2 then "ok" else "bad")\n'
             '          | none => say "decl" "missing"\n'
             '      | some _ => say "asp" "notdef"\n'
@@ -1607,6 +1612,7 @@ def main(argv=None):
     ap.add_argument("cmd", nargs="?", choices=["bundle", "check", "render", "approve", "save-informal",
                                                "save-signoff", "reapprove"])
     ap.add_argument("--exclude", default="", help="approve: comma-separated results NOT approved")
+    ap.add_argument("--second", action="store_true", help="save-informal: the second blind reading, INFORMAL-2.json")
     ap.add_argument("--how", choices=["individual", "blanket"],
                     help="approve: did the human answer per result, or say 'all OK'?")
     ap.add_argument("--by", choices=sorted(BY),
@@ -1664,7 +1670,10 @@ def main(argv=None):
     if not os.path.isdir(rd):
         print(f"FAIL: no round directory {rd}", file=sys.stderr); return 2
     if a.cmd in ("save-informal", "save-signoff"):
-        return save_record(rd, "INFORMAL.json" if a.cmd == "save-informal" else "SIGNOFF.json", a.reason)
+        return save_record(rd, "SIGNOFF.json" if a.cmd == "save-signoff" else
+                           "INFORMAL-2.json" if a.second else "INFORMAL.json", a.reason)
+    import fingerprint
+    lean_table.fps = None
     try:
         md, rows, defs = build_bundle(cfg)
     except RuntimeError as e:
@@ -1700,7 +1709,7 @@ def main(argv=None):
     if a.cmd == "check":
         probs, disc = project.split(cfg, check(cfg, rd, rows, defs, md) + cited_name_problems(cfg, rd))
         # DESIGN-SW2B X1: the names the check cannot decide (a stand-in for the function has none)
-        notes_ = getattr(cited_name_problems, "notes", [])
+        notes_ = list(getattr(cited_name_problems, "notes", [])) + second_reading_notes(rd)
         for p in probs:
             print(project.problem_line(p, "signoff-check"))
         for p in disc:
@@ -1721,8 +1730,7 @@ def main(argv=None):
         if probs:
             print(f"FAIL: the sheet is incomplete ({len(probs)} problems); run `check` and fix first")
             return 1
-        import fingerprint
-        fps = fingerprint.compute(cfg)
+        fps = lean_table.fps if lean_table.fps is not None else fingerprint.compute(cfg)    # C4d: no second Lean run
         changed = changed_since_approval(os.path.join(project.REPO, cfg["rounds_dir"]), rows, fps, a.round)
         ok = render(cfg, rd, changed)
         print(f"wrote SIGNOFF.md" + (f"; {len(changed)} result(s) marked CHANGED since the last approval" if changed else "")
@@ -1750,7 +1758,7 @@ def main(argv=None):
                   "user chose to let the agent approve without reading); the report discloses which",
                   file=sys.stderr)
             return 2
-        import fingerprint, datetime
+        import datetime
         rdir = os.path.join(project.REPO, cfg["rounds_dir"])
         if a.by == "human" and project.involvement(cfg) == "hands-off" \
                 and (fingerprint.approval_history(rdir, cfg)[1] or {}).get("by") != "human":
@@ -1845,7 +1853,7 @@ def main(argv=None):
                       + f". Show the human the sheet's PDF as it is now (python3 audits/render_record.py shown --doc "
                         f"SIGNOFF --round {a.round}, then quote its lines) and ask again (never a stop)", file=sys.stderr)
                 return 1
-        fps = fingerprint.compute(cfg)
+        fps = lean_table.fps if lean_table.fps is not None else fingerprint.compute(cfg)    # C4d: no second Lean run
         excluded = [x.strip() for x in a.exclude.split(",") if x.strip()]
         doc, probs = approve(cfg, rd, rows, defs, fps, json.load(open(snap_p))["fingerprints"],
                              excluded, a.how, a.by, a.note)
@@ -2878,10 +2886,11 @@ def selftest_sw2b(say):
         project.select = lambda name=None: (cfg, "stub")
         project.run_lean = mr._names_stub({"SimpleGraph.chromaticNumber", "Finset.card"}, {"SimpleGraph", "Finset"})
 
-        def run(name):
+        def run(name, row=None):
             json.dump({"rows": [{"result": "Theorem 1.1", "plain_english": f"the number `{name}` is small"}],
                        "definitions": []}, open(os.path.join(rd, "INFORMAL.json"), "w"))
-            json.dump({"commit": "abc", "rows": []}, open(os.path.join(rd, "SIGNOFF.json"), "w"))
+            json.dump({"commit": "abc", "rows": [dict(result="Theorem 1.1", **row)] if row else []},
+                      open(os.path.join(rd, "SIGNOFF.json"), "w"))
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 rc = main(["check", "--round", os.path.basename(rd)])
@@ -2892,18 +2901,45 @@ def selftest_sw2b(say):
             rc1 == 0 and "NOTE[signoff-check] INFORMAL.json cites `G.chromaticNumber`: its first component `G`" in o1
             and "0 problem(s), 1 note(s): judged at delivery" in o1 and "PROBLEM" not in o1 and stops.causes(o1) == []
             and "error:" not in o1)
-        rc2, o2 = run("Finset.Foo.card_le")
-        say("DESIGN-SW2B X1: a wrong global name (`Finset.Foo.card_le`, trial #10) still fails the check",
-            rc2 == 1 and "PROBLEM[signoff-check] INFORMAL.json cites `Finset.Foo.card_le`, which is no declaration" in o2
-            and "note(s)" not in o2)
+        bad = "Finset.Foo.card_le"
+        rc2, o2 = run(bad)
+        say("0.3.2 D3: a wrong name in the write-once blind reading (INFORMAL.json) is a NOTE[signoff-check], no PROBLEM",
+            rc2 == 0 and f"NOTE[signoff-check] INFORMAL.json (the blind reading, written once) cites `{bad}`" in o2
+            and "PROBLEM" not in o2)
+        same = f"the number `{bad}` is small"
+        rc3, o3 = run(bad, dict(plain_english=same))
+        rc4, o4 = run(bad, dict(plain_english=same, differences=f"uses `{bad}`"))
+        rc5, o5 = run(bad, dict(plain_english=same + " (edited)"))
+        json.dump({"rows": [{"result": "Theorem 1.1", "plain_english": "another reading"}]},
+                  open(os.path.join(rd, "INFORMAL-2.json"), "w"))
+        rc6, o6 = run(bad, dict(plain_english=same))
+        say("0.3.2 A7: a second blind reading that differs changes nothing the check decides (agents judge it)",
+            (rc6, o6) == (rc3, o3))
+        os.makedirs(os.path.join(rd, "prompts"))
+        open(os.path.join(rd, "prompts", "informalizer-2.txt"), "w").write("p\n")
+        os.remove(os.path.join(rd, "INFORMAL-2.json"))
+        rc8, o8 = run(bad, dict(plain_english=same))
+        shutil.copyfile(os.path.join(rd, "INFORMAL.json"), os.path.join(rd, "INFORMAL-2.json"))
+        rc9, o9 = run(bad, dict(plain_english=same))
+        say("0.3.2 A-R1 (REVIEW-SAFETY-A032 F1): a second reading asked for but not saved is a NOTE[signoff-check], no "
+            "PROBLEM; an old round with neither file gets no such note",
+            rc8 == 0 and "NOTE[signoff-check] the second blind reading (INFORMAL-2.json) is missing" in o8
+            and "PROBLEM" not in o8 and "2 note(s): judged at delivery" in o8
+            and "second blind reading" not in o3 and "second blind reading" not in o6)
+        say("0.3.2 A-R1 (REVIEW-SAFETY-A032 F1): INFORMAL-2.json byte-identical to INFORMAL.json is a "
+            "NOTE[signoff-check], no PROBLEM",
+            rc9 == 0 and "NOTE[signoff-check] the second blind reading (INFORMAL-2.json) is byte-identical" in o9
+            and "PROBLEM" not in o9 and "is missing" not in o9)
+        say("0.3.2 D3 (REVIEW C2): SIGNOFF.json's plain_english equal to the blind reading's is one NOTE; the same name "
+            "in a writer field (differences) or in a plain_english that differs stays a PROBLEM (trial #10)",
+            rc3 == 0 and o3.count("NOTE[signoff-check]") == 1 and "PROBLEM" not in o3
+            and rc4 == 1 and f"PROBLEM[signoff-check] SIGNOFF.json cites `{bad}`" in o4
+            and rc5 == 1 and f"PROBLEM[signoff-check] SIGNOFF.json cites `{bad}`" in o5)
         t = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "run", "stage2-statements.md"),
                  encoding="utf-8").read()
         s7 = t.split("7. **Prepare the sheet.**", 1)[-1].split("\n8. **", 1)[0]
-        say("DESIGN-SW2B T1 (REVIEW C1, REVIEW-STOPFIX N2): step 7 no longer cures a blind-reading hit by a writer rerun; "
-            "it sets the round aside on the open stop and redoes it with a round of R's kind",
-            "rerun the sign-off writer (a mechanical failure)" not in t and "NOTE[signoff-check]" in s7
-            and "stops.py set-aside <R> --stop S<n>" in " ".join(s7.split()) and "--full" in s7 and "--statements" in s7
-            and "close --stop S<n> --cured" in " ".join(s7.split()))
+        say("0.3.2 D3: step 7 makes a blind-reading name a NOTE (no set-aside, no new round)",
+            "write-once blind reading in INFORMAL.json" in " ".join(s7.split()) and "set-aside" not in s7)
     finally:
         (project.REPO, project.select, g["build_bundle"], g["check"], project.run_lean, mr.imported_libraries,
          mr._declared_earlier, dependencies.project_decls) = keep
@@ -3263,6 +3299,26 @@ def selftest():
             and "statement-stage sheet" in sheet_background(cfg, {"commit": "x"}, "statements")
             and "sorry` by design" not in sheet_background(cfg, {"commit": "x"}, "full")
             and "re-approval" in sheet_background(cfg, {"commit": "x"}, "full"))
+        _sp = sheet_background(dict(cfg, source_pdf="paper.pdf"), {"commit": "x"}, "statements")
+        say("W-R4 C6 (T8 F3, F5): a PDF-only source: the sheet gives PDF locations, says the statements were "
+            "transcribed from the PDF, and no `tex l.N` is line N; a .tex source keeps it",
+            project.PDF_LOCATIONS in _sp and "transcribed from the PDF" in _sp and "`tex l.N` is line N" not in _sp
+            and "`tex l.N` is line N" in sheet_background(dict(cfg, source_pdf="paper.tex"), {"commit": "x"}, "statements"))
+        _keep5d = project.approver_5d
+        try:
+            project.approver_5d = lambda rd: "agent"
+            _ia = sheet_background(dict(cfg, involvement="involved", involvement_answer="(a) INVQZ"), {"commit": "x"})
+            project.approver_5d = lambda rd: "human"
+            _ih = sheet_background(dict(cfg, involvement="involved", involvement_answer="(a) INVQZ"), {"commit": "x"})
+        finally:
+            project.approver_5d = _keep5d
+        say("W-R4 C7 (INV F3): under involved the sheet quotes the intake answer and defines the intake and Checkpoint "
+            "B; 5d agent: the approver is an AI agent and no person reviewed the statements; 5d human: the approver "
+            "ticks each result",
+            all("(answer, verbatim: \"(a) INVQZ\")" in t and "the questions answered at the start of the run" in t
+                and "this sign-off is Checkpoint B" in t for t in (_ia, _ih))
+            and "the approver is an AI agent; its approval is recorded as the agent's, and no person reviewed the "
+                "statements" in _ia and "the approver is an AI agent" not in _ih and "the approver ticks each result" in _ih)
         # E2E-FIX2 M4a (the e2e run's re-approval sheet at a commit with no `sorry` said every proof is `sorry` by
         # design): the proof sentence is read from the Lean at the sheet's commit
         _gr = tempfile.mkdtemp(prefix="sorryat-")
@@ -3554,16 +3610,6 @@ def selftest():
         say("source_macros skips @-definitions and escaped braces do not confuse it",
             "\\at" not in sm and "\\providecommand{\\lb}{\\{}" in sm)
         say("source_macros ignores definitions after \\begin{document}", "\\late" not in sm)
-        L = {"p:a": ("lemma", "1.2"), "p:t": ("theorem", "3.1")}
-        say("theorem wrappers, restatable, \\label and \\qed are stripped from the paper text",
-            strip_theorem_envs("\\begin{restatable}{lemma}{rX}\\label{p:x} A $P$.\\qed\\end{restatable}", set()) == "A $P$."
-            and strip_theorem_envs("\\begin{theorem}[FK21] T.\\end{theorem}", set()) == "T."
-            and strip_theorem_envs("\\begin{myenv} M.\\end{myenv}", {"myenv"}) == "M.")
-        say("\\cref resolves to kind + number from the .aux",
-            resolve_refs("by \\cref{p:a}", L) == "by Lemma~1.2")
-        say("\\ref resolves to the number; several keys; unknown label shown, not broken",
-            resolve_refs("\\ref{p:t}; \\cref{p:a,p:t}; \\cref{zz}", L)
-            == "3.1; Lemma~1.2, Theorem~3.1; [zz]")
         say("the stale message points at the first differing line",
             "line 1: stored 'old' vs now 'new'" in (bundle_problem(bd, "new\n") or ""))
         # the commands themselves (not only check()) refuse a stale bundle: drive main() with the
@@ -3649,10 +3695,16 @@ def selftest():
                     open(os.path.join(rR, "SIGNOFF.json"), "w").write('{"rows": [1]}')
                     r4 = save_record(rR, "SIGNOFF.json")
                     r5 = save_record(rR, "SIGNOFF.json", "writer rerun: a flag was missing"); h5 = head_s()
+                    open(os.path.join(rR, "INFORMAL-2.json"), "w").write('{"rows": [3]}')
+                    r6 = save_record(rR, "INFORMAL-2.json"); h6 = head_s()
+                    open(os.path.join(rR, "INFORMAL-2.json"), "w").write('{"rows": [4]}')
+                    r7 = save_record(rR, "INFORMAL-2.json", "again")
                 say("A5: save-informal commits INFORMAL.json alone as 'signoff R', once",
                     r1 == 0 and h1[:2] == ["signoff", "R"] and h1[2:] == ["R/INFORMAL.json"] and r2 != 0)
                 say("A5: save-signoff commits SIGNOFF.json; saving it again needs a reason, recorded in the subject",
                     r3 == 0 and r4 != 0 and r5 == 0 and "re-written:" in " ".join(h5))
+                say("0.3.2 A7: save-informal --second commits INFORMAL-2.json alone as 'signoff R', once",
+                    r6 == 0 and h6 == ["signoff", "R", "R/INFORMAL-2.json"] and r7 != 0)
                 # PDF-AGENTS (review 7): `approve --by human` refuses unless the sheet's PDF is the one recorded for its
                 # markdown as it is now (render_record.check); the shown PDF's sha and outcome go into the approval
                 def fresh_():

@@ -57,8 +57,8 @@ Procedures, read when they apply:
 - `run/fresh-reader.md`: before the first fresh-reader check (Stage 2 step 7).
 - `run/render-pdf.md`: before the first PDF (Stage 2 step 7; Stage 5 step 5 under `hands-off`).
 - `run/reapproval.md`: an approved statement must change, or the freeze check reports DRIFT.
-- `run/stops-and-set-asides.md`: a check stops the round (failure table below), or a round must be
-  set aside.
+- `run/stops-and-set-asides.md`: a check stops the round (its first section is the failure table), or a round must be
+  set aside. Read only the section a pointer names (`sed -n '/^#.*<section>/,/^#/p' <file>`).
 - `run/codex.md`: once, at the start, under the Codex CLI.
 
 ## The rules
@@ -85,21 +85,18 @@ rest. This holds only if you keep your hands off, so:
    from which this list is generated; `integrity.py` checks every commit against it):
    - `tool-patch`: a tool patch's records (`tool-patches/`: written by `tool_patch.py` and its reviewers);
    - `acknowledge`: the reviewed acknowledgments of history faults (`acknowledgments/`: written by `integrity.py --ack-request` and its fresh reviewer);
-   - `scope`: lane tokens, reissued and superseded lane files, `TARGET.json`, `FINGERPRINTS.json`, `STATEMENTS_BUNDLE.md`;
+   - `scope`: lane tokens, reissued lane files, `TARGET.json`, `FINGERPRINTS.json`, `STATEMENTS_BUNDLE.md`;
    - `seal`: lane seals, lane probes, re-votes, render checks, lane verdicts;
-   - `resolve`: an older run's stall resolutions (`resolutions/`);
    - `stop`: the stop records (`stops/`, their repair records);
    - `ack`: waivers (`waivers/`);
    - `escalate`: escalation prompts and answers (`escalations/`);
    - `set-aside`: set-asides (`ABANDONED.json`, `.abandoned/`);
    - `reader`: reader records (`readers/`), the readers' notices (`KNOWN_FAULTS-*.md`);
-   - `hand-edit`: the hand-edit records (`hand-edits/`: written by `readers.py --hand-edit`);
    - `render`: the PDF records (`pdf/`: `RENDER.json`, the rendering agents' prompts, PDFs and verdicts);
-   - `adjudicate` or `reader-fix`: `ADOPTED.md`, `DEVIATIONS.md` (a run pinned before ownership 3: you write its rows, never a `reading choice` or `differs` row);
-   - `signoff`: `INFORMAL.json`, `SIGNOFF.json`;
+   - `adjudicate`: `ADOPTED.md`, `DEVIATIONS.md`;
+   - `signoff`: `INFORMAL.json`, `INFORMAL-2.json`, `SIGNOFF.json`;
    - `round-cap`: the statement-round cap records (`round-caps/`);
-   - `adjudicate` or `record-fix` or `reader-fix`: `PAPER_DEFECTS.md`, `SKIPPED.md`, `VACUOUS.md`;
-   - `reader-fix-prompt`: the reader-fix prompt (`prompts/adjudicator-readerfix-<n>.txt`);
+   - `adjudicate` or `record-fix`: `PAPER_DEFECTS.md`, `SKIPPED.md`, `VACUOUS.md`;
    - `prepare delivery`: the delivery record (`DELIVERY.json`);
    - `approve`: the approval files (`APPROVED_FINGERPRINTS*.json`), `REAPPROVAL.json`;
    - `pin`: `TOOLING_PIN.json`;
@@ -127,7 +124,7 @@ rest. This holds only if you keep your hands off, so:
    mode only for the four stops of "Stops that remain at every level"; every other STOP is a stop you
    open and cure as the failure table's release column says, never a wait). Do not
    repair the cause and carry on. What you may cure, and at which level, is the failure table
-   below, and nothing else: you never clear a stop by your own judgement, and never by writing,
+   (`run/stops-and-set-asides.md`), and nothing else: you never clear a stop by your own judgement, and never by writing,
    copying, moving or deleting a lane's verdict or probe files to satisfy a check. A script's
    refusal (a second `--write`, a second seal, a Phase 0 on an uncommitted tree) protects the
    record: read it as the failure it names, never work around it.
@@ -141,11 +138,15 @@ rest. This holds only if you keep your hands off, so:
    The adjudicator's Phase 0 and coverage roll-up have their own plain start and wait commands
    (`project.py --adjudicator-checks`, `stage4-rounds.md` step 4).
    Until it finishes, change nothing in the project or the audits repository (no edit, no commit, no
-   second long command): Phase 0 refuses an uncommitted tree, and `head-moved` and `tree-changed`
+   second long command; the Stage-1 self-test excepted: `stage1-setup.md` step 1): Phase 0 refuses an uncommitted tree, and `head-moved` and `tree-changed`
    are stops. A polling loop you start yourself (waiting for a build, a
    file, a child) must carry `FORMALIZE_PAPER_OPERATOR=1` in its environment, for example
    `FORMALIZE_PAPER_OPERATOR=1 bash -c 'until …; do sleep 30; done'`; `lanecheck.py` flags an
-   untagged loop as a lane's and `--kill` ends it. Prefer the harness's own blocking waits.
+   untagged loop as a lane's and `--kill` ends it. Put the tag directly on the loop's own `bash -c` (not on
+   a wrapper such as `timeout` around it). Prefer the harness's own blocking waits; wait for a subagent
+   by its task notification (under Codex: its wait call), never by a loop. Never `pgrep -f`/`pkill -f` a
+   pattern (on Linux it matches the waiting shell itself): wait on the task's notification, or poll its output file for
+   the harness's `[exited with code` line, and stop a command with TaskStop or a PID you recorded.
 10. **Write no persistent memory about this run until Checkpoint C.** Subagents receive the user's
     memory index, so a note you save becomes background every later reviewer sees.
 11. **Quote script output; never restate it.** Phase 0's verdict is its `PHASE 0 RESULT` table.
@@ -155,7 +156,8 @@ rest. This holds only if you keep your hands off, so:
 12. **Write `RUN_LOG.md` with the log command.** `python3 audits/project.py --log "<section>"
     <<'EOF'` … `EOF` appends (creating the section), and `project.py --stage "<text>"` sets the
     current stage; your file-editing tool works too. Never `python3 - <<EOF` or `python3 -c`: those
-    ask for permission, and the person is not watching.
+    ask for permission, and the person is not watching. Never run a bare stdin reader either (`python3 -`, or `cat`
+    with no heredoc or file): the Bash tool has no stdin, so it hangs until the tool's timeout.
     **Run every protocol command plainly**: exactly `python3 audits/<script>.py <args>`, as printed, with
     no environment prefix (`PYTHONDONTWRITEBYTECODE` is set by the project's settings), no pipe (`| tail`)
     and no chaining (`;`, `&&`): only the plain form matches the project's permission rules. A command
@@ -164,23 +166,37 @@ rest. This holds only if you keep your hands off, so:
 13. **Never read a PDF, or a whole large file or output, yourself.** Every page you read stays in
     your context and is re-sent at every later turn: three reads of one report once filled 90% of
     a run's context. Never read a PDF yourself: the renderer, verifier and checkers do
-    (`run/render-pdf.md`); the fresh reader reads the markdown (`fresh-reader.md`). Read a long
+    (`run/render-pdf.md`); the fresh reader reads the markdown (`fresh-reader.md`). The one exception
+    is a few page images of the paper, never the whole PDF: for a PDF-only paper, use the extracted text
+    only for searching, then convert only the related pages you state from (if a result uses previous
+    definitions or theorems, also those pages) to images and look at them. In a directory `python3
+    audits/project.py --scratch operator` prints (`<dir>`): `pdftotext -layout <source_pdf> <dir>paper.txt`
+    (search it with `grep`), and `pdftoppm -r 100 -png -f <first page> -l <last page> <source_pdf>
+    <dir>p`, then look at each `<dir>p-*.png` it writes (the Read tool; Codex: `view_image`). Read a long
     file or output with `grep`, `tail` or `sed -n`, or give it to a subagent and keep its answer.
+    Your own scripts, drafts and scratch files go under a directory `python3 audits/project.py --scratch
+    operator` prints, never `/tmp`: a read outside the working directories asks the person. (Running your
+    own script there is allowed; rule 12 concerns protocol commands. Under the default permission mode it may
+    ask; a denial is not a stop.)
 
 **Cost.** Read this file, the current stage file and a procedure file when it applies; nothing
-else in full. Spawn the lanes of a wave in one message and seal each as it returns. If the human
-said at intake (question 7) that the machine has 16 GB of RAM or less, at most 3 subagents run at
-once, whatever a step says about spawning in parallel or at once: spawn the rest as earlier ones
-return. Reviewers and helpers compile their Lean probes through `lean_slot.py run`, which keeps the
+else in full. Spawn the round's first lanes in one message, seal each as it returns, and spawn the
+next lane once a returned one is sealed. The memory route (`python3 audits/lean_slot.py --show`, its
+`route:` line, from the RAM given at intake question 7) sets how many run at once: on the 8 GB route
+at most 2 subagents of any kind run at once, whatever a step says about spawning in parallel or at
+once (spawn the rest as earlier ones return); otherwise at most the route's lanes run at once (6 on 16
+GB, 8 on 32+ GB), and agents that run no Lean probe are capped only by the harness. Reviewers and helpers compile their Lean probes through `lean_slot.py run`, which keeps the
 machine's number of such probes at the config's `lean_slots` (it waits at most `lean_max_wait`,
 then runs and says so; it never refuses). The memory guard (`lean_slot.py guard`, started by code)
 protects the computer's memory either way: it pauses the probes of every formalize-paper project of
 this account, however they were started, while free memory is below its reserve, while the kernel reports
-memory pressure, or when new probes (each presumed to need up to 5 GB in its first minute) would take free
-memory below it, and resumes them; a pause is at most 10 minutes. A probe cut at 240 s whose NOTE says the
-guard paused it is re-run, not called too large. Before
-delivery, copy the `memory guard pauses in the log` line of `python3 audits/lean_slot.py --show` (if it prints
-one) into RUN_LOG.md (`python3 audits/project.py --log "Mechanical failures"`, the line on stdin), so
+memory pressure, or when new probes (each presumed to need up to 3.2 GB in its first minute) would take free
+memory below it, and resumes them; a pause is at most 10 minutes. A probe gets 240 s of running: time the guard
+paused it is added (up to about 540 s with its slot wait). A cut probe whose NOTE says "not a too-large probe" is
+re-run, not called too large. Before
+delivery, copy the `memory guard pauses since this run's pin` line of `python3 audits/lean_slot.py --show` (if it
+prints one: this account's guard log, a run in parallel under this account included; `memory guard pauses in
+the log` when the pin cannot be read) into RUN_LOG.md (`python3 audits/project.py --log "Mechanical failures"`, the line on stdin), so
 RUN_RECORD.md cites the guard's log. Wait with
 blocking waits, never short polls (under Codex: one long `wait_agent`, status at most every 10
 minutes). Retries are budgeted by time (`spawn-and-seal.md`). The budget's round cap is kept
@@ -235,9 +251,20 @@ Without a written recommendation, take the conservative rule:
   unchanged; no re-pin, no question), and the next round audits it like any new declaration;
 - a K3 bridge (an open `K3-<n>` item: a nontrivial change of representation, `CONDITIONS.md`) is
   proved the same way, as a pure addition `<decl>_bridge` or `<name>_iff_paper` whose docstring
-  names the item (Stage 3, "Bridges"); out of reach after a serious attempt, it stays an open K
+  names the item (Stage 3, "Bridges"); a bridge proved only in an audit probe is not proved: land it
+  as that pure addition before the last round; out of reach after a serious attempt, it stays an open K
   item, never a stop, never a refusal, never a reason for an extra round;
-- a reading choice (an Ambiguous verdict: the paper admits two readings; next batch D1). Under
+- a reading choice (an Ambiguous verdict: the paper admits two readings). A QUESTION
+  row marked `GOAL LOOKS FALSE`, or a PAPER_DEFECTS row of status `false` or `vacuous` on a goal result
+  (an ADOPTed Fail whose evidence is such a witness), is no reading choice at any level: it is release
+  stop 1 at once (`stops.py open --note "<result>: <witness>" --cause unproved-goal`), never a
+  [DELEGATED] or [PROXY] reading -- unless a stop 1 on that result is already answered (its
+  `stops/S<n>`): then follow that answer. A goal result false as printed only because of an evident
+  misprint (a `misprint (true as intended)` row on a goal result whose printed statement is false
+  included) is release stop 1 the same way: the human decides, never an agent-decided typo fix. A
+  misprint is a slip in the printed statement, not a convention the paper uses loosely. After the answer, log `- answered question:<item> (<date>,
+  <round>): "<the human's words>"`, naming `take reading (x)` when the answer takes one, so the row is
+  answered. Under
   `involved` the human is asked **when the QUESTION row appears** (any stage, not only at B or C):
   one message with the passage, the readings, the Lean's reading and the recommendation; you wait
   for the answer (a designed human wait like Checkpoint B, never a stop; re-ask once after a long
@@ -255,7 +282,8 @@ Without a written recommendation, take the conservative rule:
   the item below: the code then counts the decision as that item), plus a `CONDITIONS.md`
   item of kind `reading` (the open K question; a reading found false is stated so: "(b) is false:
   `<witness decl>`"; its id is `C<n>`, the next free number: every kind takes `C<n>`, only the
-  adjudicators' bridges are `K3-<n>`). It is disclosed as a reading choice. A
+  adjudicators' bridges are `K3-<n>`). It is disclosed as a reading choice. Its `[DELEGATED …]`
+  line logs `reversal: re-approve` when the other reading would change the approved statement. A
   loosely used convention (ℕ from 0 or from 1) is such a choice: take the intended reading. Only
   when the meaning is genuinely ambiguous on a point that matters and the reviewers cannot
   converge on one reading is it stop 4, asked at every level ("Stops that remain at every level");
@@ -279,7 +307,7 @@ answer), decide it yourself and go on; it is **never a stop**, a goal result inc
 1. search every configured library (`libraries`: Mathlib and Tau Ceti by default) by name and by
    content, recording the commands, and estimate what building the theory here would take;
 2. if only definitions and easy lemmas are missing, **build it** (option (1)) and log
-   `[DELEGATED <date>, operator under <level> (intake); reversal: none] missing theory: build <what>
+   `[DELEGATED <date>, operator under <level> (intake); reversal: re-approve] missing theory: build <what>
    for `<result>` — searched: <every library, and how>; estimate: <size, time>`;
 3. otherwise take the missing theorem as a **named hypothesis** (option (2)): a project Prop
    definition `H` stating exactly what the paper invokes, taken as a binder `(h : H …)` of the
@@ -313,13 +341,15 @@ or `H` says more than the quoted invocation; the non-vacuity reviewer flags `H` 
 goal's main step. The summary (`SUMMARY.pdf`) says "<result> proved assuming <H>".
 
 **Statement changes after approval.** After the sign-off the adjudicator never ADOPTs a change to an
-approved statement or to a definition one uses (approver D2, 2026-11-11): it writes a QUESTION row.
+approved statement or to a definition one uses: it writes a QUESTION row.
 Under `involved` you ask the human at once and carry out their answer by re-approval. Under
 `statements-only` and `hands-off` you decide "keep the approved statement" as a [DELEGATED] line (the
 result keeps its "not established … decision" status), disclose it, and add a `CONDITIONS.md` item of
-kind `finding` (an open K item for the K stage). Re-approval remains only for (i) missing theory turned
-into a named hypothesis (needed for a goal result's liveness), and (ii) a human's answer (`involved`;
-any level in the K stage). A goal result false, or true only vacuously, is stop 1 at every level. A
+kind `finding` (an open K item for the K stage). Under `statements-only` re-approval remains only for
+(i) missing theory turned into a named hypothesis (needed for a goal result's liveness), and (ii) a
+human's answer in the K stage; under `hands-off` you decide any other change by re-approval
+(`run/reapproval.md`), except a change that would repair a faithfulness finding made after the sign-off
+(kept, as above) or a refuted non-goal statement (kept, as below). A goal result false, or true only vacuously, is stop 1 at every level. A
 non-goal result whose refutation `not_<decl>_as_printed` compiles is, under a delegating level, not
 repaired: its statement stays byte-identical and is left unproved (`leave <decl> unproved`, "stated, not
 proved"), the PAPER_DEFECTS `false` row records it, and a `finding` item offers the repair in the K
@@ -327,23 +357,14 @@ stage (`involved`: asked). A goal whose proof (following the paper) needs such a
 proved from a corrected helper lemma that is a pure addition (never in the index), disclosed with the
 PAPER_DEFECTS row; stop 1 only when no such route exists. A vacuous non-goal result: its VACUOUS.md row
 and docstring, and a `finding` item. Under `involved` (and, for missing theory turned into a named hypothesis, under `statements-only`)
-a change to a statement the human approved is a QUESTION, never a stop (U2 §0, §5).
+a change to a statement the human approved is a QUESTION, never a stop.
 **Adding a row to the index after the approval** changes the sign-off sheet: begin a re-approval
-first (`signoff.py reapprove --begin --decls <an approved declaration of the same section> --reason
-"new row <label>"`), then add the row. A pure addition that needs no row (`<decl>_unconditional`, a
+first (`run/reapproval.md` step 1), then add the row. A pure addition that needs no row (`<decl>_unconditional`, a
 K3 bridge, a second reading `<decl>_reading_<x>`) is never added to the index: it is cited by its
-`CONDITIONS.md` item or its docstring. Otherwise: begin the re-approval as
-below, ask them (`reapproval.md`), and go on with the run. While it is open the **pending state**
-holds: rounds, Phase 0 (`--readonly` too), `decisions.pending_unproved` and the axiom sweep accept
-`sorry` in that statement's proof and sorryAx reaching other results only through it (Phase 0 prints
-`NOTE[reapproval]`, the report check `PENDING[question]`); only `project.py --deliver` refuses
-(`PENDING[question]`, not a failure line: open no stop on it). `signoff.py approve --by agent` closes a
-re-approval only under `hands-off`, or under `involved` when the intake's 5d is logged as exactly
-`- 5d: agent` (never under `statements-only`: there the human approves), and only when the
-approval it replaces was the agent's; otherwise it refuses with `PENDING[question]` and the human
-approves (`--by human`, which refuses until their verbatim answer is committed under `## Re-approvals`
-as `- human answer (round <R>; <declarations>): "<words>"`: evidenced, still trust-based); an
-unreadable 5d means the human. Under `hands-off` you
+`CONDITIONS.md` item or its docstring. Otherwise: begin the re-approval as below, ask them
+(`reapproval.md`), and go on with the run. While it is open the **pending state** holds
+(`reapproval.md`); only `project.py --deliver` refuses (`PENDING[question]`, not a failure line: open no
+stop on it). Who may close it (`signoff.py approve --by agent` or `--by human`) is `reapproval.md` step 4. Under `hands-off` you
 re-approve, but a delegated re-approval never strengthens or generalizes a statement beyond a reading
 the paper's text admits (choosing the stronger of two readings the adjudicator found the paper admits
 is not a strengthening), and weakens one only to turn missing theory into a named hypothesis (a refuted
@@ -355,14 +376,11 @@ listed declaration has already changed, commits the owned record `REAPPROVAL.jso
 and the approved fingerprints) and writes the `RUN_LOG.md` line `[DELEGATED …; reversal:
 re-approve] change <declarations> — <reason>`. The freeze check then reports a change to a listed
 declaration as `NOTE[reapproval]` (not a stop) until `signoff.py approve` closes the re-approval.
-Any other DRIFT stays a freeze stop; in `release` its cure is always to restore the approved
-statement (an intended change goes through re-approval, begun before the edit, never inside the open
-stop). While a re-approval the agent may close is open the report check (`make_report.py --check`,
+Any other DRIFT stays a freeze stop (its cure: `reapproval.md`, "A DRIFT"). While a re-approval the agent may close is open the report check (`make_report.py --check`,
 also in Phase 0) is RED, so close it before delivery; the report lists every re-approval of the run.
 
 **Stops that remain at every level.** Whatever the level, stop and tell the human, and wait, for
-each of the following in `dev` mode; in `release` mode only for the four stops of the next paragraph
-(U2 §0; approver, 2026-10-24), every other one being self-cured:
+each of the following in `dev` mode; in `release` mode only for the four stops of the next paragraph, every other one being self-cured:
 - anything outward-facing that the intake did not authorize: pushing, sending anything to the
   authors, publishing (`stops.py open --note "<what>" --cause outward-action`);
 - (`dev`; self-cured in `release`) an integrity failure: a failure line of a STOP class (failure table) -- approved statements
@@ -375,19 +393,14 @@ each of the following in `dev` mode; in `release` mode only for the four stops o
   re-run and comes from a pinned script, or a check that misjudges the case in front of it (`--cause
   tool-bug`; failure table). In `dev` only a maintainer fixes a pinned script. In `release` it is
   never a wait for a maintainer: a fault in the proof-validity core is a Lean-side workaround or
-  `stops.py core-fault` and `close --core-fault` after a fresh reviewer's approval ("Tool patches"), any
-  other is
-  the tool-patch route (`project.CURES["patch"]`, `tool_patch.py`): a tool bug that a read-only
-  check shows (`open --note ... --cause tool-bug --check "<it, failing now>"`) is cured like any
-  rerun, or by a tool patch; a pinned writer (`prompt.py`, `signoff.py approve`, ...) that keeps
-  crashing while every read-only check passes is `open --note "<what crashed>" --cause tool-bug`
-  with no `--check`, cured only by a tool patch (`close --cured "tool-patch TP<k>"`), never a human
-  stop and never routed through `env-unknown`. A failure
-  is no longer a stop merely because no code covers it: the scripts still treat a failure line with
-  an unknown or missing code as a stop, and it is you who re-runs and classifies it;
-- a goal result (the intake's `goal_results`) that appears false, or unprovable as stated for a
-  reason other than missing library theory (that is "Missing theory" above: never a stop), or that
-  stays unproved: it is never left unproved by a [DELEGATED] decision (Phase 0 refuses one,
+  `stops.py core-fault` and `close --core-fault` after a fresh reviewer's approval; any other is the
+  tool-patch route (`tool_patch.py`; `run/stops-and-set-asides.md`, "Tool patches" and "Recording and
+  closing a stop" item 1, also for a pinned writer that keeps crashing while every read-only check
+  passes), never a human stop and never routed through `env-unknown`. The scripts treat a failure
+  line with an unknown or missing code as a stop; it is you who re-runs and classifies it;
+- a goal result (the intake's `goal_results`) that looks false, true only vacuously, unprovable as
+  stated for a reason other than missing library theory (that is "Missing theory" above: never a
+  stop), or stays unproved: it is never left unproved by a [DELEGATED] decision (Phase 0 refuses one,
   `RED[unproved-goal]`). Another result that stays unproved is not a stop under a delegating
   level: it is left unproved and disclosed (failure table, "your own work");
 - the paper's meaning is genuinely ambiguous on a point that matters, and the reviewers cannot
@@ -412,19 +425,14 @@ each of the following in `dev` mode; in `release` mode only for the four stops o
   is opened only once that budget is spent; `--delegated` is dev mode only).
   **A child's capacity error or usage limit opens no stop.** Waiting it out within the 2-hour time
   budget of `spawn-and-seal.md` is logged under "Mechanical failures" only, in both modes; it becomes
-  a stop (as above) only when that budget is spent with the failure unchanged. Fixes to try first:
-  retry failed downloads (`lake exe cache get` again; it can partly fail), re-run the build, check
-  that the Mathlib and toolchain pins match, clear and rebuild the project's own build outputs
-  (never the user's files), wait out a usage limit and resume, and free space only in the run's
-  own scratch and build directories.
+  a stop (as above) only when that budget is spent with the failure unchanged.
   **Your own usage limit or API error** ends your turn mid-step: in your next message (or, if you
   cannot write one, as the run's standing note) tell the human to type "continue" once the limit
   resets; the run then resumes where it stopped (`RUN.md`, "Start or resume").
 
-**In `release` mode exactly four of these stop the run, at every level** (approver, 2026-10-21 and
-2026-10-24; `project.RELEASE_STOPS`): **(1)** a goal result that looks false, or true only
-vacuously (a VACUOUS.md row or a confirmed non-vacuity finding on it; approver D2, 2026-11-11), or
-unprovable for a reason other than missing library theory (`unproved-goal`: `stops.py open --note
+**In `release` mode exactly four of these stop the run, at every level** (`project.RELEASE_STOPS`): **(1)** a goal result that looks false, true only
+vacuously (a VACUOUS.md row or a confirmed non-vacuity finding on it),
+unprovable for a reason other than missing library theory, or stays unproved (`unproved-goal`: `stops.py open --note
 "<what>" --cause unproved-goal`); **(2)** an outward action the intake
 did not allow (`outward-action`); **(3)** something only the human can fix: a login, administrator
 rights, quota or payment, a change to the user's own files, or another program that keeps changing
@@ -432,93 +440,35 @@ the project's files during the run (`env-unknown` after the retry budget, `codex
 `interference`) -- but first remove the cause yourself: a plain retry, or a tool patch (a protocol-text
 patch included: e.g. a subagent whose file write Claude Code refuses is told by the patched text to
 return its text instead); stop 3 only for a login, a quota or usage limit, payment, OS or administrator
-rights, or another program changing the project's files. A protocol step you are told to do is never put
+rights, a change to the user's own files, or another program changing the project's files. A protocol step you are told to do is never put
 to the human as a permission question: stop 3 is only for what the human alone can grant (a login, a quota
-or usage limit, payment, OS or administrator rights, another program changing files); **(4)** the paper's meaning is genuinely ambiguous on a point that matters and the
+or usage limit, payment, OS or administrator rights, a change to the user's own files, another program
+changing files); **(4)** the paper's meaning is genuinely ambiguous on a point that matters and the
 reviewers cannot converge on one reading (`ambiguity`; `hands-off` too; the run resumes at its own
-level after the answer). A tool bug is never a release stop: it is the tool-patch route. The
-statement-round cap reached while a faithfulness finding is open is no stop of its own in
+level after the answer). When you ask, name it `stop S<n> (release stop <k> (<short label>))`, the label as the documents print it. A tool bug is never a
+release stop: it is the tool-patch route. The statement-round cap reached while a faithfulness finding is open is no stop of its own in
 `release` (`scope.py` prints `NOTE[round-cap]` and records the open findings in
-`round-caps/<round>.json`): you judge its cause -- (a) a genuine ambiguity: stop 4; (b) a loose
-convention: decide the intended reading, record it as a reading choice and go on; (c) anything
-else: the open finding is a **Checkpoint B question** -- under `involved` and `statements-only` put
-to the human at B with the QUESTION rows (the human decides; a wanted change is made after approving
-the last round's sheet, as a re-approval with its own two statement rounds); under `hands-off` decided "keep the
-last round's statement, disclosed" as a [DELEGATED] line (no statement round can re-read a change
-past the cap, so the recommended change is not made) and added to `CONDITIONS.md` as kind `finding`
-(an open K item offering the recommended change for the K stage; its id is `C<n>`, the next free
-number); every result it concerns reads
-"not established: open faithfulness finding" on the summary's first page (`stage2-statements.md`
-step 5; `dev`: a stop, `--cause round-cap`). Every other stop -- the integrity and tool-bug bullets, every other STOP
+`round-caps/<round>.json`): route it as `stage2-statements.md` step 5 says -- (a) a genuine
+ambiguity: stop 4; (b) a loose convention: a reading choice; (c) anything else: a **Checkpoint B
+question** (under `hands-off` a [DELEGATED] keep of the last round's statement with a `CONDITIONS.md`
+`finding` item; every result it concerns reads "not established: open faithfulness finding"); `dev`:
+a stop, `--cause round-cap`. Every other stop -- the integrity and tool-bug bullets, every other STOP
 class, and every mechanical or document failure -- is **self-cured**, at every level: `stops.py open`
-prints the cure of each code's kind (`project.CURES`; the release column under "When something
-fails"), you apply it, then `python3 audits/stops.py close --stop S<n> --cured "<what was done>"`.
-It re-runs exactly the read-only check the stop recorded at open, which must pass; a failing attempt
-is recorded (`S<n>/CURE<k>.json`). That check is always one of the protocol's read-only check
-commands, never a writer and never the failed tool command itself: a `--cmd` stop's check, or for a
-`--note` stop the read-only check of the step that failed, given at open (`open --note ... --cause
-<code> --check "<it>"`: `integrity.py --check` for setup, `lanecheck.py --round <R>` for a round,
-`phase0.py --readonly` for the build); it must fail then. A code with a closer of its own (the
-release column's "closes with") records exactly that closer, on the stop's `--round` for a
-round-bound one (leave `--check` out and `open` records it), never another check that happens to
-fail now; `--deliver` re-runs those closers too. A failure no code covers is `--cause
-unknown-retry` with such a `--check`. `close --delegated` is dev mode only; a code that is
-disclosed in release never opens a stop. The failure tally (U2 §4), counted from git history over the whole run and never
-reset, under any stop id: a fault is keyed by (check script, cause code) -- a `--cmd` stop by its
-command's codes, a `--note` stop by the codes its `--check` printed at open (an uncoded failure:
-`unknown`), whatever code you gave it. A `--note` stop also has the key (its code, the round: the
-newest round with a verdict file or adjudicated when it opened, its check script), `unknown-retry`, `tool-call`,
-`git-error`, `tool-bug`, `commit-refused` and uncoded sharing one; it counts openings only. The
-cure budget is spent by a stop with `project.CURE_BUDGET` (2) failed `--cured` re-runs of its own,
-whatever codes they showed; a (script, code) with `project.KEY_BUDGET` (3) failed re-runs anywhere in
-the run (a flaky check failing one cure in each of two far-apart rounds does not spend it); or a key
-opened more than `project.OPEN_CEILING` (3) times in one round after a failed cure of it there. A
-passing cure is not counted, so a fault that recurs but is cured at the first try never spends it.
-A spent budget is no stop of its own: no further `--cured` is accepted until you classify the fault
-(your judgement, recorded): `python3 audits/stops.py classify --stop S<n> --as
-tool-bug|interference|other --evidence "<why>"` -- `tool-bug`: the check or tool is wrong, the
-tool-patch route; `interference`: another program keeps changing the project's files, stop 3 (show
-the human the recurring events, `close --human`); `other`: neither, name the different cure you
-will try and `close --cured` once more. A stop you opened in error (the fault's route is not a
-stop, or the wrong check or round): `close --withdrawn "<why, and the route instead>"`. A stop whose
-fault you cured is not one: close it `--cured`, also when the check still prints only `adj-record`
-faults the cure itself created (the next adjudication's: they count as passing; a withdrawal of such
-a stop goes through with a NOTE, recorded in its close, that `--cured` was the right close). It is
-release only, never for a human stop, and is refused while its check passes, while it still shows a
-redo or tamper fault on the current round, even one that appeared after it was opened (set the
-round aside and redo it, or restore, as its cure says), or, the
-budget spent, until you classify it `other`. A withdrawal never re-labels: a fault of the four
-stops is opened with its own code. It counts as a failed cure, and RUN_RECORD lists it. A stop
-round that is not a real round of the run is the
-human's. The run record `RUN_RECORD.md` names every self-cure ("Stops cleared without you", with
-what was redone and where the independence of a review was compromised; the report and the summary
-do not; `project.py --deliver` names an omission in a note, and you correct RUN_RECORD.md). In both modes
-`--deliver` re-runs on the state delivered the math gate -- Phase 0 read-only (build, sorry scan, axiom sweep,
-freeze), `fingerprint.py --check` (once something is approved) and `integrity.py --check` (refusing only on a fault
-of the proof-validity core, a freeze record or a judgement record; any other integrity FAIL is a note) -- and
-refuses on its failure; every self-cured stop's own check is re-run too, a failure printed as a note for you to
-judge (approver 2026-10-28). A refusal is cleared only by fixing what the check reports (and re-running
-`--deliver`); closing a stop does not clear it, since the check itself is re-run. A
-self-cure whose check names a round since set aside or superseded is not
-re-run (it held for that round only): its committed passing record is verified instead. A redo
-stop whose round its own self-cure set aside (`set-aside <R> --stop S<n>`) is closed on the fresh
-round that redoes it: the set-aside round keeps its faulty files as record, so its check would fail
-for ever; `close --cured` re-runs the recorded check with `--round` the fresh round: scoped after the
-set-aside while the stop is open (`scope.py` records `redo_of` in its TARGET.json), covering the
-set-aside round's scope with sealed verdicts on every item of it (a diff round cannot cover a
-full or statements round: scope it with that round's kind, `--statements` or `--full`), recorded as `redo_round`; it refuses, spending no
-attempt, until that round exists, and refuses for the human when the lineage cannot be read. When
-the recorded check names no round (`tree_state.py --check`, say), the cure also runs `lanecheck.py
---round <the fresh round>` (and `--deliver` re-runs it). A fresh round that fails with other codes
-only charges the failed cure to those codes. In `dev`
-mode every bullet above stays a stop.
+prints the cure of each code's kind (`project.CURES`; the failure table's release column,
+`run/stops-and-set-asides.md`), you apply it, then `python3 audits/stops.py close --stop S<n> --cured "<what was done>"`.
+The close re-runs the read-only check the stop recorded at open, which must pass. Before your first
+`stops.py open` or `close` in this conversation, read only the section "Recording and closing a stop" of
+`run/stops-and-set-asides.md` for this (`sed -n '/^#.*Recording and closing a stop/,/^#/p'
+audits/run/stops-and-set-asides.md`), not the whole file: which check to record, the failure tally
+and cure budget, `stops.py classify`, `close --withdrawn`, a redo stop's fresh round, and what
+`--deliver` re-runs. A withdrawal never re-labels: a fault of the four stops is opened with its own
+code. In `dev` mode every bullet above stays a stop.
 
 One narrow exception, under a delegating level only: a RED from a **document check**
 (`make_report.py --check` inside Phase 0, or `decisions.py --check`) whose cause is text **you**
-wrote in `AUTHOR_NOTES.md`, `READER_NOTES.md` or `DECISIONS.md` (or `DEVIATIONS.md` in a run pinned before
-ownership 3) is recorded as
+wrote in `AUTHOR_NOTES.md`, `READER_NOTES.md` or `DECISIONS.md` is recorded as
 a stop (`stops.py open`) that you cure yourself instead of waiting for the human, then close with
-`stops.py close --delegated`. The cure is a meaning-preserving edit of that text only (spelling, identifiers,
+`stops.py close --delegated` (`release`: `close --cured`). The cure is a meaning-preserving edit of that text only (spelling, identifiers,
 markup; never deleting an entry or a row). Log the diff as a [DELEGATED] decision. An edit to
 `AUTHOR_NOTES.md` (or that `DEVIATIONS.md`) after the last audit round is disclosed in `DECISIONS.md` as
 a change after the last audit round. It never covers a STOP class, a Lean file, a record owned by
@@ -531,7 +481,7 @@ The install sets the run mode (config `mode`, copied from `project_template.json
 no key means `dev`); `prompt.py --show` prints it, and Checkpoint A states it. Under **`dev`** every
 row of the failure table applies. Under **`release`** faithfulness, proof validity and integrity
 findings (classes F, P, I of `project.RELEASE`) still fail their checks, but you cure them yourself
-(`open`, the printed cure, `close --cured`: the release column below the failure table); only the
+(`open`, the printed cure, `close --cured`: the failure table's release column); only the
 stops that remain at every level reach the human. A finding of class N --
 presentation or bookkeeping (report rendering, line citations, reader-gate findings, record
 formats, part labels, docstrings, the log's round list), or a self-test failure or crash of a script
@@ -549,13 +499,13 @@ correct RUN_RECORD.md from the facts draft (`project.py --prepare-delivery` afte
 fault of a delivered document's own presentation (`reader`, `render`, and an older run's `pdf`) is in the delivered
 RUN_RECORD.md's delivery-phase notes instead, never in the documents: a reader's disclosure never makes a document stale. A tool bug in any
 other script is the tool-patch route in `release` (a stop in `dev`).
-**The delivered documents** (approver 2026-10-28): after the mathematics is verified, delivery never stops and is
+**The delivered documents**: after the mathematics is verified, delivery never stops and is
 never refused except by the math gate. `SUMMARY.md` and `REPORT.md` are yours, written from the records and the Lean
 (`project.py --prepare-delivery` gives a facts draft, data, not the deliverable); four fresh reviewers advise and you
 judge every finding (`JUDGEMENT.md`; its `## Status wording` gives, per result whose status your summary words
 differently from the code's, your reason); `RUN_RECORD.md` and `DECISIONS.md` you correct where the draft is wrong.
 The delivered README's section "What the checking code found" is the checking program's, never yours. No
-generator fix, hand edit, fresh reader, status check or stop is involved, and nothing about the documents is a
+generator fix, hand edit, fresh reader or stop is involved, and nothing about the documents is a
 question to the human: `run/stage5-delivery.md` step 5.
 The PDFs are never a stop and never a disclosure, in either mode. Fresh agents render each audited
 markdown and check the PDF (`run/render-pdf.md`): a renderer, a verifier, and two independent
@@ -568,195 +518,9 @@ render again (and ask again).
 
 ## When something fails
 
-Each failure line carries a cause code, `KIND[code]` (`project.CAUSES` gives each code a class);
-the class, never the wording, decides. A "stop" is recorded and handled with
-`run/stops-and-set-asides.md`. Every cure is logged under "Mechanical failures".
-
-The two right-hand columns are `dev` mode's. In `release` mode a stop closes only as the release
-column below the table says: `close --cured` (re-running its read-only check) or, a human stop,
-`close --human`; `close --delegated` is dev mode only.
-
-| what failed | class (codes) | `involved` | `statements-only` (after B), `hands-off` |
-|---|---|---|---|
-| a `DISCLOSED[…]` line (`release` mode only) | presentation (`render`, `record-format`, `pdf`, `reader`, `label`, `selftest`, `tool-fault`); `docstring`, `run-log` | not a stop: fix your own text, or `stops.py disclose` ("Run mode") | same |
-| a PDF: `signoff.py approve --by human` refuses, or `project.py --deliver` notes, that a PDF is missing, swapped, or was made from an older markdown (`render_record.py check`); a rendering agent crashed or never saved; an older run's `[pdf]` line | presentation (`pdf`, legacy) | never a stop, in either mode (`stops.py open` refuses `pdf`): render again (`render_record.py next --doc D`, `run/render-pdf.md`); a failed agent is recorded with `render_record.py fail` and the loop goes on; under approve, show the human the new PDF and ask again | same |
-| a citation-review agent (Stage 5 step 5a: the advisory `CITATIONS.md`): crash, no file, the network unavailable | none: advisory, no check reads it | never a stop, never a retry beyond waiting out a usage limit or capacity error (`spawn-and-seal.md`): log `- citation notes not produced: <reason>` and go on; the run ships without it and the summary says so in one line | same |
-| `RED[deliver-stale]` (`project.py --deliver`, the math gate): a Lean commit after the last audited round; a note `[deliver]` or `[unverified]` (`project.py --deliver`, after delivering): a facts draft stale or missing, a check of a delivered document, no full-scope round since the approval, or a result whose verdict is missing or out of date (`result_status.py`) | precondition (`deliver`, `unverified`, `deliver-stale`) | never a stop, in either mode (`stops.py open` refuses them): for `deliver-stale` a diff round (a full round when `scope.py` exits 3 with `NEXT[full-round]`: the commit changed no reviewed declaration; `run/stage5-delivery.md`), asked only until two rounds ran after the final full round (`project.DELIVERY_ROUND_CAP`, stage 5 step 1): past that the commit ships, disclosed as not re-audited, and no round is run for it; `deliver` and `unverified` never refuse: judge each note (approver 2026-10-28) | same |
-| a note `[status-unmapped]` (`project.py --deliver`): a result reads "not established" for a reason no route of `result_status.py` covers (no assumption walk, the walk did not reach it, an index cell naming no declaration with a fingerprint, a record it cannot read) | presentation (`status-unmapped`) | never a stop (approver 2026-10-28): re-run Phase 0 (not `--readonly`: it rewrites `DEPENDENCIES.json`, the walk) or correct an index cell that names no declaration, commit; what remains you judge from the records and the Lean, and SUMMARY and REPORT state the status you find | same |
-| a `NOTE[…]` line | info, settle (`independence`, `independence-path`), lane-fault | nothing to do, never act on it; the adjudicator settles each lane NOTE by a clearance or a re-vote | same |
-| a child: crash, service or capacity error, usage limit, no verdict file, no `LANE_COMPLETION`; a failed tool call or download | mechanical (`lane-output`, `tool-call`) | retry within the time budget (`spawn-and-seal.md`; a capacity error or usage limit waited out there is logged under "Mechanical failures", no stop); then an environment fault (a stop) | same |
-| your own work: Phase 0 (author mode) `RED[build]`, `RED[branch]`, `RED[baseline]`, `RED[sorry]`, `RED[unproved-meta]`, `RED[hard-token-own]`, `RED[axiom-own]` (a `native_decide` or other kernel-skipping token, an extra axiom: rewrite that proof without it); `RED[index]`, `RED[unlisted]`, `RED[docstring]`, `RED[run-log]`, `RED[unused-args]`, `RED[dependencies]` | mechanical, proof-wip, document | fix it in a new commit and re-run Phase 0; a `sorry` you cannot prove follows Stage 3 (a goal result: a stop; otherwise ask: removing, narrowing or hypothesising away a result is the human's decision) | fix it in a new commit and re-run Phase 0; a `sorry` you cannot prove: a goal result is a stop; missing theory becomes a named hypothesis ("Missing theory"; an approved statement also follows "Statement changes after approval"); any other result that stays unproved after a serious attempt is left unproved, never deleted or weakened: keep its statement byte-identical, log `[DELEGATED <date>, operator under <level> (intake); reversal: re-prove] leave <decl> unproved — <reason>` as a line of its own under `## Open questions` (`project.py --log "Open questions"`; full Lean name; every result whose proof uses it needs its own line: the axiom sweep is RED until it has one), propose it in `AUTHOR_NOTES.md` under results not to formalize, make its index cell "`<decl>` (stated, not proved: not formalized)", commit, re-run Phase 0 (its `sorry` is then `NOTE[unproved]`); the next round's adjudicator records it in `SKIPPED.md`, and the report and `DECISIONS.md` disclose it as "stated, not proved" |
-| a `project.py --deliver` note `[adj-record]`: a result left unproved that no round has adjudicated since (its line logged after the final diff round) | document | (cannot occur: no line exempts under `involved`) | run one more round, so its adjudicator checks it and records it in `SKIPPED.md` (a diff round; `scope.py` exits 3 with `NEXT[full-round]` when it has nothing to scope: a full round); then Phase 0, prepare, and deliver |
-| Phase 0 `RED[dependencies]` from the walk: `DEPENDENCIES.json` missing, without the assumption walk, stale (the Lean changed), or a goal result with no walk entry; or the walk did not run because the project does not build | document | re-run Phase 0 (not `--readonly`): it rewrites the file; a goal result with no entry: fix its index cell. `RED[tool-bug]` from the walk (an error inside the walk's own code): a pinned script's bug, the `tool-bug` key | same |
-| `FAIL[missing-theory]` (`make_report.py --check`, also inside Phase 0): your missing-theory line in `RUN_LOG.md` tries the canonical form (`missing theory: …`, naming its result) and misses it ("Missing theory"), lacks the paper's quote or a configured library's search, comes from the wrong level (a [DELEGATED] line under `involved`, a human one under `hands-off`), is a human line without the human's committed answer naming the result, takes option (3) as [DELEGATED], names a hypothesis that is not in its result's assumption list or that the walk flags as restating a result (or as a result's conclusion), or says `build` while the replaced hypothesis is still a binder, or is a line an adjudicator ruled a missing-theory decision (`MT RULED`) with no canonical line after it (log it, or, if you judge the ruling wrong, `- MT DISSENT <id>: <why>` once: the line goes back to the next adjudicator; a line only suspected from its words: the `PENDING[adjudication]` row below). (`FAIL[unproved-goal]` from the same check: `H` is a goal result's conclusion: stop 1, below. `H` restates a goal result: this row's curable `FAIL[missing-theory]`, never stop 1: use that result instead of assuming it.) | document | the human's choice is recorded in the wrong form: log their answer and log the corrected line after the old one (a logged line is never reworded), commit, re-run the check; ask if the Lean must change | log the corrected line after the old one (a logged line is never reworded), take `H` as a binder of the result's statement, or prove a restated result instead of assuming it ("Missing theory"; an approved statement follows "Statement changes after approval"), commit, re-run Phase 0 (`release`: a self-cure, closed by `make_report.py --check`) |
-| lanecheck `PROBLEM[unsealed]`, `[stray-loop]`, `[stray-file]`, `[no-baseline]` | mechanical | seal (or reissue) the lane; `--kill`; restore the tree and tell the adjudicator; run Phase 0 | same |
-| a record of the adjudicator's (PAPER_DEFECTS, SKIPPED, VACUOUS.md) cites what does not exist: `FAIL[dead-witness]` (a witness cell naming `sorry` or a probe's lemma), `FAIL[record-cite]` | record-fix | `stops.py open`; record correction: `prompt.py 4 --round <R> --record-fix --write` (R the last adjudicated round), spawn a fresh adjudicator with the printed line; it edits only the faulty cells and commits `record-fix <R>` (`integrity.py --commit-record-fix`, which refuses anything more); re-run the check, `close --delegated` (`release`: `close --cured`). It needs no GREEN Phase 0, no Lean commit and no new round (Phase 0 is RED on the very fault). It returns NEEDS A ROUND, or the fault is in a verdict, decision or status cell: a new round (Phase 0 shows the fault as `PENDING[adjudication]`, so the round runs; its adjudicator clears it). Disclosed in the report's stop list | same (never the human; `release`: `close --cured`, never `--delegated`) |
-| a `PENDING[adjudication]` line (Phase 0), or `FAIL[adj-record]` / `RED[adj-record]` (`make_report.py --check`; a note of `project.py --deliver`): any other fault of an adjudicator's record (a cell count: a literal `\|` in a cell; a missing-theory "decided by" cell not bound to a RUN_LOG.md decision naming the result -- with none recorded, the adjudicator writes a QUESTION row and "QUESTION (<round>)", and the question reaches the human at Checkpoint C (under a delegating level, you decide it with a [DELEGATED] line); a defect only in prose; "formalized AND skipped" -- once an adjudication ADOPTs fixing the index for it, it is your `report` fault: make the index cell "not formalized"; a result left unproved without its SKIPPED.md row; a carried item without its ADOPTED.md row; a RUN_LOG.md line the missing-theory check suspects (`MT RULED`)) | adjudication (`adj-record`) | not RED in Phase 0: run the round (a decided row -- ADOPT, DEFER, an answered QUESTION -- is never listed: no round can clear it); its adjudicator's prompt lists the faults and `--commit-adjudication` refuses until it clears them. Before delivery: one more round (`prompt.py 3 --full` if no Lean changed); a stop on it is closed `--delegated` (`release`: `--cured`) | same (never the human; `release`: `close --cured`) |
-| tree_state `FAIL[head-moved-operator]`: HEAD moved since the baseline only by your own prescribed empty commits (each empty, the baseline's author, subject `fresh round after the set-aside of <R>`, listed in RUN_LOG.md or a stop record: its full hash, or 12+ characters, on one line with that subject) | mechanical | list it when you make it: `echo "- <full hash> fresh round after the set-aside of <R>" \| python3 audits/project.py --log "Mechanical failures"` (works while another stop is open; `stops.py open` does not); `python3 audits/tree_state.py --resave-operator --reason "<which commit, why>"` (logged, recorded in the baseline; no GREEN Phase 0 needed); a stop opened on it: `close --delegated` (`release`: `close --cured`). `release` also: HEAD moved only by your own commits up to exactly the commit a round was cut from (its directory committed; Phase 0 did not save the baseline after them) is the same row, the same cure (`--resave-operator` logs it). Any other commit (another subject, unlisted, a change and its revert, a commit past the round's) is `FAIL[head-moved]` (next row) | same |
-| tree_state `FAIL[head-moved]`: a commit since the baseline changed files, is a merge, or has another author | tamper | a stop for the human at every level (a lane may have committed); `release`: a self-cure (restore): `tree_state.py --revert-foreign` reverts the whole foreign range, accepted only when HEAD's tree equals the baseline's, then `close --cured` | same |
-| a document check (`report`) RED from text you wrote in `AUTHOR_NOTES.md`, `READER_NOTES.md` (`DEVIATIONS.md` in a run pinned before ownership 3) | document | a stop: ask | the narrow exception above, then `stops.py close --delegated` |
-| any other failure line of a check (integrity, tree_state, lanecheck, lane_auth, stops), class mechanical or document: e.g. `uncommitted-record`, `tree-changed`, `git-error`, `unsettled` | mechanical, document | a stop: `stops.py open`, ask, `close --human` | `stops.py open`, cure as the code says, `close --delegated` |
-| a failure with no cause code: a script crashing (`FAIL[uncoded] <script> crashed (...)`, printed by `project.run_main` after the traceback, which goes to stderr), an error message no code covers, git or Lean/lake failing unwrapped | mechanical (`unknown-retry`, `uncoded`, `env-unknown`), tool-bug (`tool-bug`) | `stops.py open --note "<what failed>" --cause unknown-retry`, re-run the command within the retry budget (`spawn-and-seal.md`), ask, `close --human` | same open and re-run; it passes: `close --delegated`; it persists: close it naming the next stop and classify it (`run/stops-and-set-asides.md`): a traceback whose innermost project frame is in `audits/` is `--cause tool-bug`, a stop (you never edit a pinned script); otherwise `--cause env-unknown`, fixed as an environment fault (the last bullet of "Stops that remain at every level"), then `close --delegated`, a stop only after the retry budget. `release` mode, both columns: `open --note "<what failed>" --cause unknown-retry --check "<the read-only check of the failed step>"` (a FORMS check, failing now), cure, `close --cured`; after the retry budget `--cause env-unknown` (stop 3, a human stop) or, a pinned script, `--cause tool-bug` (the tool-patch route, never a human stop); never `--delegated` |
-| a STOP class | tamper, apparatus, freeze (`drift`), gitmeta, proof (`axiom`, `hard-token`: read-only Phase 0 or another check; `unproved-goal`), tool-bug (`tool-bug`), unknown (a failure line with no code) | a stop: `stops.py open`, ask, `close --human`. `release` mode: a self-cure, except `unproved-goal` ("Stops that remain at every level": `open`, apply the printed cure, `close --cured`; past the budget, `stops.py classify`: stop 3 only for outside interference, a tool bug the tool-patch route) | same |
-| the four release stops: (1) a goal result looks false, or unprovable for a reason other than missing library theory, or stays unproved; (2) an outward action the intake did not allow; (3) something only the human can fix (an environment fault, a Codex approval prompt under a delegating level, another program that keeps changing the project's files); (4) a genuine ambiguity of the paper's meaning the reviewers cannot settle | `unproved-goal` (Phase 0 prints it for one left unproved, the report check for a goal assumed as "missing theory"; one that looks false: `open --note ... --cause unproved-goal`), `outward-action`, `env-unknown` (after the retry budget), `codex-approval`, `interference` (after `stops.py classify --as interference`), `ambiguity`: human (H) | a stop: `stops.py open --note "<what>" --cause <that code>`, ask, `close --human` | same, in `release` mode too (never a self-cure; `release` refuses a `--note` cause that is not a cause code) |
-| an approved statement must change | (decision) | a QUESTION (`reapproval.md`; the pending state holds, only `--deliver` waits) | missing theory turned into a named hypothesis: `statements-only` a QUESTION as under `involved`, `hands-off` delegated ("Statement changes after approval"); any other change (a faithfulness finding after the sign-off, a refuted non-goal statement): the approved statement is kept, a [DELEGATED keep] line and a `CONDITIONS.md` `finding` item (an open K item, offered in the K stage) |
-| missing theory; a QUESTION row; the round cap | (decision) | ask at the checkpoint; the round cap: the conservative default as a [PROXY] decision (`release`; `dev`: ask) | decide as in "How you decide" and "Missing theory" |
-| the statement-round cap (`scope.py --statements`: 4 before the first approval, 2 per re-approval) | `NOTE[round-cap]`; with a faithfulness finding open: `dev`, `PROBLEM[round-cap]` (`round-cap`, a stop); `release`, `NOTE[round-cap]` naming the three routes, the open findings recorded in `round-caps/<round>.json` (`round-cap`, disclosed) | no finding open: no stop, the last round's sheet, its statement-changing ADOPT rows recorded as decisions ([PROXY]). A finding open: `dev`, a stop, `stops.py open --note "<what>" --cause round-cap`, ask, `close --human`; `release`, judge its cause: (a) a genuine ambiguity, stop 4 (`--cause ambiguity`, ask, `close --human`); (b) a loose convention, a reading-choice decision ([PROXY]), go on; (c) anything else: a Checkpoint B question (the human decides at B), each result it concerns reads "not established: open faithfulness finding" on the summary's first page | same ([DELEGATED] decisions; (a) is asked under `hands-off` too, and the run resumes hands-off; (c) under `statements-only` is asked at B, under `hands-off` "keep the last round's statement, disclosed" plus a `CONDITIONS.md` `finding` item) |
-
-**Release column** (generated from `project.RELEASE`, `project.CURES` and `project.CLOSER`; `tests/doclint.py` checks it is current). Each cause code has a kind; `open` prints the kind's cure followed by the code's own text:
-
-<!-- release-column:begin -->
-| kind | codes | cure (`project.CURES`) | closes with |
-|---|---|---|---|
-| rerun | `adj-record`, `baseline`, `branch`, `commit-refused`, `dead-witness`, `dependencies`, `git-error`, `head-moved-operator`, `index`, `lane-output`, `missing-theory`, `no-baseline`, `no-round`, `record-cite`, `report`, `signoff-check`, `stray-file`, `stray-loop`, `tool-call`, `uncoded`, `unknown-retry`, `unsealed`, `unused-args` | fix the mechanical problem the code names, then re-run the check (close --cured re-runs it); a crash that persists: re-run the review by another route (a fresh round), never skip it | `close --cured`, re-running the `--check` recorded at open, `lanecheck.py --round <R>`, `make_report.py --check`, `phase0.py --readonly`, `signoff.py check --round <R>`, `tree_state.py --check` |
-| restore | `agent`, `codex-roles`, `config`, `gitmeta`, `head-moved`, `no-pin`, `ownership`, `pin`, `pyc`, `reapproval-record`, `record-changed`, `record-fix-diff`, `resolution-trail`, `set-aside-changed`, `stop-trail`, `tool-patch`, `tooling`, `tree-changed`, `uncommitted-record`, `waiver` | go back to the last trusted version -- the pinned apparatus (git -C audits checkout <pin commit> -- <the files the FAIL names>), a committed record change (python3 audits/stops.py revert --stop S<n> --commit <the commit the FAIL names>: it restores the records that commit changed, committed as "revert <commit> (stop S<n>)", which integrity.py accepts once verified), an uncommitted one (git checkout <file>) -- then re-run the check; a FAIL in the committed history that no restore or revert clears (a past re-pin, a mistyped pin subject, a record its owner re-committed after a hand edit, an unverifiable tool-patch link, a damaged stop trail): the reviewed acknowledgment (python3 audits/integrity.py --ack-request --diagnosis "<what happened, why nothing it judges changed>"; a fresh reviewer judges it; then close --cured "acknowledgment AK<k>") | `close --cured`, re-running `integrity.py --check`, `tree_state.py --check` |
-| redo | `auth-metadata`, `evidence-after-seal`, `independence`, `independence-path`, `lane-fault`, `owner-redo`, `prompt-changed`, `quote-unmatched`, `scope-changed`, `seal-mismatch`, `unauthenticated`, `unsettled` | restore the changed record if needed (git checkout <file>), set the affected round aside (stops.py set-aside <R> --reason "release self-cure of S<n>" --stop S<n>) and re-run its review in a fresh round (prompt.py 3; fresh lanes and adjudicator): its independence was compromised. An ADJUDICATED round is never set aside: restore what changed after its seal or commit (git checkout <the sealed or committed version> -- <file>) and re-run the check; a lane that cannot be restored is re-voted (the adjudicator's REVOTE NEEDED row, a fresh re-vote lane, "adjudicate R revotes"); an unsettled NOTE or carried item is settled by the round's adjudicator (its ADOPTED.md rows, integrity.py --commit-adjudication) | `close --cured`, re-running `integrity.py --check`, `lanecheck.py --round <R>`, `lanecheck.py --round <R> --settled`, `scope.py --verify --round <R>` |
-| reprove | `axiom`, `axiom-own`, `build`, `drift`, `hard-token`, `hard-token-own`, `sorry`, `unlisted`, `unproved-meta` | change the Lean (rewrite the proof without the token or axiom, or restore the approved statement), commit, then run Phase 0 and the build | `close --cured`, re-running `fingerprint.py --check`, `phase0.py --readonly` |
-| patch | `tool-bug` | if a read-only check fails because of a mechanical problem, fix it and re-run the check (close --cured re-runs it); if the pinned tool itself is wrong (it crashes, or misjudges this case): diagnose it and patch it through python3 audits/tool_patch.py begin --stop S<n> (RUN.md, "Tool patches": a fresh reviewer approves the patch; then close --cured "tool-patch TP<k>"); a fault in the proof-validity core (no patch may touch it): a Lean-side workaround, else stops.py core-fault (a fresh reviewer judges it), then close --core-fault <file> (what the check guarantees reads "not verified", never waited on); never edit a pinned script by hand | `close --cured`, re-running the `--check` recorded at open (a stop with none: `close --cured "tool-patch TP<k>"`, re-running the patch's regression test) |
-| human | `ambiguity`, `codex-approval`, `env-unknown`, `interference`, `outward-action`, `unproved-goal` | a human stop: show the human the raw output and wait; close it with --human "<their answer, verbatim>" | `close --human` |
-| disclose | `acknowledged`, `acknowledged-fault`, `before-pin`, `config-grew`, `docstring`, `escalation-cite`, `label`, `lean-slot`, `not-approved`, `notice-subject`, `pdf`, `pyc-cache`, `reader`, `reapproval`, `record-format`, `reissued`, `render`, `repinned`, `reverted`, `round-cap`, `run-log`, `selftest`, `status-unmapped`, `superseded`, `tool-fault`, `uncommitted-file`, `unpinned-py`, `unproved` | not a stop in release mode: it is disclosed (stops.py disclose) | no stop: `stops.py disclose` |
-| precondition | `decisions`, `deliver`, `deliver-stale`, `reader-check`, `unverified` | not a stop, in either mode: deliver-stale refuses project.py --deliver (a diff round); the others are notes it prints for you to judge, or document checks you fix (approver 2026-10-28) | no stop: `project.py --deliver` refuses on `deliver-stale` only; the others are notes |
-<!-- release-column:end -->
-
-### Tool patches (`release` mode only)
-
-When a pinned check is itself wrong -- it crashes, or it misjudges this case (bench1: `result_status.py`
-routed a correctly recorded inline hypothesis to the adjudicator; bench2: a diff round's scope check
-read the round's own sealed verdict) -- you act as the maintainer. Decide first: **is the check
-right?** If it is, apply the printed cure; real tamper, ownership, freeze, gitmeta and proof faults are
-never patched. If it misjudged, go straight to a tool patch (never burn a cure that cannot work). A
-human stop (the codes of kind `human`) is never a tool patch's subject. `dev` mode refuses all of this:
-a tool fault stops the run and a maintainer fixes the tool.
-
-1. `python3 audits/tool_patch.py begin --stop S<n>` (the stop stays open throughout, so nothing runs on
-   the buggy tool). Diagnose it from the code and write `<rounds dir>/tool-patches/TP<k>/A1/DIAGNOSIS.md`
-   (sections: the check; the failing case; the cause, `file:line`; the correct behaviour; why no
-   faithfulness result depends on the change; whether the old behaviour is right elsewhere; then the
-   lines `affects-review-inputs: yes|no` and `regression: tests/regressions/<name>.py`) and
-   `A1/patch.diff`: `git -C audits diff --relative` of a minimal fix made in a scratch worktree, never in
-   `audits/`. It may touch any file of the apparatus -- scripts, tests, Lean tails, and the protocol
-   text (`AUDIT_PROTOCOL.md`, `RUN.md`, `run/`, `agents/`, `skills/`): a wrong instruction is patched
-   like a wrong script (approver, 2026-10-26). It never touches the proof-validity core (below), the
-   reviewer prompts that judge patches, core faults and acknowledgments or the code rendering them
-   (`tool_patch.GUARDED`; this includes the common rules for subagents, which the reviewer receives),
-   the git rules, anything outside `audits/` (the project's Lean), a round record, or what the author
-   signed (`SIGNOFF*`, `APPROVED_FINGERPRINTS*`, `REAPPROVAL*` as `.json`/`.md`/`.pdf`/`.tex`; `signoff.py` and
-   `run/reapproval.md` are tooling). It adds the NEW regression test,
-   which takes `--apparatus DIR` and fails with the pinned apparatus, passes with the patched one (for
-   a text patch: it reads the patched text). It may add other new files, under no Python module's
-   name; it deletes and renames none. Prompts issued before the patch stay verified against what was
-   issued (their committed hashes; a tool-patch review against the apparatus pinned at its issue);
-   prompts after it are rendered from the patched text. A patch to `agents/auditor.md` or the common
-   rules reinstalls the reviewer agent and the Codex roles at apply.
-2. `python3 audits/tool_patch.py prepare --tp TP<k>` records the mechanical facts (`FACTS.json`): the
-   regression test, every pure selftest of the first pin (and any the patch adds) on the patched tools,
-   the blast radius (every read-only check of every round, pinned vs patched; a PASS->FAIL forces
-   `affects-review-inputs: yes`), and the floor (the canaries of the first pin's `FLOOR`, each killed
-   only by a selftest that passes on the patched tools unmutated: a hit needs two approvals). It refuses before review a
-   failing fact (a) or (b), a file it may not touch (above), a new file with a module's name, a change to a
-   guarded block, and a diff already rejected. It flags (never refuses) a patch touching code the core
-   relies on (`core_reachable`), for the reviewer.
-3. `python3 audits/tool_patch.py review --tp TP<k>` prints the spawn line of a FRESH reviewer (a
-   general-purpose agent; Codex: `agent_type` `formalize_tool_patch_reviewer`, `fork_turns` "none"):
-   never yourself, a lane or an adjudicator of the run. Seal its verdict exactly like a lane's
-   (`lane_auth.py seal --verdict ... --sha256 ... --agent-id ...`). It approves or rejects.
-4. **Rejected:** revise with its findings, write `A<n+1>/` (its `DIAGNOSIS.md` adds a section `## Earlier
-   findings answered` naming each rejecting review of the run, on any stop, `TP<k> review-<n>-<m>.json`, with
-   your answer; a review issued and never sealed counts as a rejection, and a diff once rejected anywhere in the
-   run is never resubmitted, even with only whitespace or line numbers changed),
-   prepare and review again (a new fresh reviewer sees every earlier attempt and finding). There is no cap
-   and no stop. **The check was right
-   after all, or a reviewer never returned:** `python3 audits/tool_patch.py withdraw --tp TP<k> --reason
-   "<why>"`, then the printed cure (or a new tool patch). **Approved:** `python3 audits/tool_patch.py
-   apply --tp TP<k>` commits the diff (`tool-patch TP<k> apply`) and re-pins (`pin (tool-patch TP<k>)`);
-   then `python3 audits/stops.py close --stop S<n> --cured "tool-patch TP<k>"`, which re-runs the
-   stop's check on the patched tools (a stop with no check: the regression test). If that still fails,
-   the diagnosis was wrong: re-diagnose (a new tool patch, or the printed cure); never a stop.
-
-`integrity.py --check` verifies every tool-patch link with the scripts pinned just before it, and again with
-the first pin's scripts. A patch may never touch the proof-validity core -- `phase0.py` (the build and the
-sorry scan), the axiom sweep (`axiom_sweep.*`, `axiom_sweep_tail.lean`), the freeze (`fingerprint.py`,
-`fingerprint_tail.lean`, `olean_parts.lean`), `tool_patch.py` and `integrity.py`: refused at prepare and
-apply whatever the reviewers say. A fault there is never patched, and in `release` never waited on: in `dev` it is
-a maintainer's; in `release` withdraw the patch, then first try a Lean-side workaround (a pure refactor of the Lean
-that the freeze check confirms, closed `--cured`); if none exists, the stop is closed as not established, in
-two steps. (1) `python3 audits/stops.py core-fault --stop S<n> --core-fault <core file> --diagnosis "<the fault,
-file:line; why no Lean-side workaround works>"`: the stop must be a tool bug whose check is the one that runs that
-file (`phase0.py --readonly` for phase0.py and the sweep, `fingerprint.py --check` for the freeze, `integrity.py
---check` for integrity.py and tool_patch.py) and fails now, and every failure of the blocking checks must be that
-file's own (a sorry beside a crashed sweep, a drift, an ownership FAIL keep their own cures); it records the
-failure lines and prints the spawn line of a FRESH reviewer (as a tool patch's: never yourself, a lane or the
-adjudicator), whose verdict you seal like a lane's. (2) After an approval, `python3 audits/stops.py close --stop
-S<n> --core-fault <core file>`: it needs the sealed approval and the same failure lines. A rejection: revise and
-request again, or take the ordinary cure; no cap, never a stop. A rejection means the reviewer saw a real problem
-(a real sorry, axiom, changed statement or tampering) or a workaround: repeated rejections mean fix that problem,
-whose own cure applies; `RUN_RECORD.md` lists every request with its verdict. A run whose reviewers never approve
-does not deliver by this route (KNOWN_LIMITATIONS.md). After the close the run delivers with the consequence in
-plain words on SUMMARY page 1 and in the REPORT ("Not verified: the check that every proof is complete could not
-be run ...", per guarantee), each affected result marked "not verified: ...", and the check, the file, the
-diagnosis, the failure lines and the verdict in `RUN_RECORD.md` only; it never claims that check passed, and
-`--deliver` accepts no failure line but those the reviewer judged. Any other
-tooling change is `FAIL[tooling]`, and a plain `pin (repin: ...)` in `release` may not change the tooling
-(`FAIL[pin]`; the gitmeta re-pin changes none). If a patch may have changed what an earlier review was
-shown (`affects-review-inputs: yes`), `scope.py` runs a full round scoped after it, and `--deliver` names it in
-a note until one has been adjudicated. Tool patches are recorded only in `RUN_RECORD.md` (diagnosis, diffs, every reviewer
-verdict, seals, commits, and the command a maintainer runs to re-check every link with the first
-pin's scripts); the report names them only by its one "Checks weakened" line (details in
-`RUN_RECORD.md`), and the summary, the sheet and `DECISIONS.md` not at all -- except that a result whose
-status a patch made stronger than the run's first-pin tools make it is marked on SUMMARY page 1 and in REPORT
-in plain words, for a reader who knows nothing of the mechanism ("<result>: this status was decided by a corrected
-version of our checking software; the original version would have said <old>. ..."; which patch and the first
-pin's status are in `RUN_RECORD.md`): `--deliver` recomputes it with the
-first pin's `tool_patch.py` and `result_status.py` and names in a note a document without the line (or a REPORT
-without the "Checks weakened" row): you write the line in plain words and the claims reviewer checks it.
-
-An apply killed between its two commits leaves `FAIL[tool-patch] ... has no pin`: run `tool_patch.py apply --tp
-TP<k>` again; it resumes (the approval and the byte-identical diff checked again, then the pin).
-
-### History faults no cure clears (`release` mode only)
-
-Some integrity FAILs live in the committed history, and no restore or revert can clear them: a past plain
-re-pin that changed the tooling (once the tooling in force is a trusted pin's again), a pin committed under a
-mistyped subject, an unverified `Revert ...`, a tool-patch link no verifier can run (never one that touched the
-proof-validity core), a damaged stop trail, a bookkeeping record (a stop, reader, PDF or tool-patch record) committed
-by the wrong step whose revert was tried and failed. They are never a human stop. A record that carries a judgement
-(a lane's verdict or probe, `ADOPTED.md`, `PAPER_DEFECTS.md`, `SKIPPED.md`, `VACUOUS.md`, `DEVIATIONS.md`,
-`INFORMAL.json`, `SIGNOFF.json`, `TARGET.json`, `STATEMENTS_BUNDLE.md`, an approval, an answer) is never acknowledged:
-it keeps its real cure, `stops.py revert --stop S<n> --commit <C>` (also for an owner's own commit that a
-check refuses: a record fix beyond its faulty cells, a touch of a set-aside round). It undoes C's change onto the
-current content when that applies cleanly (later work stays); otherwise, when every later change was the owner's, it
-puts back the content before C, and `integrity.py --check` then prints `FAIL[owner-redo]` for that record until a
-fresh FULL round scoped after the revert is adjudicated and its `ADOPTED.md` rules every line the restore removed
-(its adjudicator's prompt lists them): `REDO RULED <record> | <the line> | keep: <why>` or `drop: <why>`, each kept
-line written back in the record. Code checks only that every line has a ruling and every kept one stands. Nothing is dropped silently, and none of it is a human stop. Open the stop on `integrity.py --check` as usual, then:
-(1) `python3 audits/integrity.py --ack-request --diagnosis "<what each commit did, why no cure clears it, why no
-statement, proof, verdict, adjudication, approval or check changed>"` records every current FAIL line it may cover,
-each naming its commit, with the full diff of each named commit and the files of each named tool patch
-(`acknowledgments/AK<k>/`), and prints a FRESH reviewer's spawn line (as a tool patch's: never yourself, a lane or the
-adjudicator; Codex `agent_type` `formalize_tool_patch_reviewer`); seal its verdict like a lane's. Any `[pin]` line is
-accepted, and stays acknowledged, only while the tooling in force is a trusted pin's (the first pin's, or a verified
-tool patch's): restore it and re-pin first (`integrity.py --pin --repin` in release refuses a re-pin over changed
-tooling). (2) Approved: `integrity.py --check` prints exactly those lines as `NOTE[acknowledged-fault]` (any other or
-later line stays FAIL and needs its own request); close the stop `--cured "acknowledgment AK<k>"`. Rejected: revise
-and request again (the next reviewer sees the rejection), or take another cure; no cap, never a stop.
-`RUN_RECORD.md` lists each acknowledgment, and only it: none changes what the summary and the report say about the
-results. `integrity.py --acknowledge` (the human's waiver) is dev mode only.
-
-Interim rows (held back for later steps of this build, so they will change): `resolution-trail` (to be
-removed) and `drift`
-(its cure text to become "restore the approved statement"). `head-moved` and `gitmeta` are restores
-(B1c): `tree_state.py --revert-foreign` reverts the whole foreign range and the check accepts it only
-when HEAD's tree equals the baseline's (never by a commit subject); `tree_state.py --restore-gitmeta`
-restores only the hooks and config keys of the Stage 1 snapshot in the pin, and writes only in
-`<gitdir>/hooks`; `--revert-foreign` is refused while `gitmeta` fails and runs no hook. In release,
-`env-unknown` (stop 3) is: a `user.*` or `credential.*` setting changed in the repository's own
-(local or worktree) config -- the human's `~/.gitconfig` is not checked for these; in any scope
-(local, worktree, global, system), a changed resolved hooks directory or `core.hooksPath`, or a
-destination setting (a remote's url or pushurl, `url.*.insteadOf`/`pushInsteadOf`,
-`http.*.extraHeader`, `branch.*.remote`/`pushRemote`, `remote.pushDefault`, `core.sshCommand`); a
-`refs/replace/*` ref or `info/grafts` not in the snapshot; pinned history no longer an ancestor of
-HEAD; a pin with no snapshot when the cure needs one (a re-pin adds it). In dev none of this is
-checked against the snapshot: every git meta change is `FAIL[gitmeta]`, the human's.
+Every failure line carries `KIND[code]`; the class, never the wording, decides. Look up its row (a failed check, a failed child or agent) in **the failure table**
+(`run/stops-and-set-asides.md`, first section): the row-specific cure, the release column and the tool-patch
+route are there. `close --delegated` is dev mode only.
 
 ## Logging
 

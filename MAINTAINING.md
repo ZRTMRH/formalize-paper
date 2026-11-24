@@ -50,7 +50,7 @@ one of those needs extra care, and closing such a gap is welcome work.
   reader: `signoff.py check` is kept and the README says so.
 - **F3 Stay with the paper.** When there is no recommendation, a delegated or default choice keeps
   the paper's statement and hypotheses and documents unused or vacuous parts in docstrings. Enforced
-  in `RUN.md` (level table, failure table) and `run/stage2-statements.md`. **(not yet enforced:
+  in `RUN.md` (level table), `run/stops-and-set-asides.md` (failure table) and `run/stage2-statements.md`. **(not yet enforced:
   instruction only.)**
 - **F4 A goal result is never skipped.** If a goal result is unproved, looks false, or is true only
   vacuously (a VACUOUS.md row or a confirmed non-vacuity finding on it; approver D2, 2026-11-11), the run stops
@@ -65,7 +65,7 @@ one of those needs extra care, and closing such a gap is welcome work.
   pending. A refuted non-goal statement is repaired by re-approval, never a stop (`signoff.py reapprove
   --refuted-by`, which refuses a goal result and a refutation that is not a sorry-free proof of `¬` the
   statement approved at B); its PAPER_DEFECTS.md row discloses it (F12: minimal only with the lane's
-  cited step).
+  cited step, or "no printed step" (AUDIT_PROTOCOL, F12)).
 
 ### Proof validity
 
@@ -108,7 +108,7 @@ one of those needs extra care, and closing such a gap is welcome work.
   escalation check's prompt is built from the question alone and hash-checked before its answer
   counts (`prompt.write_escalation`, `lanecheck.escalation_check`).
 - **R3 A Fail never disappears without an adjudication or a covering re-vote.** Enforced by
-  `lanecheck.revote_lanes`, `settle_problems`, `audit_coverage.strict_rows`, and the single strict
+  `lanecheck.revote_lanes`, `settle_problems`, and the single strict
   decision-row reader (`lanecheck.decision_rows`).
 - **R4 Reviews run on fresh agents.** After a set-aside cure, `stops.py close --cured` re-runs its
   check only on a fresh round (TARGET.json `redo_of` the set-aside round) whose every lane has a
@@ -150,7 +150,7 @@ one of those needs extra care, and closing such a gap is welcome work.
   `cure_text` / `CLOSER`, `stops.command_problem` (FORMS only in release) and `stops.cure_plan`, with
   the `project.py` selftest `_release_controls`, the L1 closer loop of `stops.py --selftest` (every
   code x mode x level closed for real) and the replay's closer control; `tests/doclint.py` keeps
-  RUN.md's release column equal to `project.closer_table()`.
+  the failure table's release column (`run/stops-and-set-asides.md`) equal to `project.closer_table()`.
 - **S2 Dev mode keeps every stop.** Every STOP class waits for the human and `--cured` is refused.
   Enforced by `project.release_cure` (returns None in dev) and the trail checks in `stops.py`, which
   reject a self-cure in dev.
@@ -188,8 +188,8 @@ one of those needs extra care, and closing such a gap is welcome work.
   `project.deliver`, `integrity.py` (adjudication paths), `tree_state.resave_operator`, and
   `prompt.render_adjudicator`, following deadlock sweep D1–D3 and the replays in
   `audits/tests/replay.py`. The machine's probe limit (`lean_slot.py run`, next batch D5) is a bounded
-  wait: after `lean_max_wait` (300 s) it runs without a slot and says so, a probe is cut at 240 s, so a
-  call stays under a 600 s harness cap; it slots only agents' probes, never a protocol command. The memory
+  wait: after `lean_max_wait` (300 s) it runs without a slot and says so, a probe is cut after 240 s of
+  running (guard pauses added, up to about 540 s with the wait), so a call stays under a 600 s harness cap; it slots only agents' probes, never a protocol command. The memory
   guard (`lean_slot.py guard`, DESIGN-RAM) is bounded the same way: it only pauses probes (never a tool
   check), each pause is capped at 10 minutes and recorded before the stop, and every start of a dead guard
   resumes what it left paused.
@@ -258,7 +258,7 @@ one of those needs extra care, and closing such a gap is welcome work.
   of the delivered documents and records their generator-content hashes (`DELIVERY.json`); readers
   and `--deliver` never write a generator input (`project.GEN_INPUTS` against `READER_OUTPUTS` and
   `DELIVER_OUTPUTS`; the generator cites the last Lean commit, never HEAD). An input changes after
-  prepare only by a reader-fix round (at most 2), a non-delivery stop opening or closing (bounded
+  prepare only by a non-delivery stop opening or closing (bounded
   by the tally), a Lean commit (needs an audited round), a human answer, or a failed full round;
   each costs one prepare and one pass per changed document. The delivery codes (`deliver`,
   `unverified`, `deliver-stale`) are preconditions, never stops. Enforced by `project.deliver`,

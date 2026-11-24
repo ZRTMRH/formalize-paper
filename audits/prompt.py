@@ -36,7 +36,6 @@ import project  # noqa: E402
 
 BLANK_RE = re.compile(r"<<[^\n]*?>>")
 
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # The protocol is versioned in this audits/ repo; ../AUDIT_PROTOCOL.md is a symlink to it.
 DEFAULT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "AUDIT_PROTOCOL.md")
 
@@ -104,7 +103,7 @@ def fill_project(body, cfg, lane=None):
             "text from the source or the repository to any service."),
         "<LIBRARIES>": ", ".join(project.libraries(cfg)),
         "<GOAL-RESULTS>": (", ".join(cfg.get("goal_results") or [])
-                           or "none recorded -- treat every result of the source as a goal"),
+                           or "none named at intake: no result is a goal (a skip is decided like any non-goal result)"),
         "<ROUNDS-DIR-IN-AUDITS>": os.path.relpath(os.path.join(project.REPO, cfg["rounds_dir"]),
                                                   project.AUDITS),
         "<STANDING-DEFERS>": (
@@ -325,45 +324,18 @@ EXTRA_PROMPTS = {
     # the advisory citation review (run/stage5-delivery.md step 5a): written under <rounds dir>/citations/
     "citations-draft": "#### Citation draft prompt (agent 1)",
     "citations-review": "#### Citation review prompt (agent 2)",
-    # the advisory status check (run/stage5-delivery.md, "Status check"): written under <rounds dir>/status-check/
-    "status-check": "#### Status check prompt",
 }
 CITATION_PROMPTS = ("citations-draft", "citations-review")
-STATUS_CHECK = "status-check"      # <rounds dir>/status-check/: its prompt, FINDINGS.md, the operator's ACTIONS.md
 
 
 def roundless_dir(cfg, name):
     """Where a prompt of no round is written, or None: the citation agents' under <rounds dir>/citations/ (after the
-    last round), the status check's under <rounds dir>/status-check/ (on the prepared documents)."""
+    last round)."""
     if cfg is None:
         return None
     if name in CITATION_PROMPTS:
         return os.path.join(project.REPO, cfg["rounds_dir"], "citations")
-    if name == "status-check":
-        return os.path.join(project.REPO, cfg["rounds_dir"], STATUS_CHECK)
     return None
-
-
-def status_findings(cfg, ids):
-    """[(key, file, finding)]: the status-check mismatches `ids` (["M1", ...]) of <rounds dir>/status-check/FINDINGS.md
-    AS COMMITTED at HEAD ("status-check: findings", run/stage5-delivery.md), each item's heading and bullets on one
-    line -- what a reader-fix round is given for a mismatch a record owns (never typed by the operator). Raises
-    ValueError when the file is not committed or an id is not one of its mismatches."""
-    d = roundless_dir(cfg, STATUS_CHECK)
-    top, rel = project.rounds_rel(d, "FINDINGS.md") if d else (None, None)
-    txt = project.committed_blob(top, "HEAD", rel) if top else None
-    if txt is None:
-        raise ValueError("status-check/FINDINGS.md is not committed: commit status-check/ by name first "
-                         "(\"status-check: findings\")")
-    m = re.search(r"^## Mismatches[ \t]*\n(.*?)(?=^## |\Z)", txt, re.S | re.M)
-    items = {}
-    for it in re.finditer(r"^### (M\d+)\.[ \t]*(.*?)\n(.*?)(?=^### |\Z)", m.group(1) if m else "", re.S | re.M):
-        items[it.group(1)] = " ".join(f"{it.group(1)}. {it.group(2)} {it.group(3)}".split())
-    bad = [i for i in ids if i not in items]
-    if bad:
-        raise ValueError(f"no mismatch {', '.join(bad)} in the committed status-check/FINDINGS.md "
-                         f"(it has: {', '.join(items) or 'none'})")
-    return [("status-check", "status-check/FINDINGS.md", items[i]) for i in dict.fromkeys(ids)]
 
 
 def citation_network_rule(cfg):
@@ -383,7 +355,14 @@ def citation_network_rule(cfg):
 CODEX_ROLE = {"informalizer": "formalize_informalizer", "signoff-writer": "formalize_writer",
               "fresh-reader": "formalize_reader", "formalizer": "formalize_helper",
               "escalate": "formalize_escalation", "citations-draft": "formalize_citations",
-              "citations-review": "formalize_citations", STATUS_CHECK: "formalize_status_check"}
+              "citations-review": "formalize_citations"}
+
+
+def blind_readers(body):
+    """0.3.2 A7 (approver 2026-11-17): always two blind readers, spawned together: the same prompt, the second
+    writing INFORMAL-2.json; the sign-off writer compares the two readings (no code judges them)."""
+    return {"informalizer.txt": body + "\n",
+            "informalizer-2.txt": body.replace("/INFORMAL.json", "/INFORMAL-2.json") + "\n"}
 
 
 def spawn_kind(name):
@@ -419,26 +398,6 @@ def render_extra(text, cfg, name, round_name=None, subs=None):
     if name in CITATION_PROMPTS:
         common = common.replace("<NETWORK-RULE>", citation_network_rule(cfg))
     body, notes = fill_project(common + "\n\n" + body, cfg)
-    if name == STATUS_CHECK and "<HAND-EDITS>" in body:
-        import readers      # DOC-FIX G5: the status check judges each live hand edit of a generated document
-        try:
-            body = body.replace("<HAND-EDITS>", readers.hand_edit_summary(cfg))
-        except Exception as e:      # noqa: BLE001 -- the prompt is not written
-            return None, [f"! the hand edits could not be listed: {e!r}"]
-    if name == STATUS_CHECK and "<RAISED-STATUSES>" in body:
-        import tool_patch   # SWEEP-FIX D4: the statuses a tool patch raised, flagged by code, judged by the agent
-        try:
-            rl_ = tool_patch.raised_lines(cfg)
-        except Exception:       # noqa: BLE001 -- said, never silent
-            rl_ = [tool_patch.STATUS_UNCOMPARED]
-        body = body.replace("<RAISED-STATUSES>", ("The lines to judge: " + " | ".join(f'"{x}"' for x in rl_) + ".")
-                            if rl_ else "There are none in this run.")
-    if name == STATUS_CHECK and "<TRUST-LINES>" in body:
-        import make_report      # approver 2026-10-26: the agent guards the plain trust lines code wrote
-        try:
-            body = body.replace("<TRUST-LINES>", make_report.trust_line_summary(cfg))
-        except Exception as e:      # noqa: BLE001 -- the prompt is not written
-            return None, [f"! the trust lines could not be listed: {e!r}"]
     for k, v in (subs or {}).items():
         body = body.replace(k, v)
     if "<ROUND-DIR>" in body:
@@ -794,7 +753,7 @@ def render_adjudicator(text, repo, round_name, cfg, revotes=False):
 
 
 def conditions_section(cfg):
-    """Next batch G1 (D1, CR-5): the checklist items (CONDITIONS.md) with no `## Conditions` status row yet, for step
+    """Next batch G1 (D1, NW-5): the checklist items (CONDITIONS.md) with no `## Conditions` status row yet, for step
     D' -- listed like the pending faults, never a refusal (the commit does not check `## Conditions` rows)."""
     import result_status
     try:
@@ -851,7 +810,7 @@ def pending_section(cfg, round_name):
 
 
 def render_record_fix(text, repo, round_name, cfg, faults):
-    """(body, notes) for a record correction (RUN.md failure table, record-fix): the subagent common
+    """(body, notes) for a record correction (the failure table, record-fix): the subagent common
     rules, the record-correction block, THE FAULTS (make_report.record_faults, computed here, never
     typed by the operator), the step-4 block's rule G and the PAPER_DEFECTS.md template."""
     step4 = blocks_after(text, STEPS[[s[0] for s in STEPS].index(4)][3]) or ""
@@ -868,35 +827,6 @@ def render_record_fix(text, repo, round_name, cfg, faults):
               + "\n".join(f"  - [{c}] {t} (cell holding `{tok}`)" for c, _f, _k, tok, t in faults),
               "APPENDIX 1. The record rules (rule G of the adjudication): what each record holds.\n\n"
               + g.group(0).rstrip(),
-              "APPENDIX 2. The PAPER_DEFECTS.md template.\n\n" + blocks_after(text, DEFECTS_HEADING)]
-    body = "\n\n".join(parts)
-    if cfg is None:
-        return body, []
-    return resolve(body, repo, 4, round_name, cfg)
-
-
-READER_FIX_HEADING = "### Reader fix"
-
-
-def render_reader_fix(text, repo, round_name, cfg, findings, n):
-    """(body, notes) of a reader-fix round (B10, ADDENDUM N4): the subagent common rules, the reader-fix block,
-    THE FINDINGS (readers.content_findings, computed here, never typed by the operator), rule G of the adjudication
-    and the PAPER_DEFECTS.md template."""
-    step4 = blocks_after(text, STEPS[[s[0] for s in STEPS].index(4)][3]) or ""
-    g = re.search(r"^G\. .*?(?=^H\. )", step4, re.S | re.M)
-    parts = []
-    for heading in (SUBAGENT_COMMON_HEADING, READER_FIX_HEADING):
-        b = blocks_after(text, heading)
-        if b is None:
-            return None, [f"! block not found under {heading!r}"]
-        parts.append(b)
-    if not g or blocks_after(text, DEFECTS_HEADING) is None:
-        return None, ["! rule G of step 4 or the paper-defect template not found"]
-    parts += [f"THE FINDINGS (reader fix {n} of the run; readers.content_findings, from the committed reader records, "
-              f"and the status-check mismatches named by --status-findings, from the committed "
-              f"status-check/FINDINGS.md):\n"
-              + "\n".join(f"  - [{key}, {name}] {f}" for key, name, f in findings),
-              "APPENDIX 1. The record rules (rule G of the adjudication): what each record holds.\n\n" + g.group(0).rstrip(),
               "APPENDIX 2. The PAPER_DEFECTS.md template.\n\n" + blocks_after(text, DEFECTS_HEADING)]
     body = "\n\n".join(parts)
     if cfg is None:
@@ -1166,6 +1096,19 @@ def f12_note(cfg, skip=()):
                         f"adjudicator fixes the row" for n, lab in rows))
 
 
+def leak_control_pair(projects):
+    """The selftest's cross-paper leak control needs two projects on DIFFERENT papers: two runs on the
+    same source (a re-run beside an older project) name that source legitimately. The first such pair
+    in `projects` order, else None."""
+    items = list(projects.items())
+    src = lambda c: os.path.normpath(str(c.get("source_pdf") or ""))
+    for i, (n1, c1) in enumerate(items):
+        for n2, c2 in items[i + 1:]:
+            if src(c1) != src(c2):
+                return (n1, c1), (n2, c2)
+    return None
+
+
 def render_lanes(text, cfg, round_name=None, revote=None, batch=None, revote_lane=None):
     """[(lane, body, notes)], placeholders filled.
 
@@ -1410,7 +1353,7 @@ LANE_ITEM_PATHS = {
     "FLAG_ITEM": ("hypotheses.py", "the FLAG_ITEM check (prompt.LANE_ITEM_PATHS)", "scope.py schedules it for every "
                   "binder the walk flags as restating in every round (TARGET.json, paper-faithfulness, `_meta.f13`); "
                   "prompt.py lists it with its question under FLAGGED HYPOTHESES TO JUDGE; --revote takes it"),
-    # next batch B17 (CR-1): every assumed name with no valid latest `## Hypotheses` row
+    # next batch B17 (NW-1): every assumed name with no valid latest `## Hypotheses` row
     "HYP_ITEM": ("hypotheses.py", "def hyp_items(", "scope.py schedules it for every assumed name with no valid latest "
                  "`## Hypotheses` row, in every round (TARGET.json, paper-faithfulness, `_meta.f13`); prompt.py lists "
                  "it under HYPOTHESES TO JUDGE; --revote takes it"),
@@ -1621,7 +1564,7 @@ def lane_item_paths(text):
                     and [i for i, _q in got4] == [fli] and "`hp` of `P.lemma_2_4`" in got4[0][1]
                     and "`P.thm_3_4`" in got4[0][1] and "A FLAGGED HYPOTHESIS (B5)" in got4[0][1] and cite4 is None
                     and "A FLAGGED HYPOTHESIS (B5). The walk flags" in pf4))
-        # next batch B17 (CR-1): a plain literature hypothesis with no `## Hypotheses` row gets its item "F15: the
+        # next batch B17 (NW-1): a plain literature hypothesis with no `## Hypotheses` row gets its item "F15: the
         # hypothesis <H>" (listed under HYPOTHESES TO JUDGE); a Pass on the rendered item supports a `yes` row, and
         # once a valid row stands the item is no longer scheduled
         json.dump({"walked": ["P.lemma_2_4"], "goal": {}, "binders": {}, "restates": {},
@@ -1642,7 +1585,7 @@ def lane_item_paths(text):
             "| `P.HLit` | Theorem 2 of [3] | yes | m = 1 | not trivial | every such m divides one | "
             "paper-faithfulness.json |\n")
         after5 = hypotheses.hyp_items(cfg, rdir)
-        out.append(("next batch B17 (CR-1): a literature hypothesis with no `## Hypotheses` row gets its item \"F15: the "
+        out.append(("next batch B17 (NW-1): a literature hypothesis with no `## Hypotheses` row gets its item \"F15: the "
                     "hypothesis <H>\" in the paper-faithfulness scope, listed under HYPOTHESES TO JUDGE; a Pass on it "
                     "makes a `yes` row valid, and then the item is no longer scheduled",
                     hi5 in doc5["paper-faithfulness"] and (doc5["_meta"].get("f13") or {}).get(hi5) == "P.HLit"
@@ -1698,23 +1641,14 @@ def selftest(text, repo):
                    and project.round_commit(probe_full) == clone_head))
     checks.append(("a diff round's name is not mistaken for a full round",
                    not project.is_full_round(probe.split()[0])))
-    # STATUSRET (C3a): Claude Code refused the status-check agent's write of FINDINGS.md; every sealed child that a
+    # STATUSRET (C3a): Claude Code refused a sealed child's write of its file; every sealed child that a
     # general-purpose agent writes may return its file between fixed lines instead (saved verbatim, sealed by digest)
-    import run_record as _rr_s, integrity as _ig_s, stops as _st_s
-    _sc_b = " ".join((blocks_after(text, EXTRA_PROMPTS["status-check"]) or "").split())
+    import integrity as _ig_s, stops as _st_s
     _tp_b = " ".join((blocks_after(text, TOOL_PATCH_HEADING) or "").split())
-    _sl_s = _rr_s.status_spawn_line("/x/status-check.txt", "0" * 64)
-    checks.append(("STATUSRET: the status check, its spawn line and the tool-patch, acknowledgment and core-fault "
+    checks.append(("STATUSRET: the tool-patch, acknowledgment and core-fault "
                    "reviewers may return a refused file between `BEGIN RETURNED FILE <path>` and `END RETURNED FILE` "
                    "(hashed with sha256sum on a quoted heredoc), ending with their completion line",
-                   "BEGIN RETURNED FILE <ROUNDS-DIR>/status-check/FINDINGS.md <delimiter>" in _sc_b
-                   and "`END RETURNED FILE`" in _sc_b and "sha256sum <<'<delimiter>'" in _sc_b
-                   and "no line of the text equals it" in _sc_b
-                   and "STATUS_CHECK_COMPLETION <the path> <that sha256>" in _sc_b
-                   and _rr_s.RETURNED_BEGIN in _sl_s and _rr_s.RETURNED_END in _sl_s
-                   and "sha256sum <<'RETURNED_000000000000'" in _sl_s
-                   and _rr_s.returned_delimiter("ab" * 32) == "RETURNED_" + "ab" * 6
-                   and "BEGIN RETURNED FILE <VERDICT-FILE> <delimiter>" in _tp_b
+                   "BEGIN RETURNED FILE <VERDICT-FILE> <delimiter>" in _tp_b
                    and "sha256sum <<'<delimiter>'" in _tp_b and "first 12 hex digits of your lane_token" in _tp_b
                    and all("BEGIN RETURNED FILE {verdict} <delimiter>" in t_ and "`END RETURNED FILE`" in t_
                            and "sha256sum <<'<delimiter>'" in t_ and "first 12 hex digits of your lane_token" in t_
@@ -1748,41 +1682,6 @@ def selftest(text, repo):
                        and effective_batch(None, os.path.join(_bd0, "none")) is None))
     finally:
         _sh.rmtree(_bd0, ignore_errors=True)
-    # status check (approver 2026-10-24; run-record review): a mismatch a record owns reaches the reader-fix round
-    # from the committed FINDINGS.md -- here a sample (tests/lane_samples), whose M3 is Theorem 3.1
-    _sd = _tf.mkdtemp()
-    try:
-        _g = lambda *a_: subprocess.run(["git", "-C", _sd, "-c", "user.name=t", "-c", "user.email=t@t", *a_],
-                                        capture_output=True, text=True)
-        _g("init", "-q")
-        _scf = {"name": "sample", "rounds_dir": os.path.join(_sd, "ExamplePaper")}
-        _sfd = roundless_dir(_scf, STATUS_CHECK) or os.path.join(_sd, "ExamplePaper", STATUS_CHECK)
-        os.makedirs(_sfd)
-        _b2 = open(os.path.join(project.AUDITS, "tests", "lane_samples", "status-check-FINDINGS-sample-a.md"),
-                   encoding="utf-8").read()
-        open(os.path.join(_sfd, "FINDINGS.md"), "w", encoding="utf-8").write(_b2)
-
-        def _sf(ids):
-            try:
-                return status_findings(_scf, ids)
-            except ValueError as e_:
-                return str(e_)
-        _unc = _sf(["M3"])
-        _g("add", "-A"); _g("commit", "-qm", "status-check: findings")
-        open(os.path.join(_sfd, "FINDINGS.md"), "a").write("\n### M9. Lemma 9 -- FORGEDQZ\n")
-        _m3, _m9 = _sf(["M3", "M1"]), _sf(["M9"])
-        _rf_s, _ = render_reader_fix(text, repo, "2026-10-24-full-ced696a524c", None, _m3 if isinstance(_m3, list) else [], 1)
-    finally:
-        _sh.rmtree(_sd, ignore_errors=True)
-    checks.append(("run-record review (1): --reader-fix --status-findings carries the named mismatches of the COMMITTED "
-                   "status-check/FINDINGS.md into the prompt (sample: M3 Theorem 3.1, M1 Lemma 1.2), refuses an "
-                   "uncommitted file and an id the committed file does not have",
-                   isinstance(_m3, list) and [x[0] for x in _m3] == ["status-check"] * 2
-                   and _m3[0][2].startswith("M3. Theorem 3.1") and "proved as repaired" in _m3[0][2]
-                   and "**It should read:**" in _m3[0][2] and _m3[1][2].startswith("M1. Lemma 1.2")
-                   and "not committed" in str(_unc) and "no mismatch M9" in str(_m9)
-                   and bool(_rf_s) and "THIS IS A READER FIX" in _rf_s and "[status-check, status-check/FINDINGS.md] M3. "
-                   "Theorem 3.1" in _rf_s and "--status-findings" in _rf_s))
     _rd0 = os.path.join("R", "2026-01-01-full-abcdef1")
     checks.append(("a lane's probe dir is its own verdict file with .probes for .json, inside the round (with or "
                    "without a project)",
@@ -1799,6 +1698,15 @@ def selftest(text, repo):
     _bl = [n_ for _, _, ns in render_lanes(text, _tpl) for n_ in ns]
     checks.append(("a config <<blank>> left in a filled prompt is noted (the template's, with or without a project)",
                    any("still contains a <<blank>>" in n_ for n_ in _bl)))
+    _br = blind_readers(render_extra(text, _tpl, "informalizer", "R")[0] or "")
+    _sw = " ".join((render_extra(text, _tpl, "signoff-writer", "R")[0] or "").split())
+    checks.append(("0.3.2 A7: two blind-reader prompts, identical but for the file each writes (INFORMAL.json, "
+                   "INFORMAL-2.json); the writer reads both, copies INFORMAL.json, flags a substantive difference CHECK",
+                   list(_br) == ["informalizer.txt", "informalizer-2.txt"] and "/INFORMAL.json" in _br["informalizer.txt"]
+                   and _br["informalizer-2.txt"] == _br["informalizer.txt"].replace("/INFORMAL.json", "/INFORMAL-2.json")
+                   and "/INFORMAL.json" not in _br["informalizer-2.txt"]
+                   and "INFORMAL-2.json (if present)" in _sw and "The two readings differ:" in _sw
+                   and "INFORMAL.json's text for this result, COPIED VERBATIM" in _sw))
     for name, cfg in (projects or {"(template)": _tpl}).items():
         real_cfg = bool(projects)
         # a `~/…` work_dir is judged against $HOME, which is the test machine's, not the config's:
@@ -1846,29 +1754,10 @@ def selftest(text, repo):
                            and "<NETWORK-RULE>" not in b and ("never send" in b or "UNPUBLISHED" in b)))
         b, nt = render_extra(text, cfg, "informalizer", None)
         checks.append((f"project {name}: the informalizer refuses to render without a round", b is None))
-        b, nt = render_extra(text, cfg, "status-check", None)
-        checks.append((f"project {name}: the status check renders without a round, is written under "
-                       f"<rounds dir>/status-check/ and names its FINDINGS.md there (approver 2026-10-24)",
-                       b is not None and f"{cfg['rounds_dir']}/status-check/FINDINGS.md" in b
-                       and roundless_dir(cfg, "status-check") == os.path.join(project.REPO, cfg["rounds_dir"], STATUS_CHECK)
-                       and roundless_dir(cfg, "citations-draft").endswith("citations")
+        checks.append((f"project {name}: the citation prompts are written under <rounds dir>/citations/; a round's "
+                       f"prompt has no such directory",
+                       roundless_dir(cfg, "citations-draft").endswith("citations")
                        and roundless_dir(cfg, "informalizer") is None))
-        # SWEEP-FIX D4: the status check is shown every status a tool patch raised (code flags, the agent judges)
-        import tool_patch as _tp4
-        _k4 = _tp4.raised_lines
-        try:
-            _tp4.raised_lines = lambda c_, rd=None, audits=None: ["Lemma 2.4: this status was decided by a corrected version of our checking software; the original version would have said "
-                                                                  "tools say not established: x"]
-            b4, _n4 = render_extra(text, cfg, "status-check", None)
-            _tp4.raised_lines = lambda c_, rd=None, audits=None: []
-            b4n, _n4 = render_extra(text, cfg, "status-check", None)
-        finally:
-            _tp4.raised_lines = _k4
-        checks.append((f"project {name}: SWEEP-FIX D4: the status check's prompt names each \"status raised by tool "
-                       f"patch\" line to judge against the records (or says there is none)",
-                       b4 is not None and "The lines to judge: \"Lemma 2.4: this status was decided by a corrected version" in b4
-                       and "decide whether the records support the stronger" in b4
-                       and b4n is not None and "There are none in this run." in b4n and "<RAISED-STATUSES>" not in b4n))
         # trial #9 audit / trial #10: the Lean-writing helper is told the one refutation name every check reads
         b, nt = render_extra(text, cfg, "formalizer", None)
         _pf = blocks_after(text, "Lane C — Paper-faithfulness") or ""
@@ -1980,7 +1869,7 @@ def selftest(text, repo):
     checks.append(("C13: the statement round's step-3 block runs scope.py --statements, never --full; a full round's runs --full",
                    _ok3s and "scope.py --full" not in _b3s and _ok3f and "scope.py --statements" not in _b3f))
     b5 = blocks_after(text, "Step 5 — implement") or ""
-    checks.append(("B8: the step-3 and step-5 blocks print no STOP of their own; they defer to RUN.md's failure table "
+    checks.append(("B8: the step-3 and step-5 blocks print no STOP of their own; they defer to the failure table "
                    "and its statement-change rule, and lanecheck ends stray loops (--kill)",
                    "STOP" not in b3 and "STOP" not in b5 and "failure table" in b3 and "failure table" in b5
                    and "Statement changes after approval" in b5 and "lanecheck.py --round <DATE>-<HASH> --kill" in b3
@@ -2036,16 +1925,8 @@ def selftest(text, repo):
         _hd = "REPAIRS TO CONFIRM (F12) this round"
         open(_pd, "w").write(_rows.replace("| add hypothesis |", "| substantial |").replace("| typo |", "| substantial |"))
         _none = {l: b for l, b, _ in render_lanes(text, _cf, _rn)}.get("paper-faithfulness") or ""
-        # B10 (ADDENDUM N4): the reader-fix prompt, rendered with a project
-        _rfr, _rfn = render_reader_fix(text, repo, _rn, _cf, [(f"summary-{_rn}", f"summary-{_rn}-1.md",
-                                                               "[content] Lemma 2.4 reads plain RFQZ")], 1)
     finally:
         _sh.rmtree(_f12d)
-    checks.append(("B10 N4: the reader-fix prompt carries its block, the computed findings, rule G and the template, "
-                   "commits with --commit-reader-fix on the round, and leaves no unfilled placeholder",
-                   bool(_rfr) and "THIS IS A READER FIX" in _rfr and "RFQZ" in _rfr and "G. Maintain the records" in _rfr
-                   and f"integrity.py --commit-reader-fix --round {_rn}" in _rfr and "## Hypotheses" in _rfr
-                   and "| # | where | status | repair |" in _rfr and not LEFTOVER.findall(_rfr)))
     checks.append(("B4 review fix 2: the paper-faithfulness prompt lists each `false` row with a minimal repair, "
                    "with its exact F12 item name (none for a substantial or non-false row; a row naming no result "
                    "is said so); batched: part 1 only; no other lane; no such row: no list",
@@ -2294,6 +2175,26 @@ def selftest(text, repo):
     checks.append(("B2: --show intake without a config prints the stop policy of the installation's mode",
                    _r.returncode == 0
                    and _r.stdout.rstrip("\n") == project.stop_policy_text(project.installed_mode() or "dev")))
+    # W-R3 item 4a: `--show` runs the render check on the config's own text before the pin (a bare "l.531" in
+    # literature_hypotheses printed as a `# config:` line); a "tex l.531" there gives none (no .tex source to bound it)
+    import contextlib as _cl, io as _io
+    _sel4, _argv4, _got4 = project.select, sys.argv, {}
+    try:
+        for _pp in ("l.531", "tex l.531"):
+            _c4 = dict(_tcfg, literature_hypotheses=[{"lean": "x", "paper": _pp}],
+                       _path=os.path.join(project.AUDITS, "project_template.json"))
+            project.select = lambda name=None, _c4=_c4: (_c4, "test")
+            sys.argv = ["prompt.py", "--show"]
+            _e4 = _io.StringIO()
+            with _cl.redirect_stdout(_io.StringIO()), _cl.redirect_stderr(_e4):
+                _rc4 = main()
+            _got4[_pp] = (_rc4, [l_ for l_ in _e4.getvalue().splitlines() if l_.startswith("# config: ")])
+    finally:
+        project.select, sys.argv = _sel4, _argv4
+    checks.append(("W-R3 4a: prompt.py --show prints the render check's finding on a bare 'l.531' in the config's "
+                   "literature_hypotheses as a '# config:' line, and none for 'tex l.531'",
+                   _got4.get("l.531", (1, []))[0] == 0 and any("l.531" in l_ for l_ in _got4["l.531"][1])
+                   and _got4.get("tex l.531") == (0, [])))
     # CODEX-U2: every generated subagent prompt names a Codex role that codex_agents.py generates
     import codex_agents
     _kinds = {k_: spawn_kind(k_) for k_ in EXTRA_PROMPTS}
@@ -2301,10 +2202,18 @@ def selftest(text, repo):
                    all("Codex: agent_type " in v_ and v_.split("agent_type ")[1].split(",")[0] in codex_agents.ROLES
                        for v_ in _kinds.values())))
     # negative control: another paper's PDF must not leak into this paper's lanes
-    if len(projects) >= 2:
-        (n1, c1), (n2, c2) = list(projects.items())[:2]
+    _pair = leak_control_pair(projects)
+    if _pair:
+        (n1, c1), (n2, c2) = _pair
         leak = any(b and c2["source_pdf"] in b for _, b, _ in render_lanes(text, c1))
         checks.append((f"project {n1}'s lanes do not name {n2}'s PDF", not leak))
+    elif len(projects) >= 2:
+        print("  note  every configured project has the same source; the cross-paper leak control is skipped")
+    _src = lambda *ps: {n: {"source_pdf": p} for n, p in ps}
+    checks.append(("the leak control pairs two projects on different papers only (0, 1, 2 on one paper, 3)",
+                   leak_control_pair({}) is leak_control_pair(_src(("a", "p.tex"))) is None
+                   and leak_control_pair(_src(("a", "p.tex"), ("b", "./p.tex"))) is None
+                   and [n for n, _ in leak_control_pair(_src(("a", "p.tex"), ("b", "p.tex"), ("c", "q.tex")))] == ["a", "c"]))
     ok = True
     for name, passed in checks:
         print(f"  {'ok  ' if passed else 'FAIL'}  {name}")
@@ -2356,13 +2265,6 @@ def main():
     ap.add_argument("--record-fix", action="store_true",
                     help="step 4 with --round: a record correction's prompt (adjudicator-recordfix-<n>.txt) for "
                          "a record-fix failure (dead-witness, record-cite)")
-    ap.add_argument("--reader-fix", action="store_true",
-                    help="step 4 with --round (the newest round): a reader-fix round's prompt "
-                         "(adjudicator-readerfix-<n>.txt, committed as \"reader-fix-prompt R n\") for the content "
-                         "findings of the summary, report and decisions readers (B10; at most 2 per run)")
-    ap.add_argument("--status-findings", metavar="M1[,M2]",
-                    help="with --reader-fix: also give the round these mismatches of the committed "
-                         "status-check/FINDINGS.md (a status a record owns; run/stage5-delivery.md)")
     ap.add_argument("--statements", action="store_true",
                     help="step 3: the statement round (Stage 2): scope.py --statements, a full round's name")
     ap.add_argument("--intake", action="store_true",
@@ -2430,6 +2332,12 @@ def main():
               file=sys.stderr)
         for p in project.problems(cfg):
             print(f"# {p}", file=sys.stderr)
+        if a.show:
+            # W-R3 item 4: the render check Phase 0 runs on the config's own text (literature_hypotheses), before the
+            # pin freezes it (Matijasevick D1: a bare "l.531" became a permanent disclosure)
+            import make_report
+            for p in make_report.rendering_problems(cfg, [], [], [], resolve=False):
+                print(f"# config: {p}", file=sys.stderr)
 
     if a.show == "intake":
         print(project.stop_policy_text(project.mode(cfg), project.involvement(cfg)))
@@ -2545,25 +2453,8 @@ def main():
         if body is None:
             return 2
         if a.write:
-            fname = f"{a.prompt}.txt"
-            if a.prompt == STATUS_CHECK:
-                # C1 audit: each run of the status check is recorded with the SUMMARY.md it reads; a run on a
-                # summary changed by a later prepare is written as status-check-<n>.txt (run_record.begin_status_run)
-                import run_record
-                try:
-                    fname = run_record.begin_status_run(cfg)
-                except ValueError as e:
-                    print(f"FAIL: the status check is not written: {e}", file=sys.stderr)
-                    return 2
-            for p, line in write_prompts({fname: body + "\n"}, pdir):
-                if a.prompt == STATUS_CHECK and getattr(run_record.begin_status_run, "token", None):
-                    # DOC-FIX review #3: a run that judges hand edits is authenticated like a lane (its token, given
-                    # only here; the agent's own digest, sealed by run_record.py --seal-status-check)
-                    line = run_record.status_spawn_line(p, run_record.begin_status_run.token)
-                    print(f"{p}\n  spawn {spawn_kind(a.prompt)} with: {line}\n  then seal it from the agent's "
-                          f"{run_record.STATUS_COMPLETION} line: python3 audits/run_record.py --seal-status-check "
-                          f"--sha256 <its sha256> --agent-id <the agent's id>")
-                    continue
+            files = blind_readers(body) if a.prompt == "informalizer" else {f"{a.prompt}.txt": body + "\n"}
+            for p, line in write_prompts(files, pdir):
                 print(f"{p}\n  spawn {spawn_kind(a.prompt)} with: {line}")
             return 0
         print(body)
@@ -2666,62 +2557,6 @@ def main():
         for p, line in write_prompts({f"adjudicator-recordfix-{k}.txt": body_f + "\n"}, pdir):
             print(f"{p}\n  spawn (general-purpose; Codex: agent_type formalize_adjudicator, fork_turns none) "
                   f"with: {line}")
-        return 0
-    if a.status_findings and not a.reader_fix:
-        print("--status-findings goes with --reader-fix", file=sys.stderr)
-        return 2
-    if a.reader_fix and (n != 4 or a.revotes or a.record_fix or not a.round or cfg is None):
-        print("--reader-fix goes with step 4 and --round (the newest round), without --revotes or --record-fix",
-              file=sys.stderr)
-        return 2
-    if a.reader_fix:
-        # B10 (ADDENDUM N4): the content findings of the delivered documents' readers go to the adjudicator; the
-        # prompt is written once and committed by this command ("reader-fix-prompt R n"), and the fix is
-        # committed with its sha256 (integrity.py --commit-reader-fix), which lanecheck checks (U2 §7f)
-        import integrity, readers
-        if a.round != readers.newest_round(cfg):
-            print(f"FAIL: a reader fix belongs to the newest round ({readers.newest_round(cfg)}), not {a.round}",
-                  file=sys.stderr)
-            return 2
-        rel_rd = os.path.relpath(os.path.join(project.REPO, cfg["rounds_dir"]), project.AUDITS)
-        fixes, prompts = integrity.reader_fix_history(project.AUDITS, rel_rd)
-        k = len(fixes) + 1
-        if k > integrity.READER_FIX_BUDGET:
-            print(f"FAIL: the run's {integrity.READER_FIX_BUDGET} reader-fix rounds are spent: answer what remains "
-                  f"unfixable (\"fix budget reached\") and quote it in the notice", file=sys.stderr)
-            return 1
-        if (a.round, k) in prompts:
-            print(f"FAIL: reader fix {k}'s prompt is already committed ({prompts[(a.round, k)][:11]}): spawn it, then "
-                  f"integrity.py --commit-reader-fix --round {a.round}", file=sys.stderr)
-            return 1
-        found = readers.content_findings(cfg)
-        if a.status_findings:
-            try:
-                found += status_findings(cfg, [x.strip() for x in a.status_findings.split(",") if x.strip()])
-            except ValueError as e:
-                print(f"FAIL: --status-findings: {e}", file=sys.stderr)
-                return 1
-        if not found:
-            print("FAIL: no content finding of the summary, report or decisions readers awaits a fix, and no "
-                  "status-check mismatch was named (--status-findings M<n>)", file=sys.stderr)
-            return 1
-        body_f, notes_f = render_reader_fix(text, repo, a.round, cfg, found, k)
-        for note in notes_f:
-            print(f"# {note}", file=sys.stderr)
-        if body_f is None:
-            return 2
-        if not a.write:
-            print(body_f)
-            return 0
-        name = os.path.basename(integrity.reader_fix_prompt_rel(a.round, k))
-        for p, line in write_prompts({name: body_f + "\n"}, pdir):
-            try:
-                project.commit_only([p], f"reader-fix-prompt {a.round} {k}", repo=project.AUDITS)
-            except (ValueError, OSError) as e:
-                print(f"FAIL: the prompt could not be committed: {e}", file=sys.stderr)
-                return 1
-            print(f"{p}\n  committed as \"reader-fix-prompt {a.round} {k}\"; spawn (general-purpose; Codex: agent_type "
-                  f"formalize_adjudicator, fork_turns none) with: {line}")
         return 0
     if n == 4:
         body4, notes4 = render_adjudicator(text, repo, a.round, cfg, a.revotes)

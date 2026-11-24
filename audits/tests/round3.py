@@ -190,20 +190,12 @@ def t2(base, say):
     got = adopt(r, R1, "| non-vacuity | N.b | Fail | `REJECT` | witness wrong |\n")
     say("M2/T2: a carried Fail is not rejected by spelling the decision `REJECT`", got is not True and "N.b" in got)
     ap = os.path.join(r.rd, R1, "ADOPTED.md")
-    pin = os.path.join(r.rd, integrity.PIN)
-    keep = open(pin).read()
-    v1 = json.loads(keep); v1["ownership"] = 1
     agree = True
     for cell in ("`REJECT`", "_REJECT_", "~~ADOPT~~ REJECT", "**REJECT**", "REJECT: wrong"):
         write(ap, HDR + f"| non-vacuity | N.b | Fail | {cell} | x |\n")
         rep = audit_coverage.read_adopted(ap).get("non-vacuity :: " + audit_coverage.norm_item("N.b"))
-        # an older record (ownership 1, R3f: read best-effort) reads its decision column by the same parser
-        write(pin, json.dumps(v1))
-        rep1 = audit_coverage.read_adopted(ap).get("non-vacuity :: " + audit_coverage.norm_item("N.b"))
-        write(pin, keep)
-        agree &= rep == rep1 == "REJECT" and lanecheck.decision_rows(os.path.join(r.rd, R1))[0].decision == "REJECT"
-    say("M2: the report (current and older records) and the carry check read every spelling of a decision cell alike",
-        agree)
+        agree &= rep == "REJECT" and lanecheck.decision_rows(os.path.join(r.rd, R1))[0].decision == "REJECT"
+    say("M2: the report and the carry check read every spelling of a decision cell alike", agree)
     write(ap, HDR + "| non-vacuity | N.b | Fail | probably reject | x |\n")
     say("M2: a decision cell that records no decision is refused at adjudication",
         "decision cell" in "\n".join(lanecheck.settle_problems(os.path.join(r.rd, R1))))
@@ -794,7 +786,7 @@ def t_r3f(base, say):
     """R3f: an UNCOVERED row for a NotDoneYet index entry, or for a STALE PASS, names an item outside the
     round's TARGET.json; the strict reader refused it. It now reads every declared item of the project
     (index rows, declarations, fingerprint snapshots), still exactly. audit_coverage.read_adopted reads a
-    current-format record through the same reader."""
+    record through the same reader (D8: an older record too)."""
     r = index_round(base)
     rd1 = os.path.join(r.rd, R1)
     say("R3f: the project's declared items are the index labels, declarations and snapshot names",
@@ -822,16 +814,16 @@ def t_r3f(base, say):
     want = {f"{x.base} :: {audit_coverage.norm_item(x.item)}": x.decision for x in lanecheck.valid_rows(rd1)}
     got = audit_coverage.read_adopted(ap)
     say("R3f: audit_coverage.read_adopted reads a current-format record through the shared reader",
-        audit_coverage.strict_rows(r.rd) and got == want and got == {
+        got == want and got == {
             "correspondence :: theorem 1.1": "UNCOVERED", "correspondence :: l440": "UNCOVERED",
             "correspondence :: old": "UNCOVERED"})
     pin = os.path.join(r.rd, integrity.PIN)
     keep = open(pin).read()
     d = json.loads(keep); d["ownership"] = 1; write(pin, json.dumps(d))
-    old, strict1 = audit_coverage.read_adopted(ap), audit_coverage.strict_rows(r.rd)
+    old = audit_coverage.read_adopted(ap)
     write(pin, keep)
-    say("R3f control: a record pinned under ownership 1 (before strict rows) keeps the best-effort reading",
-        not strict1 and old.get("non-vacuity :: a") == "ADOPT" and "non-vacuity :: a" not in got)
+    say("R3f (D8): a record pinned under ownership 1 is read through the same strict reader (no best-effort reading)",
+        old == got)
 
 
 def t_n2(base, say):

@@ -95,7 +95,6 @@ def discover_lanes(audits_dir):
 # "standing" was a convention held in prose, carried only by whoever happened to read the previous
 # round. That is the NotDoneYet failure one level up: the item stays visible while quietly
 # ceasing to be anyone's decision.
-VERDICT_RE = re.compile(r"\*\*(ADOPT|REJECT|DEFER|QUESTION|UNCOVERED)\b", re.I)
 
 
 def norm_item(item):
@@ -113,81 +112,19 @@ def norm_item(item):
     return t.rsplit(".", 1)[-1] if not t.endswith(".lean") else t
 
 
-def strict_rows(rounds_dir):
-    """Are the round's decision rows read strictly (lanecheck.decision_rows)? Yes when the run's pin
-    (TOOLING_PIN.json) records ownership version 2 or later: the version (0.3.0) whose settle check
-    refuses a row naming no lane or item of the round exactly (R3e). No pin, or a pin of version 1
-    (0.2.0 and earlier records, written before strict rows), is read best-effort (read_adopted)."""
-    import integrity
-    return os.path.exists(os.path.join(rounds_dir, integrity.PIN)) and integrity.pinned_version(rounds_dir) >= 2
-
-
 def read_adopted(path):
-    """{"<lane> :: <item>": decision} from one round's ADOPTED.md. A current-format record (strict_rows)
-    is read through THE reader, lanecheck.decision_rows (R3f): only the rows that name a lane and an item
-    of the round exactly, by their decision cell (project.decision_of), the lane by its base. An older
-    record keeps the best-effort reading below: the file is prose around a table."""
+    """{"<lane> :: <item>": decision} from one round's ADOPTED.md, read through THE reader,
+    lanecheck.valid_rows (R3f): only the rows that name a lane and an item of the round exactly, by their
+    decision cell (project.decision_of), the lane by its base. The 0.2-era best-effort reader is gone (D8,
+    0.3.2): a 0.2 run keeps its pinned tools."""
     out = {}
-    if not os.path.exists(path):
-        return out
-    rd = os.path.dirname(os.path.abspath(path))
-    if strict_rows(os.path.dirname(rd)):
-        import lanecheck
-        for r in lanecheck.valid_rows(rd):
-            if r.decision.startswith("?") or r.decision == "REVOTE NEEDED":
-                continue          # no decision recorded; a re-vote request is not a decision
-            k = f"{r.base} :: {norm_item(r.item)}"
-            # UNCOVERED is a coverage status: inside one file too, it never replaces a decision
-            if r.decision != "UNCOVERED" or k not in out:
-                out[k] = r.decision
-        return out
-    # Older records (no pin, or ownership 1): best effort.
-    header = None
-    for line in open(path, encoding="utf-8"):
-        if not line.lstrip().startswith("|"):
-            header = None
-            continue
-        cells = project.split_row(line)
-        if all(set(c) <= set("-: ") for c in cells):
-            continue
-        if header is None:
-            header = [c.lower().strip("* ") for c in cells]
-            if "decision" in header and "item" in header:
-                continue
-        if len(cells) < 3:
-            continue
-        lane_cell, item = cells[0], cells[1]
-        if not item or item.lower() in ("item", "---", ":--") or set(item) <= set("-: "):
-            continue
-        structured = "decision" in header and "item" in header and len(cells) >= len(header)
-        if structured:
-            # a table with a decision column: its cell, read by the one parser the carry and
-            # settle checks use (ROUND3 M2); a re-vote request is not a decision
-            lane_cell = cells[header.index("lane")] if "lane" in header else lane_cell
-            item = cells[header.index("item")]
-            dec = project.decision_of(cells[header.index("decision")])
-            if dec in (None, "REVOTE NEEDED"):
-                continue
-        # Older records: the first bold ADOPT/REJECT/DEFER in the row, else the first such word
-        # in upper case in a later cell (they did not bold it, nor always have a decision column).
-        v = None if structured else VERDICT_RE.search(line)
-        dec = dec if structured else (v.group(1).upper() if v else None)
-        if dec is None:
-            for c in cells[2:]:
-                m = re.search(r"\b(ADOPT|REJECT|DEFER|QUESTION|UNCOVERED)\b", c)
-                if m:
-                    dec = m.group(1); break
-        if dec is None:
-            continue
-        # one row may cover several lanes: "substantiveness + prior-art"
-        for lane in re.split(r"\s*[+,/&]\s*", lane_cell.strip("`* ")):
-            # a lane instance is named `<lane>@<n>` in rounds with several lanes per criterion
-            lane = re.sub(r"@\d+$", "", lane)
-            if lane:
-                k = f"{lane} :: {norm_item(item)}"
-                # UNCOVERED is a coverage status: inside one file too, it never replaces a decision
-                if dec != "UNCOVERED" or k not in out:
-                    out[k] = dec
+    for r in lanecheck.valid_rows(os.path.dirname(os.path.abspath(path))):
+        if r.decision.startswith("?") or r.decision == "REVOTE NEEDED":
+            continue          # no decision recorded; a re-vote request is not a decision
+        k = f"{r.base} :: {norm_item(r.item)}"
+        # UNCOVERED is a coverage status: inside one file too, it never replaces a decision
+        if r.decision != "UNCOVERED" or k not in out:
+            out[k] = r.decision
     return out
 
 
@@ -816,37 +753,27 @@ def selftest():
         _ta = tempfile.mkdtemp()
         try:
             _ap = os.path.join(_ta, "ADOPTED.md")
-            open(_ap, "w").write("| lane | item | verdict | decision | reason |\n|---|---|---|---|---|\n"
-                                 "| substantiveness + prior-art | `F.lean:30 avg_nonneg` | Fail x2 | DEFER | follows |\n"
-                                 "| correspondence | `G.lean:1 foo` | Fail | **ADOPT** | ok, will not REJECT |\n"
-                                 "| paper-faithfulness | Theorem 2.6 | Fail | not decided yet | adopt later |\n"
-                                 "| substantiveness@3 | Ns.l410b | Fail (REJECT proposed) | **QUESTION** | nonExt idle |\n"
-                                 "| correspondence | Ns.PL | STALE PASS | **UNCOVERED** | renamed |\n"
-                                 "| substantiveness | Ns.bar\\|baz | Fail | **REJECT** | quoted |\n"
-                                 "| non-vacuity | Ns.unb | Fail | QUESTION | older record, not bold |\n"
-                                 "\nAn older table, without a decision column:\n\n| lane | item | found | outcome |\n|---|---|---|---|\n"
-                                 "| non-vacuity | Ns.legb | Fail (REJECT proposed) | **QUESTION** to the human |\n"
-                                 "| non-vacuity | Ns.legu | Fail | asked: QUESTION |\n")
+            lanecheck.fixture_rows(_ta, "| substantiveness@3 | Ns.l410b | Fail (REJECT proposed) | **QUESTION** | idle |\n"
+                                        "| correspondence | Ns.PL | STALE PASS | **UNCOVERED** | renamed |\n"
+                                        "| substantiveness | Ns.bar\\|baz | Fail | **REJECT** | quoted |\n"
+                                        "| paper-faithfulness | Theorem 2.6 | Fail | not decided yet | adopt later |\n"
+                                        "| non-vacuity | Ns.rv | Fail | **REVOTE NEEDED** | re-vote it |\n"
+                                        "| correspondence | Ns.S4.hd_le_Wc | Fail | **ADOPT** | fix |\n"
+                                        "| correspondence | Ns.S4.Setting.hd_le_Wc | STALE | **UNCOVERED** | gone |\n")
+            open(_ap, "a").write("| Correspondence | Ns.PL | Fail | **ADOPT** | a lane of no round |\n"
+                                 "| non-vacuity | Ns.nowhere | Fail | **ADOPT** | an item of no round |\n")
             _ad = read_adopted(_ap)
-            checks.append(("read_adopted: multi-lane row registers each lane, unbolded DEFER read",
-                           _ad.get("substantiveness :: avg_nonneg") == "DEFER"
-                           and _ad.get("prior-art :: avg_nonneg") == "DEFER"))
-            checks.append(("read_adopted: bold decision wins over a word in the reason",
-                           _ad.get("correspondence :: foo") == "ADOPT"))
             checks.append(("read_adopted: a lane instance `lane@3` counts for its lane; QUESTION and UNCOVERED are decisions",
                            _ad.get("substantiveness :: l410b") == "QUESTION"
                            and _ad.get("correspondence :: PL") == "UNCOVERED"))
-            checks.append(("read_adopted: an unbolded QUESTION is read", _ad.get("non-vacuity :: unb") == "QUESTION"))
-            checks.append(("read_adopted: in a table without a decision column, a bold and an unbolded QUESTION are read",
-                           _ad.get("non-vacuity :: legb") == "QUESTION" and _ad.get("non-vacuity :: legu") == "QUESTION"))
-            open(_ap, "a").write("| correspondence | Ns.S4.hd_le_Wc | Fail | **ADOPT** | fix |\n"
-                                 "| correspondence | Ns.S4.Setting.hd_le_Wc | STALE | **UNCOVERED** | gone |\n")
             checks.append(("read_adopted: a later UNCOVERED row in the same file does not replace a decision",
-                           read_adopted(_ap).get("correspondence :: hd_le_Wc") == "ADOPT"))
-            checks.append(("read_adopted: an escaped bar in the reason does not shift the cells",
+                           _ad.get("correspondence :: hd_le_Wc") == "ADOPT"))
+            checks.append(("read_adopted: an escaped bar in the item does not shift the cells",
                            _ad.get("substantiveness :: " + norm_item("Ns.bar|baz")) == "REJECT"))
-            checks.append(("read_adopted: lower-case 'adopt' in prose is not a decision",
-                           "paper-faithfulness :: theorem 2.6" not in _ad))
+            checks.append(("read_adopted: a cell recording no decision and a REVOTE NEEDED row decide nothing",
+                           "paper-faithfulness :: theorem 2.6" not in _ad and "non-vacuity :: rv" not in _ad))
+            checks.append(("read_adopted (D8): a row naming no lane or item of the round is not read",
+                           "non-vacuity :: nowhere" not in _ad and len(_ad) == 4))
         finally:
             shutil.rmtree(_ta, ignore_errors=True)
         checks.append(("norm_item: paper results kept whole",
@@ -958,7 +885,7 @@ def selftest():
             shutil.rmtree(_t6); os.makedirs(_t6)
             for _k, (_rn, _t) in enumerate((("2026-07-01-eeeeeee", 1_000_000), ("2026-07-02-fffffff", 2_000_000))):
                 os.makedirs(os.path.join(_t6, _rn))
-                open(os.path.join(_t6, _rn, "ADOPTED.md"), "w").write(
+                lanecheck.fixture_rows(os.path.join(_t6, _rn),
                     "| correspondence | `Z.lean:1 zed` | Fail | **DEFER** | later |\n"
                     + "| correspondence | `Z.lean:3 unc` | STALE PASS | **UNCOVERED** | gone |\n"
                     + ("| correspondence | `Z.lean:2 once` | Fail | **REJECT** | no |\n" if _k == 0 else ""))
@@ -971,8 +898,8 @@ def selftest():
                                          f"docstring at Section4Aux1.lean:{987 + _k} is stale",
                                          "lemma_x keeps an idle hypothesis", "the word some_thing is prose"]},
                         open(os.path.join(_t6, _rn, "substantiveness.json"), "w"))
-            open(os.path.join(_t6, "2026-07-02-fffffff", "ADOPTED.md"), "a").write(
-                "| substantiveness | S1.decided_one | Fail | **REJECT** | fine |\n")
+            lanecheck.fixture_rows(os.path.join(_t6, "2026-07-02-fffffff"),
+                                   "| substantiveness | S1.decided_one | Fail | **REJECT** | fine |\n", "a")
             _r3 = os.path.join(_t6, "2026-07-03-ddddddd"); os.makedirs(_r3)
             _j.dump({"verdicts": [], "out_of_lane": ["docstring at Section4Aux1.lean:990 is still stale",
                                                      "Other.lean:500 noted once more"]},

@@ -11,7 +11,6 @@ ROLES={'formalize_auditor':'reviewer lane', 'formalize_adjudicator':'independent
        'formalize_writer':'sign-off writer', 'formalize_escalation':'escalation check',
        'formalize_renderer':'PDF renderer, verifier and checker (render_record.py)',
        'formalize_tool_patch_reviewer':'fresh reviewer of a tool patch (tool_patch.py; release mode)',
-       'formalize_status_check':'advisory status check of the summary against the report and records (delivery)',
        'formalize_citations':'citation notes, agent 1 (draft) and agent 2 (review)',
        'formalize_helper':'author-side helper (statements or proofs; never a reviewer)'}
 DEFAULT_MODEL='gpt-6.1-sol'
@@ -22,6 +21,9 @@ SANDBOX_RULE=('Codex sandbox: you run inside the session\'s sandbox (no network;
               'directory are writable). Never request an approval or escalation to run a command outside it or with '
               'the network, whatever your task file allows: a command the sandbox blocks is a failure you record in '
               'your output (for a source you could not read: "not reachable"), never a question to the person.')
+# CANARY-D032 run A: with live search present, the citation child read "(no network" above as no search and tried curl.
+CITATION_SEARCH=('The web-search tool, if your session has it, is not a sandbox command: use it for the cited works '
+                 'under your task\'s network rule.')
 
 
 def generated(source=HERE,model=DEFAULT_MODEL):
@@ -35,6 +37,7 @@ def generated(source=HERE,model=DEFAULT_MODEL):
     result={}
     for name,desc in ROLES.items():
         body=(auditor if name=='formalize_auditor' else common)+'\n\n'+SANDBOX_RULE
+        if name=='formalize_citations':body+=' '+CITATION_SEARCH
         result[name+'.toml']=('name = '+json.dumps(name)+'\ndescription = '+json.dumps(desc)+
                              '\nmodel = '+json.dumps(model)+'\nmodel_reasoning_effort = "medium"\n'+
                              'developer_instructions = '+json.dumps(body)+'\n')
@@ -79,7 +82,7 @@ def spawn_coverage(audits=HERE,spawn_roles=None):
     audits=Path(audits);probs=[];named=set(spawn_roles or ())
     consts={}
     for f in sorted(audits.glob('*.py')):
-        if f.name in ('codex_spawn.py','codex_agents.py'):continue
+        if f.name == 'codex_agents.py':continue
         src=f.read_text(errors='replace')
         for m in re.finditer(r'(?m)^([A-Z_]+)\s*=\s*["\'](formalize_[a-z_]+)["\']',src):consts[m.group(1)]=m.group(2)
         joined=re.sub(r'''["']\s*\n\s*[fr]?["']''','',src)   # implicitly concatenated literals as one
@@ -116,9 +119,9 @@ def selftest():
         (s/'agents/auditor.md').write_text('---\nname: auditor\n---\nReviewer canonical instructions.\n')
         (s/'AUDIT_PROTOCOL.md').write_text('### Common rules for every other subagent\n\n```\nCOMMON RULES\n<NETWORK-RULE>\n```\n')
         roles=d/'roles';first=install(roles,s)
-        say('exactly eleven named roles: the escalation check, the PDF renderer, the tool-patch reviewer, the status check, the citation agents and the helper among them (C18; PDF-AGENTS; OPERATOR-PATCH; DOC-FIX; CODEX-U2; no stall resolver)',
-            len(first['sha256'])==11 and all(r+'.toml' in first['sha256'] for r in
-            ('formalize_escalation','formalize_renderer','formalize_tool_patch_reviewer','formalize_status_check',
+        say('exactly ten named roles: the escalation check, the PDF renderer, the tool-patch reviewer, the citation agents and the helper among them (C18; PDF-AGENTS; OPERATOR-PATCH; DOC-FIX; CODEX-U2; no stall resolver)',
+            len(first['sha256'])==10 and all(r+'.toml' in first['sha256'] for r in
+            ('formalize_escalation','formalize_renderer','formalize_tool_patch_reviewer',
              'formalize_citations','formalize_helper'))
             and 'formalize_resolver.toml' not in first['sha256'])
         say('no role turns on the network or changes the sandbox (intake 1c: the task file carries the network rule)',
@@ -127,6 +130,8 @@ def selftest():
         text=(roles/'formalize_auditor.toml').read_text()
         say('every role tells its child never to ask for an approval to leave the sandbox (CODEX-PORT test: a citation child asked to download)',
             all(json.dumps(SANDBOX_RULE)[1:-1] in p.read_text() for p in roles.glob('*.toml')))
+        say('only the citation role says web search is not a sandbox command (CANARY-D032 run A)',
+            [p.name for p in roles.glob('*.toml') if json.dumps(CITATION_SEARCH)[1:-1] in p.read_text()]==['formalize_citations.toml'])
         say('canonical body without Claude front matter', 'Reviewer canonical instructions.' in text and 'name: auditor' not in text)
         say('all roles use medium reasoning',all('model_reasoning_effort = "medium"' in p.read_text() for p in roles.glob('*.toml')))
         say('chosen model is pinned',first['model']==DEFAULT_MODEL)

@@ -13,40 +13,10 @@ THREAT MODEL.  A careless or over-helpful author, not a malicious one. Everythin
 repository the author can write, so a determined forger can defeat it (by faking commit messages,
 for instance). What it guarantees is that nobody changes these things BY ACCIDENT or in passing.
 
-OWNERSHIP.  Each record in the rounds directory has one owner, identified by the commit message
-prefix of every commit that touches it:
-  scope <R>      TARGET.json, FINGERPRINTS.json, STATEMENTS_BUNDLE.md   (the launcher, via scripts)
-  adjudicate <R> lane verdicts, revote/, ADOPTED.md, PAPER_DEFECTS.md, SKIPPED.md,
-                 INFORMAL.json, SIGNOFF.json                            (the adjudicator)
-  approve        APPROVED_FINGERPRINTS*.json                            (after the Checkpoint B approval)
-  pin            TOOLING_PIN.json -- exactly one such commit
-  adjudicate <R> also <round>/<lane>.probes/* -- the probes a lane's verdicts cite
-  render <key> ...  pdf/<key>/* -- the PDF records: RENDER.json, the rendering agents' prompts, PDFs and verdicts
-                 (render_record.py, prompt.py --prompt render-*)
-  reader <key> <n>  readers/<key>-<n>.md (by the reader), <key>-<n>.response[-k].md and
-                 KNOWN_FAULTS-<key>.md (by the operator) -- fresh readers (readers.py)
-  hand-edit HE<k> <doc>  hand-edits/HE<k>.json, HE<k>.diff -- the operator's edit of a generated document after the
-                 final prepare (readers.py --hand-edit; DOC-FIX), committed with the document
-  adjudicate <R> also VACUOUS.md -- statements true only vacuously
-  record-fix <R> PAPER_DEFECTS.md, SKIPPED.md, VACUOUS.md -- a record correction: only the names that
-                 are not declared, in their cells (commit_record_fix stores the faults in the commit
-                 message; --check re-verifies the content against them)
-  stop S<n> ...  stops/S<n>/* -- the record of every stop (stops.py); the trail is checked by
-                 stops.trail_problems
-  revert <C> (stop S<n>)  release mode only: the records C changed without owning them, restored to
-                 their content before C (stops.py revert, or git revert); verified by content, never by
-                 subject (revert_problem: the exact inverse of C's foreign change), it excuses C
-  set-aside <R> [<lane>]  <round>/ABANDONED.json, <round>/.abandoned/* -- a round (or one re-vote
-                 lane) given up before adjudication (stops.py set-aside); that commit may also commit
-                 the round's (lane's) remaining lane files, after which nothing may touch them
-  resolve S<n> ...  resolutions/S<n>/* -- an older run's stall resolutions (pins before ownership 2,
-                 whose "resolve S<n> apply abandon-round|abandon-lane <R>" commits set rounds aside)
-  scope <R> (supersede ...)  <round>/.superseded/* -- an older run's sealed lane re-run by a resolution
-  escalate E<n> [(answer)]  escalations/E<n>.prompt.txt, .answer.md -- an escalation check (prompt.py
-                 --prompt escalate --write; its answer committed by lanecheck.py --escalation)
-Author-maintained and generated files (RUN_LOG.md, AUTHOR_NOTES.md, OUTCOMES.md, DEVIATIONS.md before ownership 3,
-REPORT.md, SUMMARY.md, SIGNOFF.md rendered from SIGNOFF.json, the delivered PDFs (fingerprinted in pdf/), DECISIONS.md written from
-the skeleton decisions.py generates) may change at any time, in any commit.
+OWNERSHIP.  Each record in the rounds directory has one owner, identified by the commit message prefix of every
+commit that touches it: OWNERS below (first match wins; OWNER_LABELS name each record), rendered for the operator as
+RUN.md's rule 4 (rule4_text). Author-maintained and generated files (RUN_LOG.md, AUTHOR_NOTES.md, OUTCOMES.md,
+REPORT.md, SUMMARY.md, SIGNOFF.md, the delivered PDFs, DECISIONS.md) are owned by no one and may change in any commit.
 
   integrity.py --pin                 Checkpoint A: record the apparatus (<ROUNDS-DIR>/TOOLING_PIN.json)
   integrity.py --check --round R     step 4, first thing. Exit 1 on any FAIL.
@@ -115,7 +85,7 @@ GROW_ONLY = ["lean_files", "standing_defers"]
 #   1  a lane's verdict, probes and re-votes were committed by the adjudication ("adjudicate R").
 #   2  they are committed by the lane's seal ("seal R <lane>", lane_auth.py), the moment it is
 #      sealed; the adjudicator commits ADOPTED.md and its top-level records by name; INFORMAL.json
-#      and SIGNOFF.json are committed by `signoff.py save-informal|save-signoff` ("signoff R").
+#      (and INFORMAL-2.json, 0.3.2) and SIGNOFF.json are committed by `signoff.py save-informal|save-signoff` ("signoff R").
 #   3  DEVIATIONS.md is the adjudicator's too (integration review, attack 6: a row's kind changed to
 #      "reading choice" in any commit made the summary say "faithful under reading N"; nothing checked it).
 #      The operator proposes route changes under "Route changes" in AUTHOR_NOTES.md; the adjudicator
@@ -143,9 +113,6 @@ OWNERS = [  # (pattern relative to the rounds dir, required prefix under version
     ("acknowledgments/*", "acknowledge ", ()),
     ("*/.lane-auth/*", "scope ", ()),
     ("*/.lane-seals/*", "seal ", ()),
-    # an older run's stall resolutions (the stall resolver, removed in 0.3.0): before "*/*.json"
-    # below, which would otherwise give resolutions/S1/STALL.json to the adjudicator
-    ("resolutions/*", "resolve ", ()),
     # the stop record and set-asides (stops.py); an older run's (ownership 1) abandon commits too
     ("stops/*", "stop ", ()),
     ("waivers/*", "ack ", ()),        # the human's waiver of one commit's ownership FAIL (--acknowledge)
@@ -154,15 +121,13 @@ OWNERS = [  # (pattern relative to the rounds dir, required prefix under version
     ("escalations/*", "escalate ", ()),
     ("*/.abandoned/*", "set-aside ", ("resolve ",)), ("*/ABANDONED.json", "set-aside ", ("resolve ",)),
     ("*/.reissued/*", "scope ", ()),     # a reissued lane's old verdict: evidence, never used (lane_auth.py)
-    ("*/.superseded/*", "scope ", ()),   # an older run's superseded lane (supersede was removed in 0.3.0)
     ("*/*.probes/*", "seal ", ("adjudicate ",)),
     # a fresh reader's report on a document a human will read (readers.py): written by the reader,
     # committed as "reader <doc> <n>", never edited (it records which version of the document passed)
     ("readers/*", "reader ", ()),
     ("KNOWN_FAULTS-*.md", "reader ", ()),     # the notice for findings marked unfixable (readers.py)
-    # DOC-FIX (approver 2026-10-25): a hand edit of a generated document after the final prepare, recorded and
-    # committed by readers.py --hand-edit as "hand-edit HE<k> <doc>" (the document, HE<k>.json, HE<k>.diff). No
-    # earlier run has the directory, so no older history is judged anew. --deliver checks the chain itself
+    # DOC-FIX (approver 2026-10-25; removed in 0.3.2): an older run's hand edit of a generated document after the
+    # final prepare, committed as "hand-edit HE<k> <doc>" (the document, HE<k>.json, HE<k>.diff)
     ("hand-edits/*", "hand-edit ", ()),
     # the PDFs a human reads, rendered and verified by fresh agents (render_record.py, PDF-AGENTS): RENDER.json, the
     # agents' prompts, PDFs, sources and verdicts, each committed alone as "render <key> ...". Before `*/*.json`
@@ -171,7 +136,8 @@ OWNERS = [  # (pattern relative to the rounds dir, required prefix under version
     ("*/TARGET.json", "scope ", ()), ("*/FINGERPRINTS.json", "scope ", ()),
     ("*/STATEMENTS_BUNDLE.md", "scope ", ()),
     ("*/ADOPTED.md", ("adjudicate ", "reader-fix "), ()), ("*/revote/*", "seal ", ("adjudicate ",)),
-    ("*/INFORMAL.json", "signoff ", ("adjudicate ",)), ("*/SIGNOFF.json", "signoff ", ("adjudicate ",)),
+    ("*/INFORMAL.json", "signoff ", ("adjudicate ",)), ("*/INFORMAL-2.json", "signoff ", ()),
+    ("*/SIGNOFF.json", "signoff ", ("adjudicate ",)),
     # SIGNOFF.md is rendered from SIGNOFF.json by signoff.py: generated, not owned; the PDFs are pdf/'s (above)
     # an older run's render fix (render_fix.py, removed in PDF-AGENTS): kept read-only so its records still check:
     # its render check was a lane (token and seal matched above), its verdict committed by its seal; the rest of
@@ -180,9 +146,8 @@ OWNERS = [  # (pattern relative to the rounds dir, required prefix under version
     # the advisory citation review (Stage 5 step 5a): its drafts and the agents' scratch files are advisory,
     # never checked; before `*/*.json` so a scratch .json there is not read as a lane verdict
     ("citations/*", None, ()),
-    # the advisory status check's records (status-check/: its prompts, RUNS.json, FINDINGS.md, ACTIONS.md), committed
-    # by name as "status-check: findings" (run/stage5-delivery.md); a run judging hand edits is sealed by
-    # run_record.py --seal-status-check (SEAL-<n>.json; readers.judgement_problems checks it). Before `*/*.json`: replay of conf1 under DOC-FIX,
+    # an older run's advisory status check (removed in 0.3.2): its prompts, RUNS.json, FINDINGS.md, ACTIONS.md and
+    # SEAL-<n>.json, committed by name as "status-check: findings". Before `*/*.json`: replay of conf1 under DOC-FIX,
     # status-check/RUNS.json read as a lane verdict and every re-run of the check failed FAIL[ownership]
     ("status-check/*", None, ()),
     # the findings a statement-round cap left open in a release run (scope.cap_record, approver 2026-10-24), written
@@ -217,27 +182,27 @@ OWNER_LABELS = {
     "acknowledgments/*": ("the reviewed acknowledgments of history faults (`acknowledgments/`: written by `integrity.py "
                           "--ack-request` and its fresh reviewer)"),
     "*/.lane-auth/*": "lane tokens", "*/.lane-seals/*": "lane seals",
-    "resolutions/*": "an older run's stall resolutions (`resolutions/`)",
     "stops/*": "the stop records (`stops/`, their repair records)",
     "waivers/*": "waivers (`waivers/`)",
     "escalations/*": "escalation prompts and answers (`escalations/`)",
     "*/.abandoned/*": "set-asides (`ABANDONED.json`, `.abandoned/`)",
     "*/ABANDONED.json": "set-asides (`ABANDONED.json`, `.abandoned/`)",
-    "*/.reissued/*": "reissued and superseded lane files", "*/.superseded/*": "reissued and superseded lane files",
+    "*/.reissued/*": "reissued lane files",
     "*/*.probes/*": "lane probes", "readers/*": "reader records (`readers/`)",
     "KNOWN_FAULTS-*.md": "the readers' notices (`KNOWN_FAULTS-*.md`)",
-    "hand-edits/*": "the hand-edit records (`hand-edits/`: written by `readers.py --hand-edit`)",
+    "hand-edits/*": "an older run's hand-edit records (`hand-edits/`; no current step writes them)",
     "pdf/*": "the PDF records (`pdf/`: `RENDER.json`, the rendering agents' prompts, PDFs and verdicts)",
     "*/TARGET.json": "`TARGET.json`", "*/FINGERPRINTS.json": "`FINGERPRINTS.json`",
     "*/STATEMENTS_BUNDLE.md": "`STATEMENTS_BUNDLE.md`", "*/ADOPTED.md": "`ADOPTED.md`",
-    "*/revote/*": "re-votes", "*/INFORMAL.json": "`INFORMAL.json`", "*/SIGNOFF.json": "`SIGNOFF.json`",
+    "*/revote/*": "re-votes", "*/INFORMAL.json": "`INFORMAL.json`",
+    "*/INFORMAL-2.json": "`INFORMAL-2.json`", "*/SIGNOFF.json": "`SIGNOFF.json`",
     "render/*.check/render-check@*.json": "render checks", "*/*.json": "lane verdicts",
     "PAPER_DEFECTS.md": "`PAPER_DEFECTS.md`", "SKIPPED.md": "`SKIPPED.md`", "VACUOUS.md": "`VACUOUS.md`",
-    "DEVIATIONS.md": "`DEVIATIONS.md` (a run pinned before ownership 3: you write its rows, never a `reading "
-                     "choice` or `differs` row)",
+    "DEVIATIONS.md": "`DEVIATIONS.md`",
     "APPROVED_FINGERPRINTS*.json": "the approval files (`APPROVED_FINGERPRINTS*.json`)", PIN: f"`{PIN}`",
     "REAPPROVAL*.json": "`REAPPROVAL.json`", "uni_math_extra.json": "an older run's `uni_math_extra.json`",
-    "*/prompts/adjudicator-readerfix-*.txt": "the reader-fix prompt (`prompts/adjudicator-readerfix-<n>.txt`)",
+    "*/prompts/adjudicator-readerfix-*.txt": ("an older run's reader-fix prompt (`prompts/adjudicator-readerfix-<n>.txt`; "
+                                              "no current step writes it)"),
     "DELIVERY.json": "the delivery record (`DELIVERY.json`)",
     "round-caps/*": "the statement-round cap records (`round-caps/`)",
 }
@@ -249,13 +214,18 @@ OPERATOR_WRITES = {
 }
 
 
+# W-R1 (REVIEW-WHOLE-032 NOTE 9): owners no current step commits under (older runs' records, still checked): not in rule 4
+LEGACY_OWNERS = ("reader-fix ", "reader-fix-prompt ", "hand-edit ")
+
+
 def rule4_text():
     """RUN.md's rule 4, generated from OWNERS and OWNER_LABELS (tests/doclint.py checks RUN.md carries it)."""
     groups = {}
     for pat, pre, _v1 in OWNERS:
-        if pre is None:
+        pre = tuple(x for x in ((pre,) if isinstance(pre, str) else pre or ()) if x not in LEGACY_OWNERS)
+        if not pre:
             continue
-        key = " or ".join(f"`{x.strip()}`" for x in (pre if isinstance(pre, tuple) else (pre,)))
+        key = " or ".join(f"`{x.strip()}`" for x in pre)
         lab = OWNER_LABELS.get(pat, f"UNLABELLED {pat}")
         if lab not in groups.setdefault(key, []):
             groups[key].append(lab)
@@ -440,11 +410,9 @@ def pin(audits, cfg, agent_file=AGENT_FILE, rounds_dir=None, repin=None, repo=No
 
 # "set-aside <R>" / "set-aside <R> <revote lane>" (stops.py): the commit that made an unadjudicated
 # round's (or one re-vote lane's) remaining files record. It may commit that round's (lane's) lane
-# files, which only a seal or an adjudication commits otherwise -- never its decisions. An older
-# run (ownership 1) did the same with "resolve S<n> apply abandon-round|abandon-lane <R>".
+# files, which only a seal or an adjudication commits otherwise -- never its decisions.
 SET_ASIDE_RE = re.compile(r"^set-aside (\S+)(?: (\S+))?$")
-ABANDON_RE = re.compile(r"^resolve S\d+ apply abandon-(round|lane) (\S+)")
-NEVER_ABANDONED = ("ADOPTED.md", "INFORMAL.json", "SIGNOFF.json", "TARGET.json", "FINGERPRINTS.json")
+NEVER_ABANDONED = ("ADOPTED.md", "INFORMAL.json", "INFORMAL-2.json", "SIGNOFF.json", "TARGET.json", "FINGERPRINTS.json")
 
 
 def set_aside_of(subject, version):
@@ -456,9 +424,6 @@ def set_aside_of(subject, version):
             return rnd, lane, lambda rel: rel == f"{rnd}/{lane}.json" or rel.startswith(f"{rnd}/{lane}.probes/") \
                 or rel.startswith(f"{rnd}/prompts/")
         return rnd, None, lambda rel: rel.startswith(rnd + "/")
-    m = ABANDON_RE.match(subject) if version < 2 else None
-    if m:
-        return m.group(2), (m.group(1) == "lane" or None), lambda rel: rel.startswith(m.group(2) + "/")
     return None
 
 
@@ -960,7 +925,7 @@ def check(audits, cfg, round_name, agent_file=AGENT_FILE, rounds_dir=None, round
                                     f"human waived it ({waived[commit_h]}); the report's summary page lists it"))
             elif need and not subject.startswith(need) and not abandoned_file \
                     and fnmatch.fnmatch(os.path.basename(rel), "KNOWN_FAULTS-*.md"):
-                # next batch B26 (CR-10): a fresh reader's notice is not a judgement record and readers.py checks its
+                # next batch B26 (NW-10): a fresh reader's notice is not a judgement record and readers.py checks its
                 # content; one committed under another subject is a NOTE, never a tamper stop
                 out.append(("note", f"[notice-subject] {rel}: committed by \"{subject[:50]}\" ({commit_h[:11]}), not a "
                                     f"reader commit (`reader <key> <n> (response)`); readers.py checks its content"))
@@ -1098,7 +1063,7 @@ def unpinned_py(audits, rounds_dir):
 def release_repin_problems(audits, rounds_dir, rounds_rel):
     """OPERATOR-PATCH (review R7): in a release run pinned under ownership 4 or later, a plain re-pin ("pin (repin:
     ...)") changes no tooling -- the diff of the tooling between the previous pin's commit and the new one is empty
-    (the gitmeta snapshot re-pin of RUN.md's restore cure); a tooling change mid-run is a reviewed tool patch,
+    (the gitmeta snapshot re-pin of the failure table's restore cure); a tooling change mid-run is a reviewed tool patch,
     "pin (tool-patch TP<k>)". Today's unreviewed hole (a plain re-pin over a hand edit) is FAIL[pin]."""
     fp = project.first_pin(rounds_dir) or {}
     try:
@@ -1195,8 +1160,8 @@ def added_only(audits, commit):
 # waived. Lane evidence -- a verdict or a probe -- is waivable only when the lane's seal came after
 # the commit (the seal then recorded it).
 CONTROL = ["*/.abandoned/*", "*/ABANDONED.json", "*/.lane-seals/*", "*/.lane-auth/*", "*/.reissued/*",
-           "*/.superseded/*", "stops/*", "waivers/*", "resolutions/*", "*/ADOPTED.md", "*/TARGET.json",
-           "*/FINGERPRINTS.json", "*/INFORMAL.json", "*/SIGNOFF.json", "APPROVED_FINGERPRINTS*.json", "acknowledgments/*",
+           "stops/*", "waivers/*", "*/ADOPTED.md", "*/TARGET.json",
+           "*/FINGERPRINTS.json", "*/INFORMAL.json", "*/INFORMAL-2.json", "*/SIGNOFF.json", "APPROVED_FINGERPRINTS*.json", "acknowledgments/*",
            "REAPPROVAL*.json", PIN, "readers/*", "KNOWN_FAULTS-*.md", "pdf/*"]
 
 
@@ -1363,7 +1328,7 @@ ACK_VERDICT = "review.json"
 # fingerprints): those are proof/freeze faults, never bookkeeping
 NEVER_ACK_RE = re.compile(r"(?:^|[\s`'\"(/])(?:phase0\.py|axiom_sweep[\w.]*|fingerprint\.py|fingerprint_tail\.lean|"
                           r"olean_parts\.lean|tool_patch\.py|integrity\.py|APPROVED_FINGERPRINTS[\w.]*|REAPPROVAL[\w.]*|"
-                          r"FINGERPRINTS\.json|SIGNOFF\.json|INFORMAL\.json|STATEMENTS_BUNDLE\.md|TARGET\.json|ADOPTED\.md|"
+                          r"FINGERPRINTS\.json|SIGNOFF\.json|INFORMAL(?:-2)?\.json|STATEMENTS_BUNDLE\.md|TARGET\.json|ADOPTED\.md|"
                           r"DEVIATIONS\.md|VACUOUS\.md|PAPER_DEFECTS\.md|SKIPPED\.md)(?![\w.])")
 # SWEEP-FIX review H2(a): a record that carries a judgement -- a lane's verdict or probe, a re-vote, an adjudication, an
 # approval or sign-off, a scope, a reader fix or record fix, an escalation's answer -- is never acknowledged, whatever
@@ -1415,7 +1380,7 @@ fault -- an interrupted or mis-ordered step; a re-pin made the wrong way or unde
 below show the tooling it pinned equals a trusted pin's (code checked that the tooling in force does); a bookkeeping
 record committed by the wrong step that changes nothing the run judges -- and NONE hides a change to what the run claims:
 an approved statement, a proof, a lane's verdict or probe, an adjudication (ADOPTED.md, PAPER_DEFECTS.md, SKIPPED.md,
-VACUOUS.md, DEVIATIONS.md, INFORMAL.json, SIGNOFF.json), an approval, a set-aside, or an audit tool that judges them,
+VACUOUS.md, DEVIATIONS.md, INFORMAL.json, INFORMAL-2.json, SIGNOFF.json), an approval, a set-aside, or an audit tool that judges them,
 made by someone other than its owner or without the review it needed. A tooling change that was never reviewed and
 is still in force is never bookkeeping.
 
@@ -1769,7 +1734,7 @@ def commit_adjudication(audits, rounds_dir, rounds_rel, round_name, revotes=Fals
     return project.commit_only(paths, subject, repo=audits), paths
 
 
-# --- record correction (RUN.md failure table, record-fix; AUDIT_PROTOCOL.md "Record correction") ------
+# --- record correction (the failure table, record-fix; AUDIT_PROTOCOL.md "Record correction") ------
 # A fault of class record-fix (dead-witness, record-cite) in an adjudicator's record is cured by a fresh
 # adjudicator that edits ONLY the cells holding the faulty name, committed as "record-fix R". A cell of
 # a protected column (a verdict, a decision, a severity, a defect's status or repair, who decided) never changes: a fault
@@ -1873,6 +1838,11 @@ def record_fix_cells(old, new, faults=None):
 def _git_text(audits, rev, path):
     rc, out = git(audits, "show", f"{rev}:{path}")
     return out if rc == 0 else ""
+
+
+def record_fix_close(cfg):
+    """The close after a record fix (0.3.2 A5): `--cured` in release, `--delegated` in dev."""
+    return "--cured" if project.mode(cfg) == "release" else "--delegated"
 
 
 def commit_record_fix(audits, rounds_dir, rounds_rel, round_name, cfg):
@@ -2020,10 +1990,11 @@ def record_fix_commits(audits, rounds_rel, cfg=None):
 # modelled on the record correction above, widened: the adjudicator may change any unprotected cell of an existing
 # row of PAPER_DEFECTS/SKIPPED/VACUOUS/DEVIATIONS.md (never a status, decision, verdict, kind, or what a row is
 # about: a new round), and the rows of the `## Hypotheses` and `## Readings` sections of the round's ADOPTED.md
-# (U2 §2: the adjudicator's hypothesis and reading rows). `prompt.py 4 --round R --reader-fix` writes the prompt
-# and commits it as "reader-fix-prompt R n"; `integrity.py --commit-reader-fix --round R` commits the edit as
-# "reader-fix R n" with the prompt's sha256 (lanecheck --round R checks it against the committed prompt, §7f).
-# At most READER_FIX_BUDGET per run; integrity --check re-verifies every one.
+# (U2 §2: the adjudicator's hypothesis and reading rows). An older run's `prompt.py 4 --round R --reader-fix` (removed
+# in 0.3.2) wrote the prompt and committed it as "reader-fix-prompt R n"; its `integrity.py --commit-reader-fix --round R`
+# (removed in 0.3.2 W-R6: it refused without that prompt commit) committed the edit as "reader-fix R n" with the
+# prompt's sha256. Only the verifier stays, for such commits in a run's history: lanecheck --round R checks the hash
+# against the committed prompt (§7f); at most READER_FIX_BUDGET per run; integrity --check re-verifies every one.
 READER_FIX_RECORDS = ("PAPER_DEFECTS.md", "SKIPPED.md", "VACUOUS.md", "DEVIATIONS.md")
 READER_FIX_SECTIONS = ("## Hypotheses", "## Readings")
 READER_FIX_BUDGET = 2
@@ -2101,8 +2072,8 @@ def reader_fix_edit_problems(old, new, round_name):
 
 def no_change_commits(audits, rounds_rel):
     """{commit} of the run's no-change reader fixes: an empty "reader-fix R n" commit (it touches no file, so the
-    rounds dir's path-limited history misses it) whose body names this rounds dir (`rounds: <rel>`, written by
-    commit_reader_fix when the adjudicator changed no record cell). Trial #9: a round that changes nothing is a
+    rounds dir's path-limited history misses it) whose body names this rounds dir (`rounds: <rel>`, written by an
+    older run's `--commit-reader-fix` when the adjudicator changed no record cell). Trial #9: a round that changes nothing is a
     valid outcome, counted toward the budget like any other."""
     rc, out = git(audits, "log", "--format=@@%H %s%n%b")
     found, cur = set(), None
@@ -2155,8 +2126,8 @@ def reader_fix_prompt_problems(audits, rounds_rel, round_name=None):
         ph = prompts.get((rnd, n))
         rel = f"{rounds_rel}/{reader_fix_prompt_rel(rnd, n)}"
         if ph is None:
-            out.append(f"\"reader-fix {rnd} {n}\" ({h[:11]}) has no \"reader-fix-prompt {rnd} {n}\" commit (prompt.py 4 "
-                       f"--round {rnd} --reader-fix writes and commits it)")
+            out.append(f"\"reader-fix {rnd} {n}\" ({h[:11]}) has no \"reader-fix-prompt {rnd} {n}\" commit (an older run's "
+                       f"prompt.py 4 --reader-fix wrote and committed it)")
             continue
         committed = _git_text(audits, ph, rel)
         want = hashlib.sha256(committed.encode("utf-8")).hexdigest() if committed else None
@@ -2181,68 +2152,11 @@ def reader_fix_commit_problems(audits, rounds_rel):
     return out
 
 
-def commit_reader_fix(audits, rounds_dir, rounds_rel, round_name, cfg=None):
-    """Commit a reader fix of round `round_name` as "reader-fix R n" (n = the run's next; at most
-    READER_FIX_BUDGET), storing the committed prompt's sha256. Returns (commit, n, [changed files]); raises
-    ValueError."""
-    if not round_name or not project.ROUND_RE.match(round_name):
-        raise ValueError(f"{round_name!r} is not a round name")
-    fixes, prompts = reader_fix_history(audits, rounds_rel)
-    n = len(fixes) + 1
-    if n > READER_FIX_BUDGET:
-        raise ValueError(f"the run's {READER_FIX_BUDGET} reader-fix rounds are spent: answer what remains unfixable "
-                         f"(\"fix budget reached\") and quote it in the notice")
-    ph = prompts.get((round_name, n))
-    if ph is None:
-        raise ValueError(f"no committed prompt for reader fix {n} of {round_name}: python3 audits/prompt.py 4 --round "
-                         f"{round_name} --reader-fix writes and commits it, then the adjudicator runs it")
-    prel = reader_fix_prompt_rel(round_name, n)
-    committed = _git_text(audits, ph, f"{rounds_rel}/{prel}")
-    disk = open(os.path.join(rounds_dir, prel), encoding="utf-8").read() if os.path.exists(os.path.join(rounds_dir, prel)) else None
-    if not committed or disk != committed:
-        raise ValueError(f"the prompt {prel} differs from the one committed by {ph[:11]}: restore it (git checkout)")
-    rc, st = git(audits, "status", "--porcelain", "--untracked-files=all", "--", rounds_rel)
-    changed = []
-    for line in st.splitlines():
-        rel = os.path.relpath(line[3:].strip().strip('"'), rounds_rel)
-        if rel in READER_FIX_RECORDS or rel == f"{round_name}/ADOPTED.md":
-            changed.append(rel)
-        elif owner(rel) is not None and not line.startswith("??"):
-            raise ValueError(f"{rel} changed: a reader fix changes only {', '.join(READER_FIX_RECORDS)} and the "
-                             f"hypothesis and reading rows of {round_name}/ADOPTED.md")
-    if not changed:
-        # Trial #9: the adjudicator found no record cell it may change (every finding NEEDS A ROUND or NOT A
-        # FAULT). That is a valid outcome: record it as an empty "reader-fix R n" commit naming this rounds dir,
-        # counted toward the budget, so the findings it was given can close (unfixable past the budget, disclosed)
-        msg = (f"reader-fix {round_name} {n}\n\nprompt: {hashlib.sha256(committed.encode('utf-8')).hexdigest()}\n"
-               f"no change: the adjudicator changed no record cell\nrounds: {rounds_rel}\n")
-        import lane_auth
-        from pathlib import Path
-        top = lane_auth.audit_repo(Path(rounds_dir))
-        with lane_auth.repo_lock(top):
-            # --only with no path: an empty commit that leaves whatever else is staged out of it
-            rc, _o = git(str(top), "commit", "-q", "--allow-empty", "--only", "-m", msg)
-            if rc != 0:
-                raise ValueError("the no-change reader fix could not be committed (git commit failed)")
-            h = git(str(top), "rev-parse", "HEAD")[1].strip()
-        return h, n, []
-    old = {f: _git_text(audits, "HEAD", f"{rounds_rel}/{f}") for f in changed}
-    new = {f: open(os.path.join(rounds_dir, f), encoding="utf-8").read() for f in changed}
-    probs = reader_fix_edit_problems(old, new, round_name)
-    if probs:
-        raise ValueError("not a reader fix (restore the records and run a new round if more must change):\n  "
-                         + "\n  ".join(probs))
-    msg = (f"reader-fix {round_name} {n}\n\nprompt: {hashlib.sha256(committed.encode('utf-8')).hexdigest()}\n"
-           + "".join(f"changed: {f}\n" for f in changed))
-    h = project.commit_only([os.path.join(rounds_dir, f) for f in changed], msg, repo=audits)
-    return h, n, changed
-
-
 # --- RUN_RECORD.md: the process record lists every applied tool patch, self-cure and set-aside (approver 2026-10-24) ---
 # Provenance only: the ids and hashes the record must carry are read from the raw records (TOOLING_PIN.json's
 # re-pins, the audit repository's `tool-patch TP<k> apply` commits, stops/S<n>/CLOSED.json, the set-aside markers),
 # never from the generator (run_record.py) whose output is checked. Run by `project.py --deliver` on the delivered
-# copy, by `stops.deliver_gate` on the prepared file, and as `integrity.py --check-run-record [PATH]` (the form the
+# copy, by `stops.math_gate` on the prepared file, and as `integrity.py --check-run-record [PATH]` (the form the
 # root of trust runs from the scripts pinned at the run's first pin, OPERATOR-PATCH §2).
 RUN_RECORD_MD = "RUN_RECORD.md"
 RR_PATCHES, RR_CLEARED, RR_SETASIDE = "Tool patches", "Stops cleared without you", "Set-asides and clearances"
@@ -2326,21 +2240,6 @@ def run_record_problems(audits, rounds_dir, text):
             by = None
         if by != "human" and not re.search(rf"(?m)^\| {re.escape(s)} \|", secs[RR_CLEARED]):
             out.append(f"{RUN_RECORD_MD} does not list stop {s}, closed by the operator, under \"{RR_CLEARED}\"")
-    # DOC-FIX: every live hand edit of a generated document, its id and diff sha256, in the delivery section (a
-    # delivered record only: the edits come after the final prepare, so the prepared record cannot name them)
-    delivered = re.search(r"(?m)^## Delivery-phase notes[ \t]*$", text or "") is not None
-    try:
-        import readers as _rd
-        live = _rd.live_hand_edits_at(rounds_dir)
-    except Exception as e:      # noqa: BLE001 -- fail closed
-        live, out = [], out + [f"the hand edits could not be read: {e!r}"]
-    if live and delivered:
-        hsec = re.findall(r"(?ms)^### Hand edits of generated documents[ \t]*\n(.*?)(?=^### |^## |\Z)", text or "")
-        body = "\n".join(hsec)
-        for r in live:
-            if not re.search(rf"(?m)^#### {re.escape(r['he'])}:", body) or str(r.get("diff_sha256")) not in body:
-                out.append(f"{RUN_RECORD_MD} does not list hand edit {r['he']} (its id and diff sha256) under \"Hand "
-                           f"edits of generated documents\"")
     # SWEEP-FIX D2: every valid acknowledgment of a history fault, with each line it acknowledges
     acks = [a for a in acknowledgments(audits, rounds_dir) if a["valid"]]
     if acks:
@@ -2377,9 +2276,6 @@ def main():
     ap.add_argument("--commit-record-fix", action="store_true",
                     help="with --round: commit a record correction (only the faulty cells of PAPER_DEFECTS/SKIPPED/"
                          "VACUOUS.md) as \"record-fix R\"")
-    ap.add_argument("--commit-reader-fix", action="store_true",
-                    help="with --round: commit a reader-fix round (B10: unprotected cells of PAPER_DEFECTS/SKIPPED/"
-                         "VACUOUS/DEVIATIONS.md, the hypothesis and reading rows of R/ADOPTED.md) as \"reader-fix R n\"")
     ap.add_argument("--revotes", action="store_true",
                     help="with --commit-adjudication: the re-vote adjudication (\"adjudicate R revotes\")")
     ap.add_argument("--acknowledge", metavar="COMMIT",
@@ -2465,23 +2361,7 @@ def main():
         project.log_append(cfg, "Mechanical failures", f"- record-fix {a.round} ({datetime.date.today().isoformat()}): "
                            f"a record correction in {h[:11]} changed {what}")
         print(f"committed \"record-fix {a.round}\" in {h[:11]}: {what}\nnow re-run the check that failed, then "
-              f"stops.py close --delegated (RUN.md failure table, record-fix)")
-        return 0
-    if a.commit_reader_fix:
-        try:
-            h, n, files = commit_reader_fix(project.AUDITS, rd, rel, a.round, cfg)
-        except ValueError as e:
-            print(f"FAIL[commit-refused] {e}", file=sys.stderr); return 1
-        if not files:
-            left = READER_FIX_BUDGET - n
-            print(f"no record changed: recorded \"reader-fix {a.round} {n}\" (no change) in {h[:11]}, reader fix {n} of "
-                  f"the run's {READER_FIX_BUDGET}; the documents are unchanged (no new reader pass). "
-                  + (f"{left} reader-fix round(s) remain for the content findings still open"
-                     if left > 0 else "The budget is spent: answer each remaining content finding unfixable "
-                     "(\"fix budget reached\", with the adjudicator's NEEDS A ROUND reason) and quote it in the notice"))
-            return 0
-        print(f"committed \"reader-fix {a.round} {n}\" in {h[:11]}: {', '.join(files)}\nnow prepare again "
-              f"(python3 audits/project.py --prepare-delivery) and run the readers of the documents that changed")
+              f"stops.py close {record_fix_close(cfg)} (the failure table, record-fix)")
         return 0
     if a.check:
         res = check(project.AUDITS, cfg, a.round, rounds_dir=rd, rounds_rel=rel, repo=project.REPO)
@@ -2502,6 +2382,12 @@ def selftest():
         print(f"  {'ok  ' if cond else 'FAIL'}  {name}")
         ok &= bool(cond)
 
+    say("0.3.2 A5: after a record fix the printed close is --cured in release, --delegated in dev",
+        [record_fix_close({"mode": m_}) for m_ in ("release", "dev")] == ["--cured", "--delegated"])
+    say("0.3.2 A7: INFORMAL-2.json (the second blind reading) is the `signoff` commit's, a control record, never "
+        "abandoned, set aside or acknowledged",
+        owner("R/INFORMAL-2.json") == ("signoff ",) and any(fnmatch.fnmatch("R/INFORMAL-2.json", p_) for p_ in CONTROL)
+        and "INFORMAL-2.json" in NEVER_ABANDONED and bool(NEVER_ACK_RE.search("R/INFORMAL-2.json")))
     d = tempfile.mkdtemp()
     repo = tempfile.mkdtemp()
     try:
@@ -2688,7 +2574,7 @@ def selftest():
         g("reset", "-q", "--hard", "HEAD~1")
         open(os.path.join(rd, "KNOWN_FAULTS-decisions.md"), "w").write("- unfixable: x\n")
         commit("implement R1")
-        # next batch B26 (CR-10): a NOTE, not a tamper FAIL; another owned file under a wrong subject still fails
+        # next batch B26 (NW-10): a NOTE, not a tamper FAIL; another owned file under a wrong subject still fails
         say("a KNOWN_FAULTS notice committed outside a `reader` commit is a NOTE[notice-subject], never a FAIL",
             not any("KNOWN_FAULTS-decisions.md" in m for m in fails(C()))
             and any(k == "note" and "[notice-subject] " in t and "KNOWN_FAULTS-decisions.md" in t for k, t in C()))
@@ -2813,11 +2699,6 @@ def selftest():
         say("A11: a hand-written REAPPROVAL.json (not committed by the re-approval command) fails",
             any("REAPPROVAL.json" in m for m in fails(C())))
         g("reset", "-q", "--hard", "HEAD~1")
-        os.makedirs(os.path.join(rd, "resolutions", "S1"))
-        open(os.path.join(rd, "resolutions", "S1", "STALL.json"), "w").write("{}"); commit("adjudicate R1")
-        say("an older run's stall resolution committed by anything but 'resolve' fails",
-            any("STALL.json" in m and "resolve" in m for m in fails(C())))
-        g("reset", "-q", "--hard", "HEAD~1")
         doc = json.load(open(os.path.join(rd, PIN)))
         doc["audits_commit"] = "deadbeef"; json.dump(doc, open(os.path.join(rd, PIN), "w"))
         commit("pin")
@@ -2906,16 +2787,6 @@ def selftest():
         commit("set-aside R9")
         say("a set-aside commit never covers a round's decisions (ADOPTED.md)",
             any("R9/ADOPTED.md" in m for m in fails(C(r="R1"))))
-        g("reset", "-q", "--hard", "HEAD~1")
-        os.makedirs(os.path.join(rd, "R6")); open(os.path.join(rd, "R6", "correspondence.json"), "w").write("{}")
-        commit("resolve S1 apply abandon-round R6")
-        say("under ownership 2 an older run's abandon commit is not a set-aside",
-            any("R6/correspondence.json" in m and "only a" in m for m in fails(C(r="R1"))))
-        g("reset", "-q", "--hard", "HEAD~1")
-        os.makedirs(os.path.join(rd, "R1", ".superseded")); open(os.path.join(rd, "R1", ".superseded", "c.json.1.json"), "w").write("{}")
-        commit("seal R1 c.json")
-        say("an older run's superseded lane evidence is committed only by its supersede (scope) commit",
-            any(".superseded/c.json.1.json" in m for m in fails(C(r="R1"))))
         g("reset", "-q", "--hard", "HEAD~1")
         # A5: the adjudication commits its own records by name; nothing else is swept in
         ra = "2026-01-01-abcdef0"; os.makedirs(os.path.join(rd, ra, "revote"))
@@ -3180,33 +3051,8 @@ def selftest():
         say(name, cond)
     say("DOC-FIX review #1: inside run_history_hidden(A) a fixture reads no `tool-patch TP<k> apply` commit of A (the "
         "run's audit record); another repository, and A outside it, still are read", _run_history_hidden_control())
-    for name, cond in _hand_edit_listing_controls():
-        say(name, cond)
     print("selftest:", "ok" if ok else "FAILED")
     return 0 if ok else 1
-
-
-def _hand_edit_listing_controls():
-    """[(name, ok)]: run_record_problems on an older run's records with a live hand edit (readers.live_hand_edits_at
-    stubbed): a delivered record (its "## Delivery-phase notes") must list the edit's id and diff sha256 under "Hand
-    edits of generated documents"; a prepared record need not (mutant DF13)."""
-    import readers
-    d = tempfile.mkdtemp(prefix="he-listing-")
-    keep = readers.live_hand_edits_at
-    try:
-        readers.live_hand_edits_at = lambda rd, name=None: [{"he": "HE1", "doc": "SUMMARY.md", "diff_sha256": "ab" * 32}]
-        delivered = "## Delivery-phase notes\n\n- none\n"
-        miss = run_record_problems(d, d, delivered)
-        listed = run_record_problems(d, d, delivered + "\n### Hand edits of generated documents\n\n#### HE1: SUMMARY.md\n"
-                                     f"\n- diff sha256 `{'ab' * 32}`\n")
-        prepared = run_record_problems(d, d, "## 1. What was run\n")
-        he = lambda ps: [p for p in ps if "hand edit HE1" in p]
-        return [("DOC-FIX: a delivered RUN_RECORD.md that does not list a live hand edit (id and diff sha256) is a "
-                 "problem; one that lists it, and a prepared record, are not (mutant DF13)",
-                 len(he(miss)) == 1 and he(listed) == [] and he(prepared) == [])]
-    finally:
-        readers.live_hand_edits_at = keep
-        shutil.rmtree(d, ignore_errors=True)
 
 
 def _ack_controls():
@@ -3627,31 +3473,17 @@ def _reader_fix_controls():
         open(os.path.join(rd, R, "ADOPTED.md"), "w").write(ad)
         open(os.path.join(rd, R, "TARGET.json"), "w").write("{}")
         G("add", "-A"); G("commit", "-qm", f"adjudicate {R}")
-        try:
-            commit_reader_fix(d, rd, "P", R)
-            no_prompt = False
-        except ValueError as e:
-            no_prompt = "no committed prompt" in str(e)
         pr = os.path.join(rd, reader_fix_prompt_rel(R, 1))
         open(pr, "w").write("THE PROMPT\n")
         G("add", "-A"); G("commit", "-qm", f"reader-fix-prompt {R} 1")
         open(os.path.join(rd, "PAPER_DEFECTS.md"), "w").write(pd.replace("why: OLD", "why: NEW"))
-        open(os.path.join(rd, R, "TARGET.json"), "w").write('{"x": 1}')
-        try:
-            commit_reader_fix(d, rd, "P", R)
-            other = False
-            G("reset", "-q", "--hard", "HEAD~1")       # a mutant committed it: undo, so the controls go on
-            open(os.path.join(rd, "PAPER_DEFECTS.md"), "w").write(pd.replace("why: OLD", "why: NEW"))
-        except ValueError as e:
-            other = "TARGET.json changed" in str(e)
-        G("checkout", "-q", "--", f"P/{R}/TARGET.json")
-        out.append(("N4: a reader fix with another owned record changed is refused", other))
-        h1, n1, f1 = commit_reader_fix(d, rd, "P", R)
+        # W-R6 (C-1): the writer (--commit-reader-fix) is gone; an older run's commit is rebuilt by hand in its format
+        _hand_reader_fix(G, R, 1, "THE PROMPT\n", ["P/PAPER_DEFECTS.md"])
         subj = G("log", "-1", "--format=%s").stdout.strip()
-        ok1 = (no_prompt and n1 == 1 and f1 == ["PAPER_DEFECTS.md"] and subj == f"reader-fix {R} 1"
+        ok1 = (subj == f"reader-fix {R} 1" and [x[2] for x in reader_fix_history(d, "P")[0]] == [1]
                and reader_fix_prompt_problems(d, "P", R) == [] and all(not p_ for _h, _r, p_ in reader_fix_commit_problems(d, "P")))
-        out.append(("N4: integrity.py --commit-reader-fix needs the committed prompt, commits \"reader-fix R n\" with its "
-                    "sha256, and the commit passes lanecheck's hash check and integrity's edit check", ok1))
+        out.append(("N4: an older run's \"reader-fix R n\" commit (rebuilt by hand: the prompt's sha256, the changed "
+                    "record) passes lanecheck's hash check and integrity's edit check", ok1))
         # a hand-made reader fix with another prompt's hash, and one changing a status cell
         open(os.path.join(rd, R, "prompts", "adjudicator-readerfix-2.txt"), "w").write("PROMPT 2\n")
         G("add", "-A"); G("commit", "-qm", f"reader-fix-prompt {R} 2")
@@ -3663,15 +3495,9 @@ def _reader_fix_controls():
                     "(prompt-changed), and one changing a status cell fails integrity (record-fix-diff)",
                     any("hashes to" in x for x in hp) and any("'status' cell changed" in x for x in ep)))
         open(os.path.join(rd, "PAPER_DEFECTS.md"), "w").write(pd.replace("why: OLD", "why: THIRD"))
-        try:
-            commit_reader_fix(d, rd, "P", R)
-            third = False
-        except ValueError as e:
-            third = "spent" in str(e)
-        out.append(("N4: a third reader fix in a run is refused (budget 2)", third and READER_FIX_BUDGET == 2))
         G("add", "-A"); G("commit", "-q", "-m", f"reader-fix {R} 3\n\nprompt: {'0' * 64}\n")
-        out.append(("N4: a hand-made third reader fix fails lanecheck (past the budget)",
-                    any("past the run's budget" in x for x in reader_fix_prompt_problems(d, "P", None))))
+        out.append(("N4: a hand-made third reader fix fails lanecheck (past the budget of 2)",
+                    READER_FIX_BUDGET == 2 and any("past the run's budget" in x for x in reader_fix_prompt_problems(d, "P", None))))
         out.append(("N4: ownership: the reader-fix prompt is the prompt command's, DELIVERY.json is prepare's, the records "
                     "and ADOPTED.md accept a reader fix",
                     owner(f"{R}/prompts/adjudicator-readerfix-1.txt") == ("reader-fix-prompt ",)
@@ -3694,10 +3520,25 @@ def _reader_fix_controls():
     return out
 
 
+def _hand_reader_fix(G, R, n, prompt_text, paths, rounds_rel=None):
+    """An older run's "reader-fix R n" commit, built by hand in the format the removed `--commit-reader-fix` wrote
+    (W-R6, C-1): the subject, a blank line, `prompt: <sha256 of the committed prompt>`, then `changed: <file>` per
+    record (the paths alone committed), or, with no path, an empty commit (`--only`: staged work stays out) whose
+    body says `no change: ...` and names the rounds dir (`rounds: <rel>`)."""
+    sha_ = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
+    if paths:
+        G("add", "--", *paths)
+        G("commit", "-q", "--only", "-m", f"reader-fix {R} {n}\n\nprompt: {sha_}\n"
+          + "".join(f"changed: {x.split('/', 1)[1]}\n" for x in paths), "--", *paths)
+    else:
+        G("commit", "-q", "--allow-empty", "--only", "-m", f"reader-fix {R} {n}\n\nprompt: {sha_}\n"
+          f"no change: the adjudicator changed no record cell\nrounds: {rounds_rel}\n")
+
+
 def _selftest_reader_fix_no_change(R, pd):
-    """Trial #9: the second reader fix changed nothing; it is recorded (an empty "reader-fix R 2" naming the rounds
-    dir), counted (the third is refused, readers count 2), passes the hash and edit checks, and leaves other staged
-    work out of the commit; another project's no-change commit is not counted."""
+    """Trial #9: an older run's second reader fix changed nothing and was recorded as an empty "reader-fix R 2" naming
+    the rounds dir; it is counted (a third is past the budget), passes the hash and edit checks; another project's
+    no-change commit is not counted. The commits are rebuilt by hand (W-R6, C-1: the writer is gone)."""
     d = tempfile.mkdtemp(prefix="readerfix-nc-")
     try:
         G = lambda *a: subprocess.run(["git", "-C", d, *a], capture_output=True, text=True)
@@ -3711,31 +3552,22 @@ def _selftest_reader_fix_no_change(R, pd):
             G("add", "-A"); G("commit", "-qm", f"reader-fix-prompt {R} {k}")
             if k == 1:
                 open(os.path.join(rd, "PAPER_DEFECTS.md"), "w").write(pd.replace("why: OLD", "why: NEW"))
-                commit_reader_fix(d, rd, "P", R)
+                _hand_reader_fix(G, R, 1, "PROMPT 1\n", ["P/PAPER_DEFECTS.md"])
         # another project's no-change reader fix in the same audit record: not this run's
-        G("commit", "-q", "--allow-empty", "-m", f"reader-fix {R} 2\n\nprompt: {'0' * 64}\nrounds: Q\n")
-        open(os.path.join(d, "staged.txt"), "w").write("x")
-        G("add", "staged.txt")
-        try:
-            h, n, files = commit_reader_fix(d, rd, "P", R)
-        except ValueError as e:
-            return (f"Trial #9: a reader fix that changes nothing is recorded and counted (refused: {e})", False)
-        body = G("log", "-1", "--format=%B").stdout
+        _hand_reader_fix(G, R, 2, "PROMPT X\n", [], rounds_rel="Q")
+        _hand_reader_fix(G, R, 2, "PROMPT 2\n", [], rounds_rel="P")
+        h = G("rev-parse", "HEAD").stdout.strip()
         empty = G("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").stdout.strip() == ""
-        still = "A  staged.txt" in G("status", "--porcelain").stdout
         fixes, _ = reader_fix_history(d, "P")
-        try:
-            commit_reader_fix(d, rd, "P", R)
-            third = False
-        except ValueError as e:
-            third = "spent" in str(e)
-        ok = (n == 2 and files == [] and empty and still and f"rounds: P" in body and "no change" in body
-              and [x[2] for x in fixes] == [1, 2] and fixes[-1][0] == h and third
+        G("commit", "-q", "--allow-empty", "-m", f"reader-fix {R} 3\n\nprompt: {'0' * 64}\nrounds: P\n")
+        third = any("past the run's budget" in x for x in reader_fix_prompt_problems(d, "P", None))
+        G("reset", "-q", "--hard", "HEAD~1")
+        ok = (empty and [x[2] for x in fixes] == [1, 2] and fixes[-1][0] == h and third
               and reader_fix_prompt_problems(d, "P", R) == []
               and all(not p_ for _h, _r, p_ in reader_fix_commit_problems(d, "P")))
-        return ("Trial #9: a reader fix that changes nothing is recorded as an empty \"reader-fix R n\" naming the "
-                "rounds dir, counted toward the budget of 2 (the next is refused), passes the hash and edit checks, "
-                "leaves staged work out, and another project's is not counted", ok)
+        return ("Trial #9: an older run's reader fix that changed nothing (an empty \"reader-fix R n\" naming the rounds "
+                "dir, rebuilt by hand) is counted toward the budget of 2 (a third is past it), passes the hash and edit "
+                "checks, and another project's is not counted", ok)
     finally:
         shutil.rmtree(d, ignore_errors=True)
 

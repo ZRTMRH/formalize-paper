@@ -189,22 +189,30 @@ def synthetic_target():
 def module_control():
     """The module rule's `| some i =>` branch: a root-level `sorry` in an IMPORTED project module,
     outside the namespace. A module NegCtlMod is compiled into a fresh temp dir (never the
-    repository) and imported with module root NegCtlMod; the sweep must report its sorry.
-    (exit code, Lean output)."""
+    repository) and imported with module root NegCtlMod; the sweep must report its sorry. F-1: with it, a
+    module NegCtlNs outside the root holds a private `sorry` in the namespace, found only by the namespace (the
+    sweep enumerates the module tables), and NegCtlNs2 one of the same name (two constants, both counted: C-R1):
+    3 declarations. (exit code, Lean output)."""
     d = tempfile.mkdtemp(prefix="negctl_mod_")
     try:
-        mod = os.path.join(d, "NegCtlMod.lean")
-        with open(mod, "w", encoding="utf-8") as fh:
-            fh.write("theorem negctlModRoot : 1 = 2 := sorry\n")
-        r = subprocess.run(["lake", "env", "lean", "--root=" + d, "-o", os.path.join(d, "NegCtlMod.olean"), mod],
-                           cwd=project.REPO, capture_output=True, text=True)
-        if r.returncode != 0:
-            return r.returncode, "error (building the temp module NegCtlMod): " + (r.stdout + r.stderr)
+        for name, text in (("NegCtlMod", "theorem negctlModRoot : 1 = 2 := sorry\n"),
+                           ("NegCtlNs", "namespace NegCtlClean\nprivate theorem negctlNsPriv : 1 = 2 := sorry\n"
+                                        "end NegCtlClean\n"),
+                           ("NegCtlNs2", "namespace NegCtlClean\nprivate theorem negctlNsPriv : 1 = 2 := sorry\n"
+                                         "end NegCtlClean\n")):
+            mod = os.path.join(d, name + ".lean")
+            with open(mod, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            r = subprocess.run(["lake", "env", "lean", "--root=" + d, "-o", os.path.join(d, name + ".olean"), mod],
+                               cwd=project.REPO, capture_output=True, text=True)
+            if r.returncode != 0:
+                return r.returncode, f"error (building the temp module {name}): " + (r.stdout + r.stderr)
         cfg = {"namespace": "NegCtlClean", "sweep": {"min_decls": 10}}
         tail = project.lean_tail(cfg, TAIL, [("__MIN_DECLS__", "10"), ("__UNPROVED__", "[]"), ("__GOALS__", "[]"),
                                              ("__PENDING__", "[]"),
                                                    ("__GENERATED__", GENERATED_LEAN)], root="NegCtlMod")
-        return project.run_lean("import NegCtlMod\nimport Lean.Elab.Command\n" + CLEAN_DECLS + tail, lean_path=d)
+        return project.run_lean("import NegCtlMod\nimport NegCtlNs\nimport NegCtlNs2\nimport Lean.Elab.Command\n"
+                                + CLEAN_DECLS + tail, lean_path=d)
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
@@ -323,13 +331,15 @@ def _controls(cfg, synth_path, own):
         print(f"  {'ok  ' if hit else 'FAIL'}  {label} (pending: {', '.join(names)}): exit={rc}  "
               + (" | ".join(errs) or "passes") + ("" if hit else f"  wanted {msgs or 'a pass'!r}; Lean said: "
                                                   + " | ".join([l for l in out.splitlines() if "error" in l][:2])))
-    # a root-level sorry in an imported project module (not the appended file) is swept
+    # a root-level sorry in an imported project module (not the appended file) is swept, and a private one in the
+    # namespace in an imported module outside the root (F-1: both found from the module tables)
     rc, out = module_control()
     errs = sweep_errors(out)
-    hit = rc != 0 and says(errs, sorry)
+    hit = rc != 0 and says(errs, "3 declarations reach sorryAx")
     ok &= hit
-    print(f"  {'ok  ' if hit else 'FAIL'}  root-level-sorry in an imported project module: exit={rc}  "
-          + (" | ".join(errs) if hit else f"wanted the sweep's error {sorry!r}; Lean said: "
+    print(f"  {'ok  ' if hit else 'FAIL'}  root-level-sorry in an imported project module, private namespaced sorry in "
+          f"two other imported modules (one name): exit={rc}  "
+          + (" | ".join(errs) if hit else f"wanted the sweep's error '3 declarations reach sorryAx'; Lean said: "
              + " | ".join([l for l in out.splitlines() if "error" in l][:2])))
     # main()'s exit code is what phase0 reads; test it end to end, not only run(): with a sorry
     # injected into the clean target, main() must exit non-zero AND print the sweep's report

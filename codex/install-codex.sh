@@ -13,6 +13,9 @@ echo "  Codex: skill installed in ~/.agents/skills/formalize-paper/ (start a run
 
 if [[ $# -ge 1 ]]; then
   python3 -B "$HERE/codex/configure-environment.py" "$1/.codex/config.toml"
+  # --upgrade (REVIEW-WHOLE-032 FIX-1): the generated roles are replaced by this version's, a role it no longer
+  # generates included (git-excluded; integrity pins the new bytes at the next run's pin)
+  if [[ "${FP_UPGRADE:-0}" == 1 ]]; then rm -f "$1/.codex/agents"/formalize_*.toml; fi
   python3 -B "$1/audits/codex_agents.py" --install "$1/.codex/agents"
   # keep the generated roles and the project Codex config out of the project's history
   EXCL="$(git -C "$1" rev-parse --git-path info/exclude)"; [[ "$EXCL" = /* ]] || EXCL="$1/$EXCL"
@@ -30,9 +33,11 @@ if [[ $# -ge 1 ]]; then
     ADD="--add-dir $(printf %q "$GD")"
     [[ -n "$GW" && "$GW" != "$GD" ]] && ADD="$ADD --add-dir $(printf %q "$GW")"
     echo "  Codex: start the run with the project's git metadata writable (no approval prompt per commit):"
-    echo "         cd $(printf %q "$1") && codex --sandbox workspace-write $ADD"
-    echo "         (see codex/README.md, 'Git commits without approval prompts', for what this allows)"
-    echo "         (public paper only, optional: add --search so the citation agents can search; audits/run/codex.md)"
+    echo "         public paper:       cd $(printf %q "$1") && codex -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write $ADD --search"
+    echo "         confidential paper: cd $(printf %q "$1") && codex -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write $ADD"
+    echo "         (see codex/README.md, 'Git commits without approval prompts', for what this allows;"
+    echo "          --search: live web search for the citation agents, audits/run/codex.md)"
+    echo "         (-m gpt-6.1-sol: with the default model the main agent ends its turn every few minutes)"
   fi
 else
   echo "  Run install.sh --codex <project> to install the built-in roles before starting Codex."

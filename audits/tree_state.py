@@ -667,6 +667,8 @@ def check(repo, path, log_text=None, pin=None, reverts=False, round_dirs=None):
 OPERATOR_EMPTY = (
     # run/stops-and-set-asides.md item 4: a fresh round after a set-aside, when its name is taken
     re.compile(r"^fresh round after the set-aside of \d{4}-\d{2}-\d{2}-(?:full-)?[0-9a-f]{7,40}$"),
+    # W-R4 B1 (CX C2): scope.taken_problem's route for a full round on HEAD, adjudicated and not settled
+    re.compile(r"^fresh full round on \d{4}-\d{2}-\d{2}-full-[0-9a-f]{7,40}$"),
 )
 
 
@@ -864,6 +866,21 @@ def selftest():
                        rc_m == 1 and o_m.lstrip().startswith("FAIL[head-moved-operator]") and rc_r == 0
                        and json.load(open(snap)).get("resaved", [{}])[-1].get("reason") == "empty commit z for a new round"
                        and check(tmp, snap, _lg) == 0))
+        # W-R4 B1 (CX C2): the fixed subject `fresh full round on <R>` is a prescribed empty commit; free text is not
+        _hd = lambda: subprocess.run(["git", "-C", tmp, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        _b0 = _hd()
+        _ff = "fresh full round on 2026-01-01-full-abcdef1"
+        subprocess.run(["git", "-C", tmp, "commit", "-q", "--allow-empty", "-m", _ff], check=True)
+        _z2 = _hd()
+        _lg2 = f"- {_z2} {_ff}: its UNCOVERED row a | b is not marked expected"
+        _ok2 = operator_moves(tmp, _b0, _z2, _lg2)
+        subprocess.run(["git", "-C", tmp, "commit", "-q", "--allow-empty", "-m", "fresh full round, the last one was "
+                        "not settled"], check=True)
+        _z3 = _hd()
+        _bad3 = operator_moves(tmp, _b0, _z3, _lg2 + f"\n- {_z3} fresh full round, the last one was not settled")
+        checks.append(("W-R4 B1: an empty commit `fresh full round on <R>` listed with its reason is the operator's; a "
+                       "free-text subject is not (FAIL[head-moved])",
+                       _ok2 is None and _bad3 is not None and "not a prescribed empty commit" in _bad3))
         # trial #9 (release): Phase 0 could not save after the operator's proof commit; the round was cut from it
         _rr = tempfile.mkdtemp()
         try:

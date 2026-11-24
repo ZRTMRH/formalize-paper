@@ -52,7 +52,7 @@ SCRIPTS = sorted(project.scripts(agent_run=True))     # the registry (project.SC
 # lakefile, the helpers' work_dir, the project config, and the records each role owns.
 RECORD_FILES = ["RUN_LOG.md", "AUTHOR_NOTES.md", "DEVIATIONS.md", "OUTCOMES.md", "READER_NOTES.md",
                 "DECISIONS.md", "PAPER_DEFECTS.md", "SKIPPED.md", "VACUOUS.md", "KNOWN_FAULTS-*.md",
-                "QUESTIONS-B-*.md", "readers/*.response*.md", "status-check/*.md"]
+                "QUESTIONS-B-*.md", "readers/*.response*.md"]
 EDITS = (["Edit(/**/*.lean)", "Edit(/lakefile.toml)", "Edit(/lakefile.lean)", "Edit(/LICENSE)", "Edit(/.formalization-work/**)",
           "Edit(/audits/projects/*.json)"]
          + [f"Edit(/audits/*/{f})" for f in RECORD_FILES]
@@ -77,7 +77,7 @@ ALLOW = (["Bash(lake build:*)", "Bash(lake env lean:*)", "Bash(lake exe cache ge
             "Bash(git -C audits status:*)", "Bash(git -C audits add:*)", "Bash(git -C audits commit:*)",
             # read-only history of the audit record: the adjudicator reads it
             "Bash(git -C audits log:*)", "Bash(git -C audits show:*)",
-            "Bash(git -C audits mv:*)", "Bash(git -C audits checkout -- *)"]
+            "Bash(git -C audits checkout -- *)"]
          + RENDER_TOOLS + EDITS)
 # What nobody in a run may edit (RUN.md rule 4: the pinned apparatus), whatever else allows it,
 # and Lake's package checkouts.
@@ -364,7 +364,7 @@ def selftest():
     say("every documented `python3 audits/<x>.py` command and the tool-patch reviewer's FACTS command are allowed "
         "without a prompt",
         lambda: used and not [c for c in used if not allowed_cmd(c + " ")
-                              and c.split("/")[-1][:-3] not in ("claude_settings", "codex_agents", "codex_spawn")]
+                              and c.split("/")[-1][:-3] not in ("claude_settings", "codex_agents")]
         and fc.startswith("python3 audits/tool_patch.py facts ") and allowed_cmd(fc)
         and not allowed_cmd("python3 /abs/audits/tool_patch.py facts"))
     say("bypassPermissions is warned about, never set",

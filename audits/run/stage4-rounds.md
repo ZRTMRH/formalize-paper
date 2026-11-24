@@ -31,11 +31,11 @@ Each round, in order:
      step 2. The same holds when its only ADOPT rows are fixed in comments and docstrings (and every
      REVOTE NEEDED row is decided): implement them, commit, run Phase 0, go to Stage 5, and its
      `scope.py --full` prints `NEXT[no-round]` (this round is its full-scope round). Otherwise
-     implement and go on with diff rounds as below; Stage 5 still opens with its own full round.
+     implement and go on as step 7's exit check says (a diff round, or Stage 5 directly); Stage 5 still opens with its own full round.
 3. **Seal and check the lanes.** As each lane returns, seal it from that child's own result
    (`lane_auth.py seal --verdict … --sha256 … --agent-id …`, `spawn-and-seal.md`). When every lane
    has returned and is sealed, run `python3 audits/lanecheck.py --round <R> --kill` and handle its
-   lines as RUN.md's failure table says: PROBLEM lines of a STOP class are stops; an unsealed lane
+   lines as the failure table (`run/stops-and-set-asides.md`) says: PROBLEM lines of a STOP class are stops; an unsealed lane
    is sealed (or reissued); NOTE lines (NOTE[independence], NOTE[independence-path],
    NOTE[lane-fault]) are the adjudicator's to settle, by a one-line clearance in ADOPTED.md or a
    re-vote, and its commit refuses until every NOTE is settled.
@@ -53,7 +53,7 @@ Each round, in order:
    Under Codex, or if a permission prompt refuses the command, skip it: the adjudicator runs the
    checks itself. Wait for the adjudicator. It commits `adjudicate <R>`.
    A later `FAIL[dead-witness]` or `FAIL[record-cite]` in its records: a record correction
-   (RUN.md failure table, record-fix), not a new round; any other fault of its records
+   (the failure table, record-fix), not a new round; any other fault of its records
    (`adj-record`) waits for the next round's adjudicator. That includes a hypothesis the
    assumption walk lists with no valid `## Hypotheses` row in an ADOPTED.md: every adjudicator,
    in a diff round too, writes the missing rows.
@@ -64,8 +64,8 @@ Each round, in order:
      `(whole lane)` row, the lane printed by `python3 audits/prompt.py --lanes --round <R>
      --revote-lane <lane file without .json> --write` (one fresh lane re-judging every item of
      that lane). Spawn each with its whole printed line (token included), and seal it from its own
-     result exactly as in step 3 (the seal commits it); then run `python3 audits/lanecheck.py
-     --round <R> --kill`.
+     result exactly as in step 3 (the seal commits it); once every re-vote lane has returned and is
+     sealed, run `python3 audits/lanecheck.py --round <R> --kill`.
    - Then, once every re-vote lane is sealed or set aside, write the re-vote adjudicator's
      prompt, `python3 audits/prompt.py 4 --round <R> --revotes --write` (it carries the re-vote
      rules; append nothing), start its checks in the background exactly as in step 4 (the same
@@ -94,10 +94,12 @@ Each round, in order:
 6. **Implement.** Run `python3 audits/prompt.py 5 --round <R>` and do exactly what it says. A
    declaration a new `VACUOUS.md` row names gets a docstring sentence saying it is true only
    vacuously (Phase 0 checks the word "vacuous").
-7. **Exit check.** Read `ADOPTED.md`. Under `involved`, ask the human each reading QUESTION row of the
+7. **Exit check.** Read `ADOPTED.md`. First, a row marked `GOAL LOOKS FALSE` is stop 1 (RUN.md "How
+   you decide"). Under `involved`, ask the human each reading QUESTION row of the
    round at once (RUN.md "How you decide": the passage, the readings, the Lean's reading and the
    recommendation in one message; wait for the answer, a designed human wait; record it verbatim under
-   `## Answered`). Under a delegating level, decide it as RUN.md says and add the `CONDITIONS.md` item.
+   `## Answered`). Under a delegating level, decide it as RUN.md says and add the `CONDITIONS.md` item where
+   RUN.md asks for one (cases (b) and (c)).
    - **Go to Stage 5** if it has no **ADOPT**, no **REVOTE NEEDED**, and no **UNCOVERED** row
      except those marked "(expected: …)".
    - **At the round cap** (the budget's, `stage0-intake.md`; under a delegating level `thorough` is
@@ -105,7 +107,7 @@ Each round, in order:
      "round cap reached; no further diff round" -- as [DELEGATED] under a delegating level, as a
      [PROXY] decision under `involved` (it goes to the human at Checkpoint C) -- and go to Stage 5
      (its full-scope round runs whatever the budget; what it does not re-check is disclosed there).
-     The cap is never a stop in `release` mode (U2 §8); in `dev` mode, under `involved`, stop and ask
+     The cap is never a stop in `release` mode; in `dev` mode, under `involved`, stop and ask
      instead.
    - **Go to Stage 5 without a diff round** also when the round's fixes change no Lean but comments and
      docstrings (records aside), once every REVOTE NEEDED row is decided by its re-vote adjudication:
@@ -115,13 +117,17 @@ Each round, in order:
      round, trial #10 a 16-minute one, then the full round on the same commit). When this round was
      itself a full-scope round, Stage 5 runs no full round either (`NEXT[no-round]`, stage5 step 1;
      trial #11: 53 minutes for a full round on a docstring-only commit).
+   - **Go to Stage 5 without a diff round** also when the round's adopted fixes change no approved statement and
+     leave no proof work (each fix implemented, Phase 0 GREEN, every REVOTE NEEDED row decided): Stage 5's
+     full-scope round audits the fixed commit, so a diff round first only repeats it.
    - **Otherwise** go to the next round.
-   - **QUESTION** rows wait for Checkpoint C.
+   - **QUESTION** rows wait for Checkpoint C (a standing-defer request too: its DEFER already holds; only reading
+     QUESTIONs are asked at once).
    - **In Stage 5** at most two rounds follow the full round (step 1's cap): follow
      `stage5-delivery.md` step 1 instead of this exit check.
 
 
-A round you give up before its adjudication is set aside (`stops-and-set-asides.md`) and a fresh
+A round you give up before its adjudication is set aside (`stops-and-set-asides.md`, "Recording and closing a stop" item 4) and a fresh
 round started; a half-finished round is resumed as `spawn-and-seal.md` says.
 
 Log each round in `RUN_LOG.md`: commit; lanes; P/F/A/N counts;
