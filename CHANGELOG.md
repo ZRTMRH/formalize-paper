@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.3.2 (2026-11-24)
+
+### In short
+
+- **Memory routes.** Intake question 7 picks a route by the computer's RAM: 8 GB, 16 GB or 32 GB and more,
+  with 1, 2 or 4 Lean probe slots. A machine-wide guard keeps Lean within them. Freeze and sweep checks are
+  much faster.
+- **Fewer stops.** Wording checks on run records became flags judged by the adjudicator; filling a proof
+  inside an approved definition is no longer a change to the statement; the run's agent, not code, judges K.
+- **Two blind readers.** Two independent agents read the Lean statements blind; the sign-off writer compares
+  their readings and marks a real difference CHECK.
+- **Codex.** The citation check runs under Codex (with `--search`, public papers only); the start command
+  names the model and reasoning effort.
+- **Compaction and stability** from several compatibility rounds.
+- **Tested** end to end on real papers at all three involvement levels: Linux 16 GB, an 8 GB Mac, a
+  32 GB laptop and Codex; no run hit a hard stop. Two deferred issues are in `KNOWN_LIMITATIONS.md`.
 
 ### 0.3.2 release notes (2026-11-24)
 
