@@ -27,7 +27,7 @@ sudo apt install -y git python3 curl \
   with shell escape off (`-no-shell-escape`; pandoc with `--sandbox`).
 - **Disk.** About 7 GB per Lean project, mostly the prebuilt Mathlib, plus about 3 GB for the TeX
   packages.
-- **Memory.** 16 GB is enough, one paper at a time: say so at intake question 7, and the run takes its 16 GB route (2 Lean probes at once, 6 reviewers at once). 8 GB works, more slowly (1 probe, at most 2 agents at a time). 32 GB and more runs 4 probes and 8 reviewers at once.
+- **Memory.** 16 GB is enough, one paper at a time: say so at intake question 7, and the run takes its 16 GB route (2 Lean probes at once, 6 reviewers at once). 8 GB works for a short paper, more slowly (1 probe, at most 2 agents at a time). 32 GB and more runs 4 probes and 8 reviewers at once. The route never exceeds the memory the system reports (under WSL2, the Linux VM's), and the 16 GB route needs about 14.5 GB of it. Under WSL2 Linux sees by default half of the computer's memory: a 32 GB Windows computer gets the 16 GB route, a 16 GB one the 8 GB route whatever you answer (see "Memory, and WSL" in section 5).
 - **Lean.** If `lean --version` does not work, install elan (it provides `lean` and `lake`), then
   open a new terminal:
   `curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh`
@@ -40,19 +40,16 @@ sudo apt install -y git python3 curl \
   Claude Max plan is recommended. Parallel runs share the subscription's usage limits:
   check that enough of the weekly limit is left before starting, and expect more 5-hour pauses
   when several papers run at once.
-- **Git identity**, if it is not set: `git config --global user.name "Your Name"` and
-  `git config --global user.email "you@example.com"`.
 - **git identity.** If `git config user.name` is empty, set your name and email once (`git config --global user.name "…"`, `git config --global user.email "…"`). An agent doing the setup should ask you for both.
 - **Python** must be 3.10 or newer (`python3 --version`); 3.11 or newer (or 3.10 with `tomli`) for
   `install.sh --codex`.
 
 ### macOS (this branch; fewer runs than Linux)
 
-Tested on one Mac: a 2019 MacBook Air (dual-core Intel Core i5, 8 GB), macOS 14. Two runs delivered there, one
-under Claude Code (a real paper, 8 GB, one agent at a time, about 24 h) and one under the Codex CLI 0.166.0 (the
-example note, about 3 h 45 min). The Claude Code run used an earlier form of the macOS process
-code (`ps`-based); the Codex run used this one before two small safety checks were added (both selftests pass
-with them on that Mac). Apple silicon and other macOS versions are untested. Clone this branch
+Tested on one Mac: a 2019 MacBook Air (dual-core Intel Core i5, 8 GB), macOS 14. Version 0.3.2 delivered
+there hands-off under Claude Code on the 8 GB route (an 8-page paper, 8 h 15 min). Earlier versions delivered
+there Ramanujan's proof of Bertrand's postulate (Claude Code, about 25 h, one agent at a time), a 5-page paper
+(Codex CLI 0.166.0) and the example note under both. Apple silicon and other macOS versions are untested. Clone this branch
 (`git clone -b macos https://github.com/ZRTMRH/formalize-paper ~/formalize-paper`). Install Lean (elan), git
 and a TeX engine (for example MacTeX) as on Linux, then:
 
@@ -81,8 +78,10 @@ and a TeX engine (for example MacTeX) as on Linux, then:
 - **No `timeout` command** on macOS; a subagent that tries it gets exit 127 and retries without it.
 - **On 8 GB**, say the RAM (8 GB) at intake question 7: the run takes its 8 GB route (1 Lean probe, at most 2
   agents at a time).
-- **Codex CLI on macOS:** start it as the installer prints (`--sandbox workspace-write --add-dir <project>/.git`).
-  Inside Codex's sandbox the process checks read the process table through macOS's `libproc`.
+- **Codex CLI on macOS:** start it with the command the installer prints (`codex -m gpt-6.1-sol -c
+  model_reasoning_effort=medium --sandbox workspace-write --add-dir <project>/.git`, plus `--search` for a public
+  paper). The earlier Mac runs used Codex 0.166.0 and the older command without `-m` and `-c`; this command has
+  been tested only on Linux with Codex 0.163.0. Inside Codex's sandbox the process checks read the process table through macOS's `libproc`.
 
 ## 2. A Lean project
 
@@ -112,7 +111,7 @@ every self-test dependency is cached.
 ## 3. Install
 
 ```bash
-git clone https://github.com/ZRTMRH/formalize-paper ~/formalize-paper
+git clone -b macos https://github.com/ZRTMRH/formalize-paper ~/formalize-paper   # skip if already cloned
 ~/formalize-paper/install.sh ~/my-formalization
 ```
 
@@ -289,7 +288,7 @@ questions as one message, printed by `audits/prompt.py --intake` and labelled 1a
 | 4 Library work | faithfulness only (the default), or also search Mathlib for duplicates |
 | 5 Budget, involvement, approver | the budget and who pays (5a, 5b); how involved you want to be after the intake (5c, below); who approves the statements (5d) |
 | 6 Deliverables | who reads the report; where to copy the PDFs; whether the Lean branch (6c) and the audit record (6d) may be pushed, and where; whether defects go to the authors (6e) |
-| 7 Anything else | known doubts, conventions, deadlines |
+| 7 Anything else | the computer's RAM and whether other runs share it (it sets the memory route: 8, 16 or 32+ GB); known doubts, conventions, deadlines |
 
 A sample answer (adapt it; the agent asks follow-ups if something is unclear):
 
@@ -300,15 +299,16 @@ A sample answer (adapt it; the agent asks follow-ups if something is unclear):
 4: faithfulness only
 5a: standard  5b: my Claude Max subscription  5c: (a)  5d: Jane Doe (me)
 6a: me  6b: ~/Documents/reports  6c: no  6d: no  6e: no
-7: nothing else
+7: 16 GB of RAM, nothing else runs on it
 ```
 
 The *budget* (question 5) sets how much reviewing is done: `light` runs 3 review lanes and at most 2
 diff rounds (rounds that re-examine only what changed); `standard` 4 lanes and at most 4;
 `thorough` 4 lanes until a round adopts nothing. (A *lane* is one reviewer criterion; a *round* is
 one pass of the reviewers plus the adjudicator's decisions.) The usage a run consumes depends on the
-paper. For planning: about 4–5 hours for a short paper (a few pages, about ten results), and 1–2
-days for a paper like the 35-page L∞ paper (67 results), plus the time you take at the checkpoints.
+paper. For planning: about 1.5–4 hours for a short paper (a few pages, about ten results) on 16 GB or
+more and 8 hours or more on 8 GB, and 1–2 days for a paper like the 35-page L∞ paper (67 results;
+timed on an earlier version), plus the time you take at the checkpoints.
 
 After the intake, the agent creates the run's git branch (its name is shown at Checkpoint A), and works
 on its own. It stops three times:
@@ -335,7 +335,7 @@ new proofs, a new statement sign-off, or a new audit round): it follows the adju
 recommendation, or else the most conservative choice that stays with the paper, and the report and `DECISIONS.md`
 ("Decisions taken on your behalf") list each one and say that no person reviewed it. The run
 still stops for you (in the default release installation, for exactly these four) if a goal
-result looks false or unprovable as stated; on anything outward-facing the intake did not allow
+result looks false, true only vacuously, or unprovable as stated, or stays unproved; on anything outward-facing the intake did not allow
 (pushing, contacting the authors); if something needs what only you can provide (a login, more
 quota, administrator rights, a change to your own files, or stopping another program that keeps
 changing the project's files); and if the paper's meaning is genuinely ambiguous on a point that
@@ -370,6 +370,18 @@ checked-out git branch, so if you switched branches, switch back first.
 **Memory.** The run picks a memory route from the RAM given at intake question 7 (8, 16 or 32+ GB:
 how many Lean probes and agents run at once; RUN.md, "Cost"). On a shared machine, ask for fewer at once.
 
+**Memory, and WSL.** The memory guard keeps a reserve of free memory (4 GB, or a quarter of the
+memory if that is more) for the operating system. Under WSL it sees only the Linux VM's memory,
+which by default is half of the computer's, and the memory route never exceeds it (the 16 GB
+route needs about 14.5 GB visible to Linux, so a 16 GB Windows computer runs the 8 GB route). On a
+16 GB computer, set `memory=` in `%UserProfile%\.wslconfig` (for example `memory=12GB`, which keeps
+Windows responsive) and
+`autoMemoryReclaim=dropCache` under `[experimental]`, restart WSL with `wsl --shutdown`, and run one
+formalization at a time. The guard logs Windows' free memory every minute and the probe wrapper says
+so when it is below 2 GB; that reading never pauses anything. A paper whose single Lean file needs
+more memory than the computer has left (a heavy library on 8 GB) cannot be helped by the guard: it
+runs slowly, and may need swap.
+
 ## Independent check of the proofs
 
 After delivery you can re-check every proof with `leanchecker`, which ships with each Lean
@@ -383,11 +395,12 @@ git clone --branch formalize/<project> <run-repository> check && cd check
 grep -nE 'leanOptions|moreLeanArgs|weakLeanArgs|debug\.|skipKernel' lakefile.*   # kernel-affecting options?
 lake exe cache get && lake build <Lib>
 lake env leanchecker -v <Lib>          # each project module; exit 0 = all accepted (about 40 s)
-lake env leanchecker --fresh -v <Lib>  # optional: the whole import closure (about 20 min, ~9 GB)
+lake env leanchecker --fresh -v <Lib>  # optional: the whole import closure (about 20 min)
 ```
 
-The first replay needs about 12 GB of free memory. On a tested run's Lean the two replays took
-38 s and 21 min.
+The replay can need more memory than the computer has: on a 5-page paper's project
+`leanchecker -v <Lib>` grew past 24 GB and was stopped by the out-of-memory killer. On a computer with
+16 GB or less, run it on a larger machine. On a tested run's Lean the two replays took 38 s and 21 min.
 
 ## Trying it on the example
 
@@ -409,10 +422,12 @@ flags are passed to `install.sh`, which cannot add them to an existing installat
 ## Codex CLI
 
 Use this **instead of section 3**. Codex has had fewer runs than Claude Code (see the box at the top of
-[`codex/README.md`](codex/README.md)), but it has delivered real papers: a 5-page paper on Linux and the
-same paper on an 8 GB Mac, plus the example note on both.
+[`codex/README.md`](codex/README.md)), but it has delivered real papers: on 0.3.2, a 5-page paper
+hands-off on Linux (Codex 0.163.0, 83 min, with the start command of step 4); on earlier versions the
+same paper on Linux and on an 8 GB Mac (Codex 0.166.0), plus the example note on both.
 
-1. **Install and log in to the Codex CLI.** Tested with version 0.163.0:
+1. **Install and log in to the Codex CLI.** Tested with version 0.163.0 (on Linux; the Mac runs used 0.166.0,
+   and the `-m`/`-c` flags of step 4 were not launch-tested there):
 
    ```bash
    npm install -g --prefix ~/.local @openai/codex@0.163.0   # ~/.local/bin must be on your PATH
@@ -454,7 +469,7 @@ same paper on an 8 GB Mac, plus the example note on both.
 
    `-m gpt-6.1-sol -c model_reasoning_effort=medium` sets the main session's model: with Codex's default
    model the main agent ends its turn every few minutes and a hands-off run needs repeated "continue";
-   with this model a test run (De Medts, Linux, Codex 0.163.0) went through with no prompting.
+   with this model a 0.3.2 test run (De Medts, Linux, Codex 0.163.0, 83 min) went through with no prompting.
    `--add-dir …/.git` lets the agent commit without an approval prompt per commit (needed for a
    hands-off run). It also lets every sandboxed agent write the project's git metadata, including
    hooks that later run outside the sandbox (`tree_state.py` detects a change; it does not prevent
@@ -529,16 +544,8 @@ compiled paper source; excluded from the project's history), the run's
 branch in the project, and logs under `~/.cache/formalize-paper/` (`codex/`, `watchdog/`). The
 memory guard and the probe slots keep their small files and the guard's log in
 `/tmp/formalize-paper-lean-slots/` (a reboot clears them; the guard exits after 6 hours without a
-run). Nothing is installed system-wide, and nothing is pushed.
-
-**Memory, and WSL.** The memory guard keeps a reserve of free memory (4 GB, or a quarter of the
-memory if that is more) for the operating system. Under WSL it sees only the Linux VM's memory,
-which by default is half of the computer's: on a 16 GB computer, set `memory=` in
-`%UserProfile%\.wslconfig` (for example `memory=12GB`) and `autoMemoryReclaim=dropCache` under
-`[experimental]`, restart WSL with `wsl --shutdown`, and run one formalization at a time. The guard
-logs Windows' free memory every minute and the probe wrapper says so when it is below 2 GB; that
-reading never pauses anything. A paper whose single Lean file needs more memory than the computer
-has left (a heavy library on 8 GB) cannot be helped by the guard: it runs slowly, and may need swap.
+run). Nothing is installed system-wide, and nothing is pushed. (Memory under WSL: see "Memory, and
+WSL" in section 5.)
 
 ## If something fails
 

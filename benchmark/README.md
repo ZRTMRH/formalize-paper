@@ -103,9 +103,9 @@ All runs below used formalize-paper in hands-off mode, where the agent takes the
 | bench9 | main branch (c0670f3) | 5 FOUND, 1 NOTED (BN-2) | `scores/bench3-10-scoring-combined.md` |
 | bench10 | main branch (c0670f3) | 5 FOUND, 1 NOTED (B10-2) | `scores/bench3-10-scoring-combined.md` |
 
-"Strict a / b / c" means a CAUGHT, b PARTIAL, c MISSED under the strict variant. Bold rows are runs on the current public release.
+"Strict a / b / c" means a CAUGHT, b PARTIAL, c MISSED under the strict variant. Bold rows are runs on the 0.3.0 public release (commit 9f2c1d3, whose code is identical to tag v0.3.1); the benchmark has not been re-run on 0.3.2.
 
-**bench1–5 on the current public release (formalize-paper 0.3.0, commit 9f2c1d3)**, five runs on the same version (31 defects, 5 decoys): 29 caught, 0 partial, 2 missed (B1-5, B2-2); strict 23 / 6 / 2. 0 false alarms on the decoys, 0 false positives, all five goals proved, all five runs delivered, and the Lean of all five passed a kernel replay. Summary: `scores/RERUN-0.3.0-public-9f2c1d3-SUMMARY.md`.
+**bench1–5 on the 0.3.0 public release (commit 9f2c1d3, code identical to v0.3.1)**, five runs on the same version (31 defects, 5 decoys): 29 caught, 0 partial, 2 missed (B1-5, B2-2); strict 23 / 6 / 2. 0 false alarms on the decoys, 0 false positives, all five goals proved, all five runs delivered, and the Lean of all five passed a kernel replay. Summary: `scores/RERUN-0.3.0-public-9f2c1d3-SUMMARY.md`.
 
 **X. Tang's scoring of bench3–10** (eight runs, 49 planted defects): 34 FOUND, 13 NOTED, 0 LATE, 2 MISSED, 0 FALSE ALARM; 8/8 decoys passed. That is 34/49 strict and 47/49 documented (FOUND + NOTED). Under the key-check rule (the 8 unneeded-hypothesis items left out) it is 34/41 FOUND and 39/41 documented. Both misses are slips inside the proof of a true lemma that the Lean proof established by a different route.
 

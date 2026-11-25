@@ -28,7 +28,7 @@ maintainers; the numbered items T1–T35 say what each limitation means for you 
 - **Linux only.** The checks read Linux's `/proc` (the scan for reviewer processes in
   `lanecheck.py` and `stops.py`), and the install steps use `apt`. Supported: Debian or Ubuntu, or
   Ubuntu under WSL2 on Windows. On macOS (this branch) the same facts come from `libproc`, without
-  `/proc`; macOS has had fewer runs (four, on one 8 GB Intel Mac). Two cases there are skipped rather than
+  `/proc`; macOS has had fewer runs (five, on one 8 GB Intel Mac). Two cases there are skipped rather than
   refused: one of your own processes that cannot be read at that moment, and a process whose parent cannot
   be read. The worst outcome is a leftover agent loop that goes unreported; proofs are unaffected (they are
   checked by Lean's kernel).
@@ -130,10 +130,10 @@ maintainers; the numbered items T1–T35 say what each limitation means for you 
   adjudication. *Planned:* a final "record refresh" adjudication in Stage 5, before the report. The
   report already lists stale `File.lean:N` citations together with the current line.
 - **Full audit rounds are memory-hungry.** Many reviewer lanes probing Lean at once can exhaust
-  memory on a 16–32 GB machine. The agent runs at most 8 reviewers at once
-  (`audits/run/spawn-and-seal.md`); ask for fewer at once on less memory. *Planned:* a project
-  setting `max_parallel_lanes`, so that `prompt.py` prints the spawn order; a shared Lean
-  server for the lanes.
+  memory. The memory route chosen at intake question 7 caps the lanes running at once (2 agents on
+  8 GB, 6 lanes on 16 GB, 8 on 32+ GB) and the Lean probes (1, 2 or 4 slots,
+  `audits/lean_slot.py`), and the memory guard pauses probes when free memory runs low.
+  *Planned:* a shared Lean server for the lanes.
 - **Diff rounds never clear some UNCOVERED rows.** If a verdict was recorded on a helper that has
   since been deleted, or on an auto-generated syntax declaration from a `macro` or `syntax`, the
   row stays UNCOVERED. *Planned:* `audit_coverage.py` retires a pass on a deleted declaration as
@@ -201,13 +201,13 @@ maintainers; the numbered items T1–T35 say what each limitation means for you 
   on the changed declarations, when every fingerprint is unchanged) is not planned for now: it
   reduces audit coverage. In this release a comment- or docstring-only change at the end of a run
   needs no round at all (T1 below).
-- **The faithfulness lanes' detection rate is not measured.** A planted-fault benchmark is planned.
-  Version 0.3.0 itself was run end to end, hands-off, on the exact release code: on a short
+- **The faithfulness lanes' detection rate is measured on one small benchmark only** (`benchmark/`:
+  ten short papers with planted errors, scored on 0.3.0 and 0.3.1), not in general. Version 0.3.0 itself was run end to end, hands-off, on the exact release code: on a short
   synthetic test paper with planted errors it delivered in about 4 h 15 min with no human input
   after setup (2026-10-26), and a second hands-off run on a benchmark paper delivered with no stops
   (2026-10-27). Two runs do not measure a detection rate.
-- **The `statements-only` level has not run end to end.** No fixture covers its stops before and
-  after Checkpoint B.
+- **The `statements-only` level has had one end-to-end run** (0.3.2, a real 8-page paper,
+  delivered). No fixture covers its stops before and after Checkpoint B.
 - **Later fresh-reader passes re-report known generator gaps.** A finding already answered
   `unfixable` blocks again when re-found.
 - **Pushing is not tried at intake.** A token without push rights shows only at delivery, as a
@@ -258,7 +258,7 @@ maintainers; the numbered items T1–T35 say what each limitation means for you 
   never the summary the reader returned in conversation. *Planned:* `readers.py` prints each
   blocking finding's quotable start.
 
-## Trade-offs and open items (0.3.0)
+## Trade-offs and open items
 
 Collected from the design's known risks and the audits of the test runs (short papers, mostly
 hands-off). Each item says what it is, what it means for you as the reader of a run's report, and
@@ -393,9 +393,10 @@ Batch E (DESIGN-E2) built fixes 2-6 of `FORGERY-REVIEW-2026-11.md`. Still open, 
 - **T22 Adjudication of about 300 findings is untested;** the test runs produced far fewer.
 - **T23 No run of this version on a long real paper.** The test runs of this version's design used
   short test papers; the long real papers ran on earlier versions.
-- **T24 A run takes hours even for a short paper**: about 4–6 h for a 3-page test paper (three test
-  runs: 5 h 40 m, 5 h 52 m and about 5 h 20 m; a hands-off run about 4 h), and 1–2 days for a
-  35-page paper. Parallel runs share one subscription's usage limits.
+- **T24 A run takes hours even for a short paper**: on 0.3.2 about 1.5–2 h hands-off for a short real paper
+  on 16 GB or more (up to about 4 h at the other levels), about 4 h for a longer one and 8 h 15 min on
+  an 8 GB Mac (earlier versions: about
+  4–6 h for a 3-page test paper), and 1–2 days for a 35-page paper (an earlier version). Parallel runs share one subscription's usage limits.
 - **T25 Ceilings and caps are guesses.** Statement rounds 4 (re-approval 2), diff rounds by budget
   2/4/6, delivery rounds 2, renderer rounds 6, failed cures 2 per stop and 3 per check, openings 3
   per round, SUMMARY 62 lines. *For you:* when a cap is reached the
