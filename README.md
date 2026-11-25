@@ -14,14 +14,16 @@ what a delivered run certifies.
 
 **Report:** R. Zhou and X. Tang, *formalize-paper: an open-source tool for formalizing research papers in
 Lean on an ordinary computer* (November 2026): [`paper/formalize-paper-report.pdf`](paper/formalize-paper-report.pdf).
-The report is licensed under CC BY 4.0.
+It describes version 0.3.1. The report is licensed under CC BY 4.0.
 
 It runs under Linux (Debian or Ubuntu, or Ubuntu under WSL2 on Windows) with Claude Code or the
-OpenAI Codex CLI (tested with 0.163.0), and on macOS from the separate `macos` branch. Claude Code on
-Linux has had the most runs; Codex and macOS have had fewer, but each has delivered real papers: under
-Codex, a 5-page paper on Linux (about 4 h, the same outcome as under Claude Code) and the same paper on
-an 8 GB Mac; on the Mac under Claude Code, Ramanujan's proof of Bertrand's postulate. Under Codex the
-citation check runs with `--search` for a public paper. See [`codex/README.md`](codex/README.md).
+OpenAI Codex CLI (tested with 0.163.0), and on macOS from the separate `macos` branch. Version 0.3.2
+was tested end to end on real papers before release: under Claude Code on Linux at 16 GB (hands-off,
+statements-only and involved) and on a laptop on the 32+ GB route, under Claude Code on an 8 GB Mac, and under Codex
+on Linux; all delivered, and none hit a hard stop. Claude Code on Linux has had the most runs; Codex
+and macOS have had fewer. Earlier versions also delivered, under Codex, a 5-page paper on Linux and on
+an 8 GB Mac, and on the Mac under Claude Code, Ramanujan's proof of Bertrand's postulate. Under Codex
+the citation check runs with `--search` for a public paper. See [`codex/README.md`](codex/README.md).
 
 **Credit.** The one-criterion-per-reviewer design and the wording of three reviewer rubrics are
 adapted from Wes Pegden's [Trellis](https://github.com/wpegden/trellis) (arXiv:2606.09674); see
@@ -30,7 +32,7 @@ adapted from Wes Pegden's [Trellis](https://github.com/wpegden/trellis) (arXiv:2
 ## Who it is for
 
 A mathematician with one AI subscription (Claude Code or the Codex CLI) and an ordinary
-computer: 16 GB of RAM is enough; 8 GB also works, more slowly (say the RAM at intake question 7): a real paper delivered
+computer: 16 GB of RAM is enough; 8 GB also works for a short paper, more slowly (say the RAM at intake question 7): a real paper delivered
 on a 2019 MacBook Air (dual-core 1.6 GHz Intel Core i5, 8 GB).
 macOS needs the separate `macos` branch.
 It checks whether a paper's statements are faithfully formalized and correct, with no need to read Lean, and
@@ -41,7 +43,7 @@ produces a report for the paper's authors:
   notices;
 - a citation check (under Codex: `--search` for a public paper), where the cited work is openly available (e.g. on
   arXiv): whether it states the cited result in the form used, and whether bibliography entries are correct and up
-  to date (e.g. preprints since published). With Claude Code it reached 74% of cited results across seven real papers.
+  to date (e.g. preprints since published). With Claude Code it reached 74% of cited results across seven real papers (version 0.3.1).
 
 Not aimed at: textbook-scale formalization; proving every cited result in Lean (by default a result the paper only
 cites becomes an explicit, named hypothesis); other agents; hosted or collaborative use.
@@ -59,8 +61,8 @@ cites becomes an explicit, named hypothesis); other agents; hosted or collaborat
 - **Finishes on its own.** The run stops only for a mathematical question, a permission, or
   something only you can fix; faults in its own tooling are repaired inside the run through
   reviewed patches.
-- **Nothing to deploy.** Everything runs in one Claude Code conversation on your machine: no
-  server, no sandbox to set up. A 35-page, 67-result paper took about 16 hours of active run time
+- **Nothing to deploy.** Everything runs in one Claude Code (or Codex) conversation on your
+  machine: no server to set up. A 35-page, 67-result paper took about 16 hours of active run time
   (48.5 hours of wall-clock in all, on an earlier version) on one subscription.
 - **Readable results.** A one-page summary, a full report and a decisions document, each read by a
   fresh AI reader before you see it, with mechanism details kept out of your way.
@@ -137,7 +139,7 @@ codex -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write 
 ```
 
 **By hand (macOS):** the same, cloning the `macos` branch, after three one-time extras listed in the macOS
-section of `INSTALL.md` on that branch (Python 3.10 or newer, bash 5, and one line in `~/.zshrc`).
+section of `INSTALL.md` on that branch (Python 3.10 or newer, bash 5, and two lines in `~/.zprofile` and `~/.zshrc`).
 
 [`examples/`](examples/) has a one-page example project to try.
 
@@ -156,21 +158,27 @@ decisions). You choose how involved you want to be:
 Decisions the agent takes for you follow the adjudicator's recommendation, and each is listed in
 the report for you to reverse. Otherwise the run stops for you only when:
 
-1. a goal result looks false or unprovable as stated;
+1. a goal result looks false, true only vacuously, or unprovable as stated, or stays unproved;
 2. it would push, publish or contact someone you did not allow at setup;
 3. something only you can fix (a login, a usage limit, permissions, or another program that keeps changing the project's files);
 4. the paper's meaning is genuinely ambiguous on a point that matters.
 
 If Claude pauses on a usage limit or an API error, leave the session open and type `continue` once
-it clears. A run on a short paper takes a few hours; a 35-page paper takes one to two days. A Claude
-Max plan is recommended. 16 GB of RAM is enough (say so at intake question 7); 8 GB works, more
-slowly. More detail: [`INSTALL.md`](INSTALL.md).
+it clears (under Codex, type `resume` after a "model at capacity" error). A run on a short paper takes a
+few hours (on 8 GB, 8 hours or more); a 35-page paper takes one to two days. A Claude
+Max plan is recommended. 16 GB of RAM is enough (say so at intake question 7; under WSL2 a
+16 GB Windows computer takes the 8 GB route: INSTALL.md, "Memory, and WSL"); 8 GB works for a short
+paper, more slowly. More detail: [`INSTALL.md`](INSTALL.md).
 
 ## Track record
 
-- **Le, Shi and Wei, "A Complete Dichotomy for L∞ Permutation Removal"** (arXiv:2610.28271): 30
+- **Le, Shi and Wei, "A Complete Dichotomy for L∞ Permutation Removal"** (arXiv:2610.28271): 35
   pages, 67 numbered results, formalized in full. The Lean is public at
   [github.com/ZRTMRH/le-shi-wei-linf-lean](https://github.com/ZRTMRH/le-shi-wei-linf-lean) (v1.0).
+- **Version 0.3.2 end to end:** seven runs on real papers before release, all delivered and none
+  at a hard stop: under Claude Code on Linux at 16 GB (hands-off, statements-only and involved; a
+  short paper in 107 min hands-off, a longer one in 247 min), on a laptop on the 32+ GB route (109 min) and on an
+  8 GB Mac (8 h 15 min); under Codex on Linux (83 min).
 - **Version 0.3.0 end to end:** a hands-off run on a synthetic test paper with planted errors
   delivered in about 4 h 15 min with no human input after setup. It found the planted false lemma
   (with a Lean counterexample, and the repaired form proved), the vacuous statement, the slip in a

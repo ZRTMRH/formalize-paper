@@ -6,7 +6,7 @@ What you should know before relying on a run. The full, detailed list (mostly fo
 - **The reviewers are AI judgements, not proofs.** Lean's kernel checks every proof. Whether each Lean
   statement says what the paper says is judged by independent AI reviewers and, if you choose, by you on the
   sign-off sheet; that judgement is not a mechanical guarantee. Their detection rate has been measured on one
-  benchmark of ten short papers with planted errors (`benchmark/`), not in general.
+  benchmark of ten short papers with planted errors (`benchmark/`, version 0.3.1), not in general.
 - **Cited results are assumed, not proved, by default.** A result the paper only cites becomes an explicit,
   named hypothesis in the Lean, and the report lists it. The citation check compares a cited result with its
   source only when the source is openly available (for example on arXiv); under Codex only with `--search` (public
@@ -38,7 +38,7 @@ What you should know before relying on a run. The full, detailed list (mostly fo
 - In `append` sweep mode (the fallback when the namespace is not a module), a project declaration named under the
   fingerprint program's own helper prefixes (`auditFpStripMData`, `auditFpKey`, `auditFpEraseProofs`) is not
   fingerprinted, so changing it would not show as drift. Such a name is visible in the source; `import` mode, the
-  default, fingerprints it (REVIEW-FIX-FP-R1).
+  default, fingerprints it.
 - **A change to comments and docstrings only is not re-reviewed.** It is checked mechanically
   (`project.py --comment-only`) and disclosed, and no review lane reads the new docstrings, so a later edit
   could drop a caveat a docstring carried. When Lean finds the compiled files not byte-for-byte identical
@@ -55,7 +55,7 @@ What you should know before relying on a run. The full, detailed list (mostly fo
 - **A line such as `open Finset` right after a definition** is read as part of that definition: it shows in the
   sign-off sheet's text of the definition and can give a false DRIFT. The run is told to keep such lines before
   the first declaration or inside a `section`.
-- **The K certificate is the formalizing agent's judgement.** Since 2026-11-16 the code writes no K content (no
+- **The K certificate is the formalizing agent's judgement.** Since 0.3.2 the code writes no K content (no
   count, table or item list: its count understated, since it could not tell which results an item on a helper
   lemma affects); the run's agent writes REPORT's section 12 and SUMMARY's K line, checked by the CLAIMS delivery
   reviewer, with no code check. Whether a change of representation is trivial, whether a
@@ -66,7 +66,7 @@ What you should know before relying on a run. The full, detailed list (mostly fo
   implies the other, the stronger is taken with no K item, so that judgement rests on the adjudicator. Under
   hands-off a statement changed in the K stage is approved by the agent on the human's recorded answer.
 - **The intake's list of stops is worded more narrowly** than stop 1 now is: a goal result true only vacuously
-  also stops (the intake text is unchanged so that runs in flight keep their intake check).
+  also stops (the intake text is unchanged in this version).
 - **With no goal result named, a false result never stops the run**: stop 1 covers goal results only, so a result
   that looks false is disclosed in the documents, never asked. The goal list (`goal_results`) is written by the operator
   and is not checked against the human's answer to intake question 2b.
@@ -77,16 +77,15 @@ What you should know before relying on a run. The full, detailed list (mostly fo
 - **The Lean probe limit is followed by instruction**, not enforced: reviewers and helpers are told to compile
   through `lean_slot.py`; the run's own checks (Phase 0, the sign-off checks) are not slotted; after a 300 s wait a
   probe runs without a slot; under WSL the free-memory floor reads the Linux VM's memory, not Windows'.
-- **The memory guard also pauses on memory pressure, which can slow a run.** Besides low free memory, it pauses the probes of every formalize-paper project of the account (a second run, or the user's own `lake env lean` in such a project, included; editor processes never) when the kernel reports sustained memory pressure (Linux), and it briefly treats each new probe as needing up to 3.2 GB (2 GB on an 8 GB machine); on a busy or small machine probes therefore wait more and the run takes longer, and every probe waits while one of the run's own checks runs (after 15 minutes paused in all, one probe runs beside it). The time a probe is paused is added to its 240 s limit (up to about 540 s with its slot wait), so a paused probe keeps its memory and its slot longer; a probe cut with 180 s or less of running says so and is re-run, not called too large. In a 16 GB test with 12 simultaneous probes, real memory peaked at 7.6 GB with the machine responsive, against 14.6 GB and seven probes killed without the guard (V2 round 4, after fix round RAMK).
+- **The memory guard also pauses on memory pressure, which can slow a run.** Besides low free memory, it pauses the probes of every formalize-paper project of the account (a second run, or the user's own `lake env lean` in such a project, included; editor processes never) when the kernel reports sustained memory pressure (Linux), and it briefly treats each new probe as needing up to 3.2 GB (2 GB on an 8 GB machine); on a busy or small machine probes therefore wait more and the run takes longer, and every probe waits while one of the run's own checks runs (after 15 minutes paused in all, one probe runs beside it). The time a probe is paused is added to its 240 s limit (up to about 540 s with its slot wait), so a paused probe keeps its memory and its slot longer; a probe cut with 180 s or less of running says so and is re-run, not called too large. In a 16 GB test with 12 simultaneous probes, real memory peaked at 7.6 GB with the machine responsive, against 14.6 GB and seven probes killed without the guard.
 - **The memory guard pauses, it does not kill.** When free memory runs low it pauses the Lean probes of all formalize-paper projects of the account (at most
   10 minutes per pause) and never touches the run's own checks, so one probe, or the run's own checks alone, larger
   than the memory left can still exhaust it; the kernel's out-of-memory killer then takes a probe first (Linux). A
   probe compiled without the wrapper prints no note when it was paused, so a pause can make a tool call reach its
   600 s limit with no explanation in its output; the guard's log
   (`/tmp/formalize-paper-lean-slots/guard-<uid>.log`) has it. Under Codex the guard starts with Stage 1's
-  `lean_slot.py --show` or the first lane prompt at the latest. On macOS a probe killed while paused is resumed only
-  by the 10-minute cap, and the free-memory figure is an estimate; a process the guard cannot read (`ps` output it
-  cannot parse) is never paused. A paused probe whose shell was killed is resumed by the orphan test only when it
+  `lean_slot.py --show` or the first lane prompt at the latest. On macOS (the `macos` branch) see that branch's
+  KNOWN_LIMITATIONS.md. A paused probe whose shell was killed is resumed by the orphan test only when it
   is reparented to pid 1; under a subreaper (WSL's init, `systemd --user`) the 10-minute cap and the probe's own
   time limit bound it instead. Under WSL the guard decides on the Linux VM's
   memory; Windows' free memory is only reported. Up to a second passes between its checks. A paper on a heavy
@@ -109,7 +108,7 @@ What you should know before relying on a run. The full, detailed list (mostly fo
 - **A human's quoted answer containing a dated decision tag** (`[DELEGATED 2026-…]`) is still checked as a tag, and
   so is an `answered` line whose answer opens with a tag. An answer that points to an option the agent offered (an
   escalation's answer, an adjudicator's record, the conservative rule) counts as the human's answer; the summary
-  says it adopts that source (approver, 2026-11-15).
+  says it adopts that source.
 - **Notes at delivery are judged once.** One fresh reviewer judges the checking program's delivery notes after the
   first delivery; a note first raised at a later delivery, or whose text changed since (a count, a hash), is listed
   in the README as not judged. The README names every note that, by the record, no independent reviewer judged.
@@ -118,7 +117,7 @@ What you should know before relying on a run. The full, detailed list (mostly fo
   and RUN_RECORD.md say so beside them.
 - **The Checkpoint A resume hint reads a free-text line.** On resume, an intake that merely mentions "Checkpoint A:
   OK" may skip showing Checkpoint A again (deferred: a stricter match could add a wait for the human).
-- **A cited Lean name whose first part is no Lean name is judged only at delivery** (DESIGN-SW2B X1, X2). The
+- **A cited Lean name whose first part is no Lean name is judged only at delivery**. The
   checking program cannot tell Lean dot notation on a variable (`G.Adj` for `SimpleGraph.Adj G`) from a wrong name
   whose first part also resolves to nothing (`Turan.bound_le`, a misspelt `Finest.card_le`), so both are notes, not
   failures, in the sign-off check and in the records' line citations. Only the delivered sheet and report are
@@ -137,12 +136,12 @@ What you should know before relying on a run. The full, detailed list (mostly fo
 - **At the `involved` level, two delivered documents can show answered questions as still open.** REPORT's
   section 8 and RUN_RECORD's question rows may be written before your Checkpoint C answers; they can then list
   as open questions you answered at Checkpoint B, at a re-approval or at Checkpoint C. `DECISIONS.md` and the
-  run log record every answer correctly: trust them over those two tables. To be fixed in the next version.
+  run log record every answer correctly: trust them over those two tables. To be fixed in 0.3.3.
 - **A note about running the tool can be recorded as a condition on the paper.** If your intake answer to the
   last question (memory, a test run, a shared machine) is recorded in `CONDITIONS.md` as a condition on all
   results, the summary's K line can read "K reached for 0 of N" even though the report finds no mathematical
-  gap (seen once, under Codex). Read the report and `CONDITIONS.md` before the K line. To be fixed in the next
-  version.
-- **Platforms.** Most tested on Linux (Debian or Ubuntu, or Ubuntu under WSL2) with Claude Code. macOS (the separate `macos` branch) and the Codex CLI have had fewer runs, but both have delivered real papers: under Codex, a 5-page paper on Linux and on an 8 GB Mac; on the Mac under Claude Code, Ramanujan's proof of Bertrand's postulate; a "model at capacity" error can pause a Codex run until you type `resume`.
+  gap (seen once, under Codex). Read the report and `CONDITIONS.md` before the K line. To be fixed in
+  0.3.3.
+- **Platforms.** Most tested on Linux (Debian or Ubuntu, or Ubuntu under WSL2) with Claude Code. macOS (the separate `macos` branch) and the Codex CLI have had fewer runs, but both have delivered real papers. On 0.3.2: under Codex, a 5-page paper on Linux; under Claude Code on an 8 GB Mac, an 8-page paper. Earlier: under Codex, the same 5-page paper on the Mac; on the Mac under Claude Code, Ramanujan's proof of Bertrand's postulate. A "model at capacity" error can pause a Codex run until you type `resume`.
 - **Time and usage.** A run takes hours even for a short paper (a 35-page paper took about 16 hours of active
   run time on an earlier version), and it uses a large share of a subscription's usage limits.

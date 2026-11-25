@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use formalize-paper, please cite it as below."
 title: "formalize-paper: formalize a mathematics paper in Lean 4 with an audit trail"
 abstract: >-
-  A Claude Code skill and audit apparatus that formalizes a mathematics paper in Lean 4 and
+  A Claude Code and Codex CLI skill and audit apparatus that formalizes a mathematics paper in Lean 4 and
   Mathlib and audits the formalization with single-criterion AI reviewers, producing a defect
   record, a PDF report and a statement-by-statement sign-off sheet.
 type: software

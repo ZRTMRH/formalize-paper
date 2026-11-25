@@ -1,6 +1,6 @@
 # Trade-offs and open items (maintainers)
 
-Every known trade-off and open limitation of the release (as of 2026-10-24), so each
+Every known trade-off and open limitation of the release (as of 0.3.2, 2026-11-24), so each
 can be tested and refined later. The user-facing wording (what it means for a report's reader, and
 whether a run discloses it) is in `docs/maintainer-notes.md`, section "Trade-offs and open items", under
 the same numbers. Sources: the maintainers' internal design, build and review notes (not published; references
@@ -33,7 +33,7 @@ noticeable time or misleads on bookkeeping; L = cosmetic or test debt. All rows:
 | T21 | Agent PDF rendering untested beyond ~14 pages | No long paper run yet | #11 REPORT 14 pp; review 5 estimate 3–4 M tokens, hours, for a 50-page REPORT | Render a 50-page REPORT end to end | H |
 | T22 | Adjudication at ~300 findings untested | No long paper run yet | Trials small | Synthetic or real round with ~300 items | H |
 | T23 | No run of this version on a long real paper | Release before the long-paper test | the long-paper test ran an earlier version | Hands-off run on a long real paper | H |
-| T24 | Run time ~5–6 h for a 3-page paper | Accepted for release | #10 5 h 40 m, #11 5 h 52 m, #12 ~5 h 20 m | Time profile on the long paper; target the largest phase | M |
+| T24 | Run time ~5–6 h for a 3-page paper (0.3.0) | Accepted for release | #10 5 h 40 m, #11 5 h 52 m, #12 ~5 h 20 m; 0.3.2: 83–247 min on real papers (16 GB+ routes), 8 h 15 min on 8 GB | Time profile on the long paper; target the largest phase | M |
 | T25 | Ceilings and caps are guesses: STATEMENT_CAP 4, REAPPROVAL_CAP 2, diff caps 2/4/6, DELIVERY_ROUND_CAP 2, render BUDGET 6, CURE_BUDGET 2, KEY_BUDGET 3, OPEN_CEILING 3, PAGE_LINES 62 | No data (U2 §14) | Trials never hit most caps; every render verified in round 1 in #12 | Record cap hits across runs; replays with lower and higher caps | M |
 | T26 | Proof-phase rounds bounded only by progress; a fault recurring each round but cured first try is unbounded | Caps would stop honest progress | U2 §14, FOLLOWUPS (B1b) | Long-paper run; count rounds and repeat cures | L |
 | T27 | 12 stops.py-selftest-tested mutants not re-run since the last change | stops.py selftest > 10-min foreground limit | PDF-AGENTS build (pa-29 not run; stops.py untouched since) | Run them in background | L |

@@ -1,15 +1,17 @@
 # Codex CLI support
 
-Codex has had fewer runs than Claude Code, but it delivers real papers. Under Codex CLI 0.163.0,
-hands-off runs have delivered on Linux the example note and a real 5-page paper (about 4 h, the same
-outcome as under Claude Code), and on an 8 GB Mac (the `macos` branch) the example note and the same
-5-page paper. The citation check runs under Codex with `--search` for a public paper.
+Codex has had fewer runs than Claude Code, but it delivers real papers. Version 0.3.2 was tested
+hands-off under Codex CLI 0.163.0 on Linux with the start command in INSTALL.md (model `gpt-6.1-sol`,
+medium effort): a real 5-page paper delivered in 83 min with no prompting. Earlier versions delivered
+the same paper and the example note on Linux (Codex 0.163.0; the paper in about 4 h, the same outcome
+as under Claude Code) and on an 8 GB Mac (the `macos` branch, Codex 0.166.0, started without `-m` and
+`-c`). The citation check runs under Codex with `--search` for a public paper.
 
 > **What to expect in practice (tested with Codex CLI 0.163.0)**
-> - Earlier versions ran end to end on the one-page example note (0.2.0) and a small synthetic paper
->   (a pre-release of 0.3.0). On the current version it has delivered on the example note and on a real
->   5-page paper (Linux, about 4 h, the same outcome as under Claude Code), and on macOS on the example note and
->   the same 5-page paper.
+> - Earlier versions ran end to end on the one-page example note (0.2.0), a small synthetic paper
+>   (a pre-release of 0.3.0), and on 0.3.1 the example note and a real 5-page paper on Linux and on an
+>   8 GB Mac (the `macos` branch). On 0.3.2 it delivered the same 5-page paper hands-off on Linux in
+>   83 min.
 > - A run can stall: a "Selected model is at capacity" error stops the session until someone
 >   types "resume". The optional watchdog only notifies you; it never resumes.
 > - Without `--add-dir <project>/.git` every git commit of the agent waits for your approval.
@@ -18,8 +20,10 @@ outcome as under Claude Code), and on an 8 GB Mac (the `macos` branch) the examp
 > - Reviewers are not sandboxed from each other: they share the parent's sandbox, and their
 >   independence rests on instructions plus after-the-fact checks (tokens, seals, lanecheck,
 >   tree_state), as under Claude Code.
-> - The test runs took 9 h 34 min (sparse-note, 0.2.0) and 12 h 26 min (the synthetic paper, a
->   pre-release of 0.3.0, on a shared machine), including stalls.
+> - Run times: 83 min for the 5-page paper on 0.3.2 (Linux, 16 GB route, the start command in
+>   INSTALL.md); on earlier versions about 4 h (the same paper, Linux, 0.3.1), 9 h 34 min (sparse-note,
+>   0.2.0) and 12 h 26 min (the synthetic paper, a pre-release of 0.3.0, on a shared machine),
+>   including stalls.
 
 The shared Claude/Codex protocol is `audits/RUN.md` (`audits/run/codex.md` lists every difference, and
 `audits/run/spawn-and-seal.md` how children are spawned and waited for).

@@ -1038,7 +1038,7 @@ Each change only removes a hard stop, refusal or wait; no new refusal or stop.
     does not end its clause) and `DF13` (now run by `integrity.py`'s selftest, since `tests/delivery.py` no
     longer builds hand edits). New mutants `PL-L2`, `PL-L3`, `PL-L4`.
 
-## 0.3.1
+## 0.3.1 (2026-10-31)
 
 ### In short
 
